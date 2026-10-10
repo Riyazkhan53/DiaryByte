@@ -31,7 +31,15 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
+
+# editor
+.vscode/
+.idea/
+
+# logs
+*.log
 
 # typescript
 *.tsbuildinfo
