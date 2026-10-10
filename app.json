@@ -28,6 +28,13 @@
     "plugins": [
       "expo-font",
       "expo-router"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "f2b94391-1e18-42bc-a449-e3bc9fdd8059"
+      }
+    },
+    "owner": "riyaz-creations"
   }
 }
