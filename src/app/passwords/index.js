@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -11,45 +11,20 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Header from '../../components/Header';
 import { useTheme } from '../../hooks/useTheme';
+import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 
 const STORAGE_KEY = '@diarybyte_passwords';
 
 export default function PasswordsScreen() {
   const { theme } = useTheme();
-  const [items, setItems] = useState([]);
+  const { items, synced, persist } = useSyncedCollection('passwords', STORAGE_KEY);
   const [modalVisible, setModalVisible] = useState(false);
   const [site, setSite] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [revealed, setRevealed] = useState({});
-
-  const load = useCallback(async () => {
-    try {
-      const stored = await AsyncStorage.getItem(STORAGE_KEY);
-      if (stored) setItems(JSON.parse(stored));
-    } catch (error) {
-      console.error('Failed to load passwords', error);
-    }
-  }, []);
-
-  useEffect(() => {
-    const initialize = async () => {
-      await load();
-    };
-    initialize();
-  }, [load]);
-
-  const persist = async (updated) => {
-    setItems(updated);
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch (error) {
-      console.error('Failed to save passwords', error);
-    }
-  };
 
   const addItem = () => {
     if (!site.trim() || !password.trim()) return;
@@ -85,6 +60,22 @@ export default function PasswordsScreen() {
       <Header title="Saved Passwords" subtitle="Your credentials, privately stored" />
 
       <View style={styles.content}>
+        <View style={styles.syncRow}>
+          <Ionicons
+            name={synced ? 'cloud-done-outline' : 'cloud-offline-outline'}
+            size={13}
+            color={synced ? theme.primaryDark : theme.textMuted}
+          />
+          <Text
+            style={[
+              styles.syncText,
+              { color: synced ? theme.primaryDark : theme.textMuted },
+            ]}
+          >
+            {synced ? 'Synced to cloud' : 'Offline — saved on this device'}
+          </Text>
+        </View>
+
         <FlatList
           data={items}
           keyExtractor={(item) => item.id}
@@ -211,6 +202,8 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
   list: { paddingBottom: 90 },
+  syncRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  syncText: { fontSize: 11, marginLeft: 5, fontWeight: '600' },
   empty: { alignItems: 'center', marginTop: 80 },
   emptyText: { marginTop: 12, fontSize: 14, textAlign: 'center', paddingHorizontal: 40 },
   card: {

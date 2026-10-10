@@ -1,6 +1,8 @@
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 const API_KEY = process.env.EXPO_PUBLIC_API_KEY || '';
 
+const COLLECTIONS = ['movies', 'passwords', 'banking', 'diary'];
+
 async function request(path, options = {}) {
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
@@ -15,13 +17,19 @@ async function request(path, options = {}) {
   return response.json();
 }
 
-export function fetchMovies() {
-  return request('/api/movies').then((data) => data.movies || []);
+export function fetchCollection(collection) {
+  if (!COLLECTIONS.includes(collection)) {
+    throw new Error(`Unknown collection: ${collection}`);
+  }
+  return request(`/api/${collection}`).then((data) => data.items || []);
 }
 
-export function pushMovies(movies) {
-  return request('/api/movies', {
+export function pushCollection(collection, items) {
+  if (!COLLECTIONS.includes(collection)) {
+    throw new Error(`Unknown collection: ${collection}`);
+  }
+  return request(`/api/${collection}`, {
     method: 'PUT',
-    body: JSON.stringify({ movies }),
+    body: JSON.stringify({ items }),
   });
 }

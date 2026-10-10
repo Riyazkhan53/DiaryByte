@@ -1,29 +1,5 @@
 const mongoose = require('mongoose');
-const Movie = require('./models/Movie');
-
-const MOVIE_FIELDS = [
-  'id',
-  'title',
-  'platform',
-  'type',
-  'status',
-  'addedAt',
-  'tmdbId',
-  'mediaType',
-  'posterPath',
-  'rating',
-  'releaseDate',
-];
-
-function sanitizeMovie(raw) {
-  const clean = {};
-  MOVIE_FIELDS.forEach((field) => {
-    if (raw[field] !== undefined) {
-      clean[field] = raw[field];
-    }
-  });
-  return clean;
-}
+const { getCollectionNames, getModel, sanitize } = require('./models');
 
 async function connectDatabase() {
   let uri = process.env.MONGODB_URI;
@@ -36,8 +12,11 @@ async function connectDatabase() {
     uri = memServer.getUri('diarybyte');
     console.log('[db] Using in-memory MongoDB (development only)');
   }
-  await mongoose.connect(uri);
-  console.log('[db] Connected to MongoDB');
+  // Force a meaningful database name regardless of what the URI ends with
+  // (Atlas defaults to "test" when no database is in the connection string).
+  const dbName = process.env.MONGODB_DB || 'diarybyte';
+  await mongoose.connect(uri, { dbName });
+  console.log(`[db] Connected to MongoDB (db: ${dbName})`);
 }
 
 function createApp() {
@@ -46,7 +25,7 @@ function createApp() {
   const app = express();
 
   app.use(cors());
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '5mb' }));
 
   // Simple shared-secret auth for this personal app
   const apiKey = process.env.API_KEY;
@@ -65,32 +44,53 @@ function createApp() {
     res.json({ ok: true, db: mongoose.connection.readyState === 1 ? 'up' : 'down' });
   });
 
-  app.get('/api/movies', async (req, res) => {
+  app.get('/api/:collection', async (req, res) => {
+    const { collection } = req.params;
+    if (!getCollectionNames().includes(collection)) {
+      return res.status(404).json({ error: 'Unknown collection' });
+    }
     try {
-      const movies = await Movie.find().sort({ addedAt: -1 }).lean();
-      res.json({ movies });
+      const Model = getModel(collection);
+      const docs = await Model.find().sort({ _id: -1 }).lean();
+      const items = docs.map((doc) => {
+        const item = {};
+        Object.keys(doc).forEach((key) => {
+          if (key !== '_id' && key !== '__v') {
+            item[key] = doc[key];
+          }
+        });
+        return item;
+      });
+      res.json({ items });
     } catch (error) {
-      console.error('[api] GET /api/movies failed', error);
-      res.status(500).json({ error: 'Failed to load movies' });
+      console.error(`[api] GET /api/${collection} failed`, error);
+      res.status(500).json({ error: `Failed to load ${collection}` });
     }
   });
 
-  // Replace the entire watch list — keeps sync simple and idempotent
-  app.put('/api/movies', async (req, res) => {
+  // Replace an entire collection — keeps sync simple and idempotent
+  app.put('/api/:collection', async (req, res) => {
+    const { collection } = req.params;
+    if (!getCollectionNames().includes(collection)) {
+      return res.status(404).json({ error: 'Unknown collection' });
+    }
     try {
-      const incoming = Array.isArray(req.body && req.body.movies) ? req.body.movies : null;
+      const incoming = Array.isArray(req.body && req.body.items) ? req.body.items : null;
       if (!incoming) {
-        return res.status(400).json({ error: 'Body must be { movies: [...] }' });
+        return res.status(400).json({ error: 'Body must be { items: [...] }' });
       }
-      const cleaned = incoming.map(sanitizeMovie).filter((m) => m.id && m.title);
-      await Movie.deleteMany({});
+      const cleaned = incoming
+        .map((item) => sanitize(collection, item))
+        .filter((item) => item.id);
+      const Model = getModel(collection);
+      await Model.deleteMany({});
       if (cleaned.length > 0) {
-        await Movie.insertMany(cleaned, { ordered: false });
+        await Model.insertMany(cleaned, { ordered: false });
       }
       res.json({ ok: true, count: cleaned.length });
     } catch (error) {
-      console.error('[api] PUT /api/movies failed', error);
-      res.status(500).json({ error: 'Failed to save movies' });
+      console.error(`[api] PUT /api/${collection} failed`, error);
+      res.status(500).json({ error: `Failed to save ${collection}` });
     }
   });
 
