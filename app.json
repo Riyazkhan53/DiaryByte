@@ -9,9 +9,11 @@
     "userInterfaceStyle": "automatic",
     "scheme": "diarybyte",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.riyazkhan53.diarybyte"
     },
     "android": {
+      "package": "com.riyazkhan53.diarybyte",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
