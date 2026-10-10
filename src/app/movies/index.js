@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Header from '../../components/Header';
 import { useTheme } from '../../hooks/useTheme';
+import { fetchMovies, pushMovies } from '../../services/api';
 import {
   TMDB_KEY_STORAGE,
   fetchProviders,
@@ -27,6 +28,7 @@ import {
 } from '../../services/tmdb';
 
 const STORAGE_KEY = '@diarybyte_movies';
+const PENDING_SYNC_KEY = '@diarybyte_movies_pending';
 
 const STATUSES = [
   { key: 'watchlist', label: 'Watchlist', icon: 'time-outline', color: '#81D4FA' },
@@ -80,6 +82,7 @@ export default function MoviesScreen() {
   const { theme } = useTheme();
   const { width } = useWindowDimensions();
   const [movies, setMovies] = useState([]);
+  const [synced, setSynced] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [title, setTitle] = useState('');
   const [platform, setPlatform] = useState('');
@@ -106,10 +109,30 @@ export default function MoviesScreen() {
 
   const loadMovies = useCallback(async () => {
     try {
-      const stored = await AsyncStorage.getItem(STORAGE_KEY);
-      if (stored) setMovies(JSON.parse(stored));
-    } catch (error) {
-      console.error('Failed to load movies', error);
+      const pending = await AsyncStorage.getItem(PENDING_SYNC_KEY);
+      if (pending === '1') {
+        // Local has changes the server never received — push them up
+        const stored = await AsyncStorage.getItem(STORAGE_KEY);
+        const local = stored ? JSON.parse(stored) : [];
+        setMovies(local);
+        await pushMovies(local);
+        await AsyncStorage.removeItem(PENDING_SYNC_KEY);
+        setSynced(true);
+        return;
+      }
+      const remote = await fetchMovies();
+      setMovies(remote);
+      setSynced(true);
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
+    } catch (_error) {
+      // Cloud unreachable — fall back to the local cache
+      setSynced(false);
+      try {
+        const stored = await AsyncStorage.getItem(STORAGE_KEY);
+        if (stored) setMovies(JSON.parse(stored));
+      } catch (cacheError) {
+        console.error('Failed to load movies', cacheError);
+      }
     }
   }, []);
 
@@ -180,6 +203,21 @@ export default function MoviesScreen() {
     } catch (error) {
       console.error('Failed to save movies', error);
     }
+    // Fire-and-forget cloud sync; queue as pending if it fails
+    pushMovies(updated)
+      .then(async () => {
+        setSynced(true);
+        await AsyncStorage.removeItem(PENDING_SYNC_KEY);
+      })
+      .catch(async (error) => {
+        console.error('Failed to sync movies', error);
+        setSynced(false);
+        try {
+          await AsyncStorage.setItem(PENDING_SYNC_KEY, '1');
+        } catch (queueError) {
+          console.error('Failed to mark pending sync', queueError);
+        }
+      });
   };
 
   const addMovie = () => {
@@ -452,6 +490,22 @@ export default function MoviesScreen() {
 
         {tab === 'mylist' ? (
           <>
+            <View style={styles.syncRow}>
+              <Ionicons
+                name={synced ? 'cloud-done-outline' : 'cloud-offline-outline'}
+                size={13}
+                color={synced ? theme.primaryDark : theme.textMuted}
+              />
+              <Text
+                style={[
+                  styles.syncText,
+                  { color: synced ? theme.primaryDark : theme.textMuted },
+                ]}
+              >
+                {synced ? 'Synced to cloud' : 'Offline — saved on this device'}
+              </Text>
+            </View>
+
             <View style={styles.filters}>
               <TouchableOpacity
                 style={[
@@ -813,6 +867,12 @@ const styles = StyleSheet.create({
   },
   tabBtnText: { fontSize: 14, fontWeight: '600' },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
+  syncRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  syncText: { fontSize: 11, marginLeft: 5, fontWeight: '600' },
   chip: {
     paddingVertical: 7,
     paddingHorizontal: 14,

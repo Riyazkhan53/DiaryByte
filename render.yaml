@@ -1,4 +1,21 @@
 services:
+  # --- API server (Express + MongoDB) ---
+  - type: web
+    name: diarybyte-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: node index.js
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: MONGODB_URI
+        sync: false # set in Render dashboard (MongoDB Atlas connection string)
+      - key: API_KEY
+        generateValue: true # shared secret the app sends as x-api-key
+    healthCheckPath: /api/health
+
+  # --- Static web app ---
   - type: web
     name: diarybyte
     runtime: static
@@ -7,6 +24,10 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+      - key: EXPO_PUBLIC_API_URL
+        sync: false # set to https://diarybyte-api.onrender.com after deploy
+      - key: EXPO_PUBLIC_API_KEY
+        sync: false # same value as diarybyte-api's API_KEY
     routes:
       # SPA fallback — serve index.html for all routes so Expo Router
       # paths like /diary or /movies don't 404 on refresh or direct visit
