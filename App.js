@@ -106,7 +106,7 @@ export default function App() {
           style={styles.deleteButton}
           activeOpacity={0.7}
         >
-          <Ionicons name="trash-outline" size={20} color="#FF6B6B" />
+          <Ionicons name="trash-outline" size={20} color="#EF9A9A" />
         </TouchableOpacity>
       </View>
       <Text style={styles.entryContent}>{item.content}</Text>
@@ -115,9 +115,9 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
       <LinearGradient
-        colors={['#4A90D9', '#7B68EE']}
+        colors={['#C8E6C9', '#B3E5FC', '#E1BEE7']}
         style={styles.header}
       >
         <Text style={styles.headerTitle}>DiaryByte</Text>
@@ -218,7 +218,7 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: '#F0F4F8',
   },
   header: {
     paddingTop: Platform.OS === 'android' ? 40 : 20,
@@ -230,11 +230,11 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 32,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: '#2C3E50',
   },
   headerSubtitle: {
     fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.85)',
+    color: 'rgba(44, 62, 80, 0.75)',
     marginTop: 4,
   },
   content: {
@@ -257,12 +257,12 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#666',
+    color: '#5D6D7E',
     marginTop: 16,
   },
   emptyText: {
     fontSize: 14,
-    color: '#999',
+    color: '#90A4AE',
     marginTop: 8,
     textAlign: 'center',
     paddingHorizontal: 40,
@@ -272,7 +272,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     marginBottom: 12,
-    shadowColor: '#000',
+    borderWidth: 1,
+    borderColor: '#E1BEE7',
+    shadowColor: '#7B68EE',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
     shadowRadius: 4,
@@ -287,19 +289,19 @@ const styles = StyleSheet.create({
   entryTitle: {
     fontSize: 17,
     fontWeight: '600',
-    color: '#333',
+    color: '#2C3E50',
     marginBottom: 4,
   },
   entryDate: {
     fontSize: 12,
-    color: '#888',
+    color: '#78909C',
   },
   deleteButton: {
     padding: 6,
   },
   entryContent: {
     fontSize: 15,
-    color: '#555',
+    color: '#455A64',
     lineHeight: 22,
   },
   formContainer: {
@@ -309,7 +311,7 @@ const styles = StyleSheet.create({
   formLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#666',
+    color: '#5D6D7E',
     marginBottom: 8,
     marginTop: 8,
   },
@@ -318,18 +320,18 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 14,
     fontSize: 16,
-    color: '#333',
+    color: '#2C3E50',
     borderWidth: 1,
-    borderColor: '#E9ECEF',
+    borderColor: '#CFD8DC',
   },
   contentInput: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 14,
     fontSize: 16,
-    color: '#333',
+    color: '#2C3E50',
     borderWidth: 1,
-    borderColor: '#E9ECEF',
+    borderColor: '#CFD8DC',
     minHeight: 200,
     maxHeight: 360,
   },
@@ -343,28 +345,28 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 14,
     borderRadius: 12,
-    backgroundColor: '#E9ECEF',
+    backgroundColor: '#ECEFF1',
     alignItems: 'center',
   },
   cancelButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#666',
+    color: '#546E7A',
   },
   saveButton: {
     flex: 2,
     paddingVertical: 14,
     borderRadius: 12,
-    backgroundColor: '#4A90D9',
+    backgroundColor: '#A5D6A7',
     alignItems: 'center',
   },
   saveButtonDisabled: {
-    backgroundColor: '#A0C4E8',
+    backgroundColor: '#C8E6C9',
   },
   saveButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: '#2C3E50',
   },
   fab: {
     position: 'absolute',
@@ -373,10 +375,10 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: '#7B68EE',
+    backgroundColor: '#B39DDB',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#7B68EE',
+    shadowColor: '#B39DDB',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 8,
