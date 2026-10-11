@@ -27,7 +27,16 @@
     },
     "plugins": [
       "expo-font",
-      "expo-router"
+      "expo-router",
+      "expo-mlkit-ocr",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow DiaryByte to access your camera so you can scan cards.",
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": false
+        }
+      ]
     ],
     "extra": {
       "router": {},

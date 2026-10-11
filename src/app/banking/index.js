@@ -10,12 +10,14 @@ import {
   Modal,
   Alert,
   ScrollView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
 import Header from '../../components/Header';
 import SyncRow from '../../components/SyncRow';
+import CardScanner from '../../components/CardScanner';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 
@@ -101,6 +103,7 @@ export default function BankingScreen() {
   const [cardModalVisible, setCardModalVisible] = useState(false);
   const [scanMode, setScanMode] = useState(true);
   const [scanInput, setScanInput] = useState('');
+  const [scannerVisible, setScannerVisible] = useState(false);
   const [cardName, setCardName] = useState('');
   const [cardNumber, setCardNumber] = useState('');
   const [expiry, setExpiry] = useState('');
@@ -177,6 +180,15 @@ export default function BankingScreen() {
     const digits = scanInput.replace(/\D/g, '');
     if (digits.length < 12) return;
     setCardNumber(formatCardNumber(digits));
+    setScanMode(false);
+  };
+
+  // Camera scan result: jump straight to the form with number + expiry prefilled.
+  const handleCardDetected = ({ number, expiry: detectedExpiry }) => {
+    setScannerVisible(false);
+    setCardModalVisible(true);
+    setCardNumber(formatCardNumber(number));
+    if (detectedExpiry) setExpiry(detectedExpiry);
     setScanMode(false);
   };
 
@@ -535,6 +547,16 @@ export default function BankingScreen() {
 
               {scanMode ? (
                 <View>
+                  {Platform.OS !== 'web' ? (
+                    <TouchableOpacity
+                      style={[styles.cameraScanBtn, { backgroundColor: theme.secondary }]}
+                      onPress={() => setScannerVisible(true)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="camera-outline" size={22} color="#FFF" />
+                      <Text style={styles.cameraScanText}>Scan with camera</Text>
+                    </TouchableOpacity>
+                  ) : null}
                   <View style={styles.scanHeader}>
                     <Ionicons name="scan-outline" size={40} color={theme.secondary} />
                     <Text style={[styles.scanTitle, { color: theme.text }]}>Scan Card</Text>
@@ -702,6 +724,12 @@ export default function BankingScreen() {
           </View>
         </View>
       </Modal>
+
+      <CardScanner
+        visible={scannerVisible}
+        onClose={() => setScannerVisible(false)}
+        onDetected={handleCardDetected}
+      />
     </SafeAreaView>
   );
 }
@@ -856,6 +884,20 @@ const styles = StyleSheet.create({
   saveText: { fontSize: 15, fontWeight: '600' },
 
   // ------- scan / card form -------
+  cameraScanBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+    marginBottom: 18,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  cameraScanText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
   scanHeader: { alignItems: 'center', marginBottom: 16 },
   scanCount: { fontSize: 12, textAlign: 'center', marginBottom: 12, marginTop: -4 },
   btnDisabled: { opacity: 0.4 },
