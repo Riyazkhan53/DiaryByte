@@ -10,6 +10,7 @@ import {
   Modal,
   Alert,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import { useTheme } from '../../hooks/useTheme';
@@ -25,20 +26,61 @@ export default function PasswordsScreen() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [revealed, setRevealed] = useState({});
+  const [editingId, setEditingId] = useState(null);
+  const [copied, setCopied] = useState(null);
 
-  const addItem = () => {
-    if (!site.trim() || !password.trim()) return;
-    const entry = {
-      id: Date.now().toString(),
-      site: site.trim(),
-      username: username.trim(),
-      password: password.trim(),
-      createdAt: new Date().toISOString(),
-    };
-    persist([entry, ...items]);
+  const openAdd = () => {
+    setEditingId(null);
     setSite('');
     setUsername('');
     setPassword('');
+    setModalVisible(true);
+  };
+
+  const openEdit = (item) => {
+    setEditingId(item.id);
+    setSite(item.site);
+    setUsername(item.username || '');
+    setPassword(item.password);
+    setModalVisible(true);
+  };
+
+  const copyField = async (item, field, value) => {
+    if (!value) return;
+    await Clipboard.setStringAsync(value);
+    setCopied({ id: item.id, field });
+    setTimeout(() => setCopied(null), 1500);
+  };
+
+  const saveItem = () => {
+    if (!site.trim() || !password.trim()) return;
+    if (editingId) {
+      persist(
+        items.map((i) =>
+          i.id === editingId
+            ? {
+                ...i,
+                site: site.trim(),
+                username: username.trim(),
+                password: password.trim(),
+              }
+            : i
+        )
+      );
+    } else {
+      const entry = {
+        id: Date.now().toString(),
+        site: site.trim(),
+        username: username.trim(),
+        password: password.trim(),
+        createdAt: new Date().toISOString(),
+      };
+      persist([entry, ...items]);
+    }
+    setSite('');
+    setUsername('');
+    setPassword('');
+    setEditingId(null);
     setModalVisible(false);
   };
 
@@ -107,7 +149,10 @@ export default function PasswordsScreen() {
                 <Text style={[styles.site, { color: theme.text }]} numberOfLines={1}>
                   {item.site}
                 </Text>
-                <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteItem(item.id)}>
+                <TouchableOpacity style={styles.iconBtn} onPress={() => openEdit(item)}>
+                  <Ionicons name="create-outline" size={20} color={theme.primaryDark} />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.iconBtn} onPress={() => deleteItem(item.id)}>
                   <Ionicons name="trash-outline" size={20} color={theme.danger} />
                 </TouchableOpacity>
               </View>
@@ -117,14 +162,39 @@ export default function PasswordsScreen() {
                 <Text style={[styles.fieldValue, { color: theme.textSecondary }]} numberOfLines={1}>
                   {item.username || '—'}
                 </Text>
+                {copied && copied.id === item.id && copied.field === 'username' ? (
+                  <Text style={[styles.copiedText, { color: theme.primaryDark }]}>Copied!</Text>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.iconBtn}
+                    onPress={() => copyField(item, 'username', item.username)}
+                    disabled={!item.username}
+                  >
+                    <Ionicons
+                      name="copy-outline"
+                      size={18}
+                      color={item.username ? theme.textSecondary : theme.borderNeutral}
+                    />
+                  </TouchableOpacity>
+                )}
               </View>
               <View style={styles.fieldRow}>
                 <Ionicons name="lock-closed-outline" size={16} color={theme.textMuted} />
                 <Text style={[styles.fieldValue, { color: theme.textSecondary }]}>
                   {revealed[item.id] ? item.password : maskPassword(item.password)}
                 </Text>
+                {copied && copied.id === item.id && copied.field === 'password' ? (
+                  <Text style={[styles.copiedText, { color: theme.primaryDark }]}>Copied!</Text>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.iconBtn}
+                    onPress={() => copyField(item, 'password', item.password)}
+                  >
+                    <Ionicons name="copy-outline" size={18} color={theme.textSecondary} />
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity
-                  style={styles.eyeBtn}
+                  style={styles.iconBtn}
                   onPress={() =>
                     setRevealed((prev) => ({ ...prev, [item.id]: !prev[item.id] }))
                   }
@@ -143,7 +213,7 @@ export default function PasswordsScreen() {
 
       <TouchableOpacity
         style={[styles.fab, { backgroundColor: theme.secondary, shadowColor: theme.secondary }]}
-        onPress={() => setModalVisible(true)}
+        onPress={openAdd}
         activeOpacity={0.8}
       >
         <Ionicons name="add" size={32} color="#FFF" />
@@ -152,7 +222,9 @@ export default function PasswordsScreen() {
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modal, { backgroundColor: theme.surface }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Add Password</Text>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>
+              {editingId ? 'Edit Password' : 'Add Password'}
+            </Text>
             <TextInput
               style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
               placeholder="Site / App name"
@@ -185,10 +257,12 @@ export default function PasswordsScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.saveBtn, { backgroundColor: theme.primary }]}
-                onPress={addItem}
+                onPress={saveItem}
                 disabled={!site.trim() || !password.trim()}
               >
-                <Text style={[styles.saveText, { color: theme.text }]}>Save</Text>
+                <Text style={[styles.saveText, { color: theme.text }]}>
+                  {editingId ? 'Update' : 'Save'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -226,10 +300,10 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   site: { flex: 1, fontSize: 16, fontWeight: '700' },
-  deleteBtn: { padding: 6 },
+  iconBtn: { padding: 6 },
   fieldRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 8 },
   fieldValue: { flex: 1, fontSize: 14 },
-  eyeBtn: { padding: 4 },
+  copiedText: { fontSize: 11, fontWeight: '700' },
   fab: {
     position: 'absolute',
     right: 20,
