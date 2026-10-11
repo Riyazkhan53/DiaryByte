@@ -510,7 +510,7 @@ export default function BankingScreen() {
                   <Text style={[styles.cancelText, { color: theme.textSecondary }]}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+                  style={[styles.saveBtn, { backgroundColor: theme.primary }, (!bankName.trim() || !accountNumber.trim()) && styles.btnDisabled]}
                   onPress={addItem}
                   disabled={!bankName.trim() || !accountNumber.trim()}
                 >
@@ -563,7 +563,13 @@ export default function BankingScreen() {
                         {scanBrand} detected
                       </Text>
                     </View>
-                  ) : null}
+                  ) : (
+                    <Text style={[styles.scanCount, { color: theme.textMuted }]}>
+                      {scanInput.length === 0
+                        ? 'Enter at least 12 digits to continue'
+                        : `${scanInput.length} digits · ${Math.max(12 - scanInput.length, 0)} more needed`}
+                    </Text>
+                  )}
                   <View style={styles.modalActions}>
                     <TouchableOpacity
                       style={[styles.cancelBtn, { backgroundColor: theme.surfaceAlt }]}
@@ -574,9 +580,13 @@ export default function BankingScreen() {
                       </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+                      style={[
+                        styles.saveBtn,
+                        { backgroundColor: theme.primary },
+                        scanInput.length < 12 && styles.btnDisabled,
+                      ]}
                       onPress={applyScan}
-                      disabled={scanInput.replace(/\D/g, '').length < 12}
+                      disabled={scanInput.length < 12}
                     >
                       <Text style={[styles.saveText, { color: theme.text }]}>Continue</Text>
                     </TouchableOpacity>
@@ -675,7 +685,11 @@ export default function BankingScreen() {
                       <Text style={[styles.cancelText, { color: theme.textSecondary }]}>Cancel</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+                      style={[
+                        styles.saveBtn,
+                        { backgroundColor: theme.primary },
+                        (!cardName.trim() || cardDigits.length < 12 || !expiry.trim() || !cvv.trim()) && styles.btnDisabled,
+                      ]}
                       onPress={addCard}
                       disabled={!cardName.trim() || cardDigits.length < 12 || !expiry.trim() || !cvv.trim()}
                     >
@@ -843,6 +857,8 @@ const styles = StyleSheet.create({
 
   // ------- scan / card form -------
   scanHeader: { alignItems: 'center', marginBottom: 16 },
+  scanCount: { fontSize: 12, textAlign: 'center', marginBottom: 12, marginTop: -4 },
+  btnDisabled: { opacity: 0.4 },
   scanTitle: { fontSize: 18, fontWeight: '700', marginTop: 8 },
   scanHint: { fontSize: 13, textAlign: 'center', marginTop: 6, lineHeight: 19 },
   scanInput: { fontSize: 18, letterSpacing: 1, textAlign: 'center' },
