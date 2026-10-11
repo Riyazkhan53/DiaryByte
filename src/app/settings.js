@@ -9,19 +9,59 @@ import {
   Alert,
   Switch,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Header from '../components/Header';
 import { useTheme } from '../hooks/useTheme';
+import { pullAllFromServer } from '../services/sync';
 
 export default function SettingsScreen() {
   const { theme, isDark, toggleTheme, userName, updateUserName } = useTheme();
   const [nameDraft, setNameDraft] = useState(userName);
+  const [syncing, setSyncing] = useState(false);
 
   const saveName = () => {
     const trimmed = nameDraft.trim();
     if (trimmed) updateUserName(trimmed);
+  };
+
+  const syncFromServer = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      const results = await pullAllFromServer();
+      const okCount = results.filter((r) => r.ok).length;
+      const failed = results.filter((r) => !r.ok);
+      const totalItems = results
+        .filter((r) => r.ok)
+        .reduce((sum, r) => sum + r.count, 0);
+
+      if (failed.length === 0) {
+        Alert.alert(
+          'Sync Complete',
+          `Pulled the latest data from the server (${totalItems} items across ${okCount} sections). Reopen a section to see the updates.`
+        );
+      } else if (okCount === 0) {
+        Alert.alert(
+          'Sync Failed',
+          'Could not reach the server. Check your internet connection and try again — your local data is safe.'
+        );
+      } else {
+        Alert.alert(
+          'Partial Sync',
+          `${okCount} of ${results.length} sections synced. Failed: ${failed
+            .map((f) => f.collection)
+            .join(', ')}.`
+        );
+      }
+    } catch (error) {
+      console.error('Sync from server failed', error);
+      Alert.alert('Sync Failed', 'Something went wrong while syncing. Your local data is safe.');
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const clearAllData = () => {
@@ -134,9 +174,27 @@ export default function SettingsScreen() {
           <View style={styles.settingRow}>
             <Ionicons name="server-outline" size={22} color={theme.accent} />
             <Text style={[styles.settingLabel, { color: theme.text }]}>
-              All data is stored locally on this device
+              Data lives on this device and pushes to your server in real time
             </Text>
           </View>
+          <TouchableOpacity
+            style={[styles.syncBtn, { backgroundColor: theme.primary }]}
+            onPress={syncFromServer}
+            disabled={syncing}
+            activeOpacity={0.8}
+          >
+            {syncing ? (
+              <ActivityIndicator size="small" color={theme.text} />
+            ) : (
+              <Ionicons name="cloud-download-outline" size={20} color={theme.text} />
+            )}
+            <Text style={[styles.syncBtnText, { color: theme.text }]}>
+              {syncing ? 'Syncing...' : 'Sync from Server'}
+            </Text>
+          </TouchableOpacity>
+          <Text style={[styles.hint, { color: theme.textMuted }]}>
+            Pulls the latest data for every section and overwrites local copies.
+          </Text>
           <TouchableOpacity style={styles.dangerRow} onPress={clearAllData} activeOpacity={0.7}>
             <Ionicons name="trash-outline" size={22} color={theme.danger} />
             <Text style={[styles.dangerText, { color: theme.danger }]}>Reset All Data</Text>
@@ -190,6 +248,17 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   settingLabel: { flex: 1, fontSize: 15 },
+  syncBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  syncBtnText: { fontSize: 15, fontWeight: '600' },
   dangerRow: {
     flexDirection: 'row',
     alignItems: 'center',

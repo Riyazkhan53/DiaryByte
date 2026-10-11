@@ -1,80 +1,40 @@
 import { useState, useEffect, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { fetchCollection, pushCollection } from '../services/api';
+import { loadLocalWithRetry, saveAndPush } from '../services/sync';
 
 /**
- * Cloud-backed collection with offline AsyncStorage fallback.
- * Pulls from the API on mount (or pushes queued local changes),
- * and pushes the full list to the API on every persist.
+ * Local-first synced collection.
+ * - Loads instantly from the local store (IndexedDB on web, SQLite on native)
+ * - Every persist writes locally AND pushes to the server in real time
+ * - Failed pushes are queued and retried on next load/save
+ * - The server is pulled only via Settings → "Sync from Server"
  */
 export function useSyncedCollection(collection, storageKey) {
   const [items, setItems] = useState([]);
+  const [loaded, setLoaded] = useState(false);
   const [synced, setSynced] = useState(false);
 
-  const pendingKey = `${storageKey}_pending`;
-
-  const load = useCallback(async () => {
-    try {
-      const pending = await AsyncStorage.getItem(pendingKey);
-      if (pending === '1') {
-        // Local has changes the server never received — push them up
-        const stored = await AsyncStorage.getItem(storageKey);
-        const local = stored ? JSON.parse(stored) : [];
-        setItems(local);
-        await pushCollection(collection, local);
-        await AsyncStorage.removeItem(pendingKey);
-        setSynced(true);
-        return;
-      }
-      const remote = await fetchCollection(collection);
-      setItems(remote);
-      setSynced(true);
-      await AsyncStorage.setItem(storageKey, JSON.stringify(remote));
-    } catch (_error) {
-      // Cloud unreachable — fall back to the local cache
-      setSynced(false);
-      try {
-        const stored = await AsyncStorage.getItem(storageKey);
-        if (stored) setItems(JSON.parse(stored));
-      } catch (cacheError) {
-        console.error(`Failed to load ${collection}`, cacheError);
-      }
-    }
-  }, [collection, storageKey, pendingKey]);
-
   useEffect(() => {
-    const initialize = async () => {
-      await load();
+    let cancelled = false;
+    loadLocalWithRetry(collection, storageKey).then((local) => {
+      if (!cancelled) {
+        setItems(local);
+        setLoaded(true);
+      }
+    });
+    return () => {
+      cancelled = true;
     };
-    initialize();
-  }, [load]);
+  }, [collection, storageKey]);
 
   const persist = useCallback(
-    async (updated) => {
+    (updated) => {
       setItems(updated);
-      try {
-        await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
-      } catch (error) {
-        console.error(`Failed to save ${collection}`, error);
-      }
-      // Fire-and-forget cloud sync; queue as pending if it fails
-      pushCollection(collection, updated)
-        .then(async () => {
-          setSynced(true);
-          await AsyncStorage.removeItem(pendingKey);
-        })
-        .catch(async (error) => {
-          console.error(`Failed to sync ${collection}`, error);
-          setSynced(false);
-          try {
-            await AsyncStorage.setItem(pendingKey, '1');
-          } catch (queueError) {
-            console.error('Failed to mark pending sync', queueError);
-          }
-        });
+      saveAndPush(collection, storageKey, updated).then(({ pushed }) => {
+        setSynced(pushed);
+      });
     },
-    [collection, storageKey, pendingKey]
+    [collection, storageKey]
   );
 
-  return { items, synced, load, persist };
+  return { items, loaded, synced, persist };
 }

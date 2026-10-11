@@ -62,7 +62,7 @@ export default function PasswordsScreen() {
       <View style={styles.content}>
         <View style={styles.syncRow}>
           <Ionicons
-            name={synced ? 'cloud-done-outline' : 'cloud-offline-outline'}
+            name={synced ? 'cloud-done-outline' : 'phone-portrait-outline'}
             size={13}
             color={synced ? theme.primaryDark : theme.textMuted}
           />
@@ -72,7 +72,7 @@ export default function PasswordsScreen() {
               { color: synced ? theme.primaryDark : theme.textMuted },
             ]}
           >
-            {synced ? 'Synced to cloud' : 'Offline — saved on this device'}
+            {synced ? 'Saved locally · synced to server' : 'Saved on this device'}
           </Text>
         </View>
 

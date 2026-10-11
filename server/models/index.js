@@ -35,6 +35,9 @@ const COLLECTIONS = {
   diary: {
     fields: ['id', 'title', 'content', 'mood', 'date', 'createdAt'],
   },
+  vault: {
+    fields: ['id', 'title', 'content', 'createdAt'],
+  },
 };
 
 const modelCache = {};

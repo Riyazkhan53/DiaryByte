@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -11,44 +11,19 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Header from '../../components/Header';
 import { useTheme } from '../../hooks/useTheme';
+import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 
 const STORAGE_KEY = '@diarybyte_vault';
 
 export default function VaultScreen() {
   const { theme } = useTheme();
-  const [items, setItems] = useState([]);
+  const { items, synced, persist } = useSyncedCollection('vault', STORAGE_KEY);
   const [modalVisible, setModalVisible] = useState(false);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [revealed, setRevealed] = useState({});
-
-  const load = useCallback(async () => {
-    try {
-      const stored = await AsyncStorage.getItem(STORAGE_KEY);
-      if (stored) setItems(JSON.parse(stored));
-    } catch (error) {
-      console.error('Failed to load vault', error);
-    }
-  }, []);
-
-  useEffect(() => {
-    const initialize = async () => {
-      await load();
-    };
-    initialize();
-  }, [load]);
-
-  const persist = async (updated) => {
-    setItems(updated);
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch (error) {
-      console.error('Failed to save vault', error);
-    }
-  };
 
   const addItem = () => {
     if (!title.trim() || !content.trim()) return;
@@ -87,6 +62,22 @@ export default function VaultScreen() {
       <Header title="Personal Vault" subtitle="Keep your secrets safe" />
 
       <View style={styles.content}>
+        <View style={styles.syncRow}>
+          <Ionicons
+            name={synced ? 'cloud-done-outline' : 'phone-portrait-outline'}
+            size={13}
+            color={synced ? theme.primaryDark : theme.textMuted}
+          />
+          <Text
+            style={[
+              styles.syncText,
+              { color: synced ? theme.primaryDark : theme.textMuted },
+            ]}
+          >
+            {synced ? 'Saved locally · synced to server' : 'Saved on this device'}
+          </Text>
+        </View>
+
         <FlatList
           data={items}
           keyExtractor={(item) => item.id}
@@ -207,6 +198,8 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
   list: { paddingBottom: 90 },
+  syncRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  syncText: { fontSize: 11, marginLeft: 5, fontWeight: '600' },
   empty: { alignItems: 'center', marginTop: 80 },
   emptyText: { marginTop: 12, fontSize: 14, textAlign: 'center', paddingHorizontal: 40 },
   card: {
