@@ -10,6 +10,9 @@ export const SYNCED_COLLECTIONS = [
   { collection: 'banking', storageKey: '@diarybyte_banking' },
   { collection: 'diary', storageKey: '@diarybyte_entries' },
   { collection: 'vault', storageKey: '@diarybyte_vault' },
+  { collection: 'todo', storageKey: '@diarybyte_todo' },
+  { collection: 'expenditure', storageKey: '@diarybyte_expenditure' },
+  { collection: 'cards', storageKey: '@diarybyte_cards' },
 ];
 
 const pendingKey = (storageKey) => `${storageKey}_pending`;

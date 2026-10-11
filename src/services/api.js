@@ -1,7 +1,16 @@
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 const API_KEY = process.env.EXPO_PUBLIC_API_KEY || '';
 
-const COLLECTIONS = ['movies', 'passwords', 'banking', 'diary', 'vault'];
+const COLLECTIONS = [
+  'movies',
+  'passwords',
+  'banking',
+  'diary',
+  'vault',
+  'todo',
+  'expenditure',
+  'cards',
+];
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_URL}${path}`, {

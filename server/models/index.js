@@ -38,6 +38,15 @@ const COLLECTIONS = {
   vault: {
     fields: ['id', 'title', 'content', 'createdAt'],
   },
+  todo: {
+    fields: ['id', 'title', 'note', 'done', 'createdAt', 'completedAt'],
+  },
+  expenditure: {
+    fields: ['id', 'title', 'amount', 'category', 'date', 'createdAt'],
+  },
+  cards: {
+    fields: ['id', 'name', 'number', 'expiry', 'cvv', 'cardType', 'bankName', 'brand', 'createdAt'],
+  },
 };
 
 const modelCache = {};

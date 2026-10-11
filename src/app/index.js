@@ -47,6 +47,22 @@ const TABS = [
     gradient: ['#D1C4E9', '#B39DDB'],
   },
   {
+    key: 'todo',
+    label: 'To-Do List',
+    description: 'Tasks to keep your day on track',
+    icon: 'checkbox-outline',
+    route: '/todo',
+    gradient: ['#C8E6C9', '#A5D6A7'],
+  },
+  {
+    key: 'expenditure',
+    label: 'My Expenditure',
+    description: 'Track where your money goes',
+    icon: 'wallet-outline',
+    route: '/expenditure',
+    gradient: ['#FFE0B2', '#FFCC80'],
+  },
+  {
     key: 'settings',
     label: 'Settings',
     description: 'Personalize your experience',
