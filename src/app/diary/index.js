@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   SafeAreaView,
   RefreshControl,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -14,13 +16,29 @@ import Header from '../../components/Header';
 import SearchBar from '../../components/SearchBar';
 import EntryCard from '../../components/EntryCard';
 import { useTheme } from '../../hooks/useTheme';
-import { loadEntries } from '../../utils/storage';
+import { loadEntries, pullEntries } from '../../utils/storage';
 
 export default function HomeScreen() {
   const { theme } = useTheme();
   const [entries, setEntries] = useState([]);
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [pulling, setPulling] = useState(false);
+  const [pullInfo, setPullInfo] = useState(null);
+
+  const pullFromServerNow = useCallback(async () => {
+    setPulling(true);
+    try {
+      const remote = await pullEntries();
+      setEntries(remote);
+      setPullInfo({ count: remote.length });
+      setTimeout(() => setPullInfo(null), 2500);
+    } catch (error) {
+      Alert.alert('Sync failed', error.message || 'Could not reach the server.');
+    } finally {
+      setPulling(false);
+    }
+  }, []);
 
   const fetchEntries = useCallback(async () => {
     const data = await loadEntries();
@@ -92,7 +110,35 @@ export default function HomeScreen() {
               color={theme.textSecondary}
             />
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.calendarButton,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.borderNeutral,
+              },
+            ]}
+            onPress={pullFromServerNow}
+            disabled={pulling}
+            activeOpacity={0.7}
+          >
+            {pulling ? (
+              <ActivityIndicator size="small" color={theme.primaryDark} />
+            ) : (
+              <Ionicons
+                name="cloud-download-outline"
+                size={22}
+                color={theme.primaryDark}
+              />
+            )}
+          </TouchableOpacity>
         </View>
+
+        {pullInfo ? (
+          <Text style={[styles.pullInfoText, { color: theme.primaryDark }]}>
+            Pulled {pullInfo.count} entr{pullInfo.count === 1 ? 'y' : 'ies'} from server
+          </Text>
+        ) : null}
 
         {filteredEntries.length === 0 && !search ? (
           renderEmpty()
@@ -157,6 +203,7 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 16,
   },
+  pullInfoText: { fontSize: 11, fontWeight: '600', marginBottom: 10, marginTop: -10 },
   searchWrapper: {
     flex: 1,
   },

@@ -18,6 +18,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Header from '../../components/Header';
+import SyncRow from '../../components/SyncRow';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 import {
@@ -54,6 +55,23 @@ const LANGUAGES = [
 
 const TITLE_TYPES = ['Movie', 'Series', 'Short Film'];
 
+const PLATFORMS = [
+  'Netflix',
+  'Prime',
+  'Hotstar',
+  'Zee5',
+  'Sony Six',
+  'Sun Nxt',
+  'Aaha',
+  'Tentkotta',
+  'Youtube',
+  'Other',
+];
+
+const KNOWN_PLATFORM_KEYS = PLATFORMS.filter((p) => p !== 'Other').map((p) =>
+  p.toLowerCase()
+);
+
 const TMDB_API_URL = 'https://www.themoviedb.org/settings/api';
 
 const makeId = () =>
@@ -80,13 +98,21 @@ const getTypeColor = (label, theme) => {
 export default function MoviesScreen() {
   const { theme } = useTheme();
   const { width } = useWindowDimensions();
-  const { items: movies, synced, persist } = useSyncedCollection('movies', STORAGE_KEY);
+  const { items: movies, synced, persist, pulling, pullInfo, pullNow } = useSyncedCollection(
+    'movies',
+    STORAGE_KEY
+  );
   const [modalVisible, setModalVisible] = useState(false);
   const [title, setTitle] = useState('');
+  const [platformChoice, setPlatformChoice] = useState('');
   const [platform, setPlatform] = useState('');
+  const [platformMenuOpen, setPlatformMenuOpen] = useState(false);
   const [manualType, setManualType] = useState('Movie');
   const [status, setStatus] = useState('watchlist');
   const [filter, setFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [platformFilter, setPlatformFilter] = useState('all');
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
 
   // TMDB / OTT state
   const [tab, setTab] = useState('mylist');
@@ -166,17 +192,23 @@ export default function MoviesScreen() {
 
   const addMovie = () => {
     if (!title.trim()) return;
+    const resolvedPlatform =
+      platformChoice === 'Other'
+        ? platform.trim() || 'Other'
+        : platformChoice;
     const movie = {
       id: makeId(),
       title: title.trim(),
-      platform: platform.trim(),
+      platform: resolvedPlatform,
       type: manualType,
       status,
       addedAt: new Date().toISOString(),
     };
     persist([movie, ...movies]);
     setTitle('');
+    setPlatformChoice('');
     setPlatform('');
+    setPlatformMenuOpen(false);
     setManualType('Movie');
     setStatus('watchlist');
     setModalVisible(false);
@@ -275,8 +307,26 @@ export default function MoviesScreen() {
     }
   };
 
-  const visible =
-    filter === 'all' ? movies : movies.filter((m) => m.status === filter);
+  const matchesPlatform = (m) => {
+    if (platformFilter === 'all') return true;
+    const p = (m.platform || '').toLowerCase();
+    if (platformFilter === 'Other') {
+      return !KNOWN_PLATFORM_KEYS.some((k) => p.includes(k));
+    }
+    return p.includes(platformFilter.toLowerCase());
+  };
+
+  const filtersActive = typeFilter !== 'all' || platformFilter !== 'all';
+
+  const clearFilters = () => {
+    setTypeFilter('all');
+    setPlatformFilter('all');
+  };
+
+  const visible = movies
+    .filter((m) => (filter === 'all' ? true : m.status === filter))
+    .filter((m) => (typeFilter === 'all' ? true : getTypeLabel(m) === typeFilter))
+    .filter(matchesPlatform);
 
   const statusMeta = (key) => STATUSES.find((s) => s.key === key);
 
@@ -434,21 +484,7 @@ export default function MoviesScreen() {
 
         {tab === 'mylist' ? (
           <>
-            <View style={styles.syncRow}>
-              <Ionicons
-                name={synced ? 'cloud-done-outline' : 'phone-portrait-outline'}
-                size={13}
-                color={synced ? theme.primaryDark : theme.textMuted}
-              />
-              <Text
-                style={[
-                  styles.syncText,
-                  { color: synced ? theme.primaryDark : theme.textMuted },
-                ]}
-              >
-                {synced ? 'Saved locally · synced to server' : 'Saved on this device'}
-              </Text>
-            </View>
+            <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} />
 
             <View style={styles.filters}>
               <TouchableOpacity
@@ -478,7 +514,49 @@ export default function MoviesScreen() {
                   <Text style={[styles.chipText, { color: theme.text }]}>{s.label}</Text>
                 </TouchableOpacity>
               ))}
+              <TouchableOpacity
+                style={[
+                  styles.chip,
+                  styles.filterBtn,
+                  {
+                    backgroundColor: filtersActive ? theme.accent : theme.surface,
+                    borderColor: filtersActive ? theme.accent : theme.borderNeutral,
+                  },
+                ]}
+                onPress={() => setFilterModalVisible(true)}
+              >
+                <Ionicons
+                  name="options-outline"
+                  size={14}
+                  color={theme.text}
+                  style={{ marginRight: 5 }}
+                />
+                <Text style={[styles.chipText, { color: theme.text }]}>Filter</Text>
+              </TouchableOpacity>
             </View>
+
+            {filtersActive ? (
+              <View style={styles.activeFilters}>
+                {typeFilter !== 'all' ? (
+                  <TouchableOpacity
+                    style={[styles.chip, styles.activeChip, { backgroundColor: theme.surfaceAlt, borderColor: theme.accent }]}
+                    onPress={() => setTypeFilter('all')}
+                  >
+                    <Text style={[styles.activeChipText, { color: theme.text }]}>Type: {typeFilter}</Text>
+                    <Ionicons name="close" size={13} color={theme.textSecondary} />
+                  </TouchableOpacity>
+                ) : null}
+                {platformFilter !== 'all' ? (
+                  <TouchableOpacity
+                    style={[styles.chip, styles.activeChip, { backgroundColor: theme.surfaceAlt, borderColor: theme.accent }]}
+                    onPress={() => setPlatformFilter('all')}
+                  >
+                    <Text style={[styles.activeChipText, { color: theme.text }]}>OTT: {platformFilter}</Text>
+                    <Ionicons name="close" size={13} color={theme.textSecondary} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ) : null}
 
             <FlatList
               data={visible}
@@ -715,22 +793,64 @@ export default function MoviesScreen() {
               value={title}
               onChangeText={setTitle}
             />
-            <TextInput
+            <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>OTT Platform</Text>
+            <TouchableOpacity
               style={[
-                styles.input,
-                styles.modalInput,
-                {
-                  backgroundColor: theme.surfaceAlt,
-                  borderColor: theme.borderNeutral,
-                  color: theme.text,
-                },
+                styles.platformSelect,
+                { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral },
               ]}
-              placeholder="OTT platform... (Netflix, Prime Video...)"
-              placeholderTextColor={theme.textMuted}
-              value={platform}
-              onChangeText={setPlatform}
-              autoCapitalize="words"
-            />
+              onPress={() => setPlatformMenuOpen((open) => !open)}
+            >
+              <Text style={[styles.platformSelectText, { color: platformChoice ? theme.text : theme.textMuted }]}>
+                {platformChoice || 'Select OTT platform'}
+              </Text>
+              <Ionicons
+                name={platformMenuOpen ? 'chevron-up' : 'chevron-down'}
+                size={18}
+                color={theme.textSecondary}
+              />
+            </TouchableOpacity>
+            {platformMenuOpen ? (
+              <View style={[styles.platformMenu, { backgroundColor: theme.surface, borderColor: theme.borderNeutral }]}>
+                {PLATFORMS.map((p) => (
+                  <TouchableOpacity
+                    key={p}
+                    style={[
+                      styles.platformOption,
+                      platformChoice === p && { backgroundColor: theme.primary + '33' },
+                    ]}
+                    onPress={() => {
+                      setPlatformChoice(p);
+                      setPlatformMenuOpen(false);
+                    }}
+                  >
+                    <Text style={[styles.platformOptionText, { color: theme.text }]}>{p}</Text>
+                    {platformChoice === p ? (
+                      <Ionicons name="checkmark" size={17} color={theme.primaryDark} />
+                    ) : null}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+            {platformChoice === 'Other' ? (
+              <TextInput
+                style={[
+                  styles.input,
+                  styles.modalInput,
+                  styles.otherInput,
+                  {
+                    backgroundColor: theme.surfaceAlt,
+                    borderColor: theme.borderNeutral,
+                    color: theme.text,
+                  },
+                ]}
+                placeholder="Enter platform name..."
+                placeholderTextColor={theme.textMuted}
+                value={platform}
+                onChangeText={setPlatform}
+                autoCapitalize="words"
+              />
+            ) : null}
             <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Type</Text>
             <View style={styles.statusRow}>
               {TITLE_TYPES.map((t) => (
@@ -787,6 +907,85 @@ export default function MoviesScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={filterModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFilterModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Filter Watch List</Text>
+
+            <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Type</Text>
+            <View style={styles.statusRow}>
+              {['all', ...TITLE_TYPES].map((t) => {
+                const selected = typeFilter === t;
+                return (
+                  <TouchableOpacity
+                    key={t}
+                    style={[
+                      styles.chip,
+                      {
+                        backgroundColor: selected ? theme.primary : theme.surfaceAlt,
+                        borderColor: selected ? theme.primaryDark : theme.borderNeutral,
+                      },
+                    ]}
+                    onPress={() => setTypeFilter(t)}
+                  >
+                    <Text style={[styles.chipText, { color: theme.text }]}>
+                      {t === 'all' ? 'All' : t}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>OTT Platform</Text>
+            <View style={styles.statusRow}>
+              {['all', ...PLATFORMS].map((p) => {
+                const selected = platformFilter === p;
+                return (
+                  <TouchableOpacity
+                    key={p}
+                    style={[
+                      styles.chip,
+                      {
+                        backgroundColor: selected ? theme.secondary : theme.surfaceAlt,
+                        borderColor: selected ? theme.secondary : theme.borderNeutral,
+                      },
+                    ]}
+                    onPress={() => setPlatformFilter(p)}
+                  >
+                    <Text style={[styles.chipText, { color: theme.text }]}>
+                      {p === 'all' ? 'All' : p}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.cancelBtn, { backgroundColor: theme.surfaceAlt }]}
+                onPress={() => {
+                  clearFilters();
+                  setFilterModalVisible(false);
+                }}
+              >
+                <Text style={[styles.cancelText, { color: theme.textSecondary }]}>Clear</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+                onPress={() => setFilterModalVisible(false)}
+              >
+                <Text style={[styles.saveText, { color: theme.text }]}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -811,12 +1010,41 @@ const styles = StyleSheet.create({
   },
   tabBtnText: { fontSize: 14, fontWeight: '600' },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
-  syncRow: {
+  filterBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
   },
-  syncText: { fontSize: 11, marginLeft: 5, fontWeight: '600' },
+  activeFilters: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
+  activeChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 5, paddingHorizontal: 10 },
+  activeChipText: { fontSize: 12, fontWeight: '600' },
+  platformSelect: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    marginBottom: 8,
+  },
+  platformSelectText: { fontSize: 15 },
+  platformMenu: {
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 8,
+    overflow: 'hidden',
+  },
+  platformOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+  },
+  platformOptionText: { fontSize: 14 },
+  otherInput: { marginTop: 8, marginBottom: 0 },
   chip: {
     paddingVertical: 7,
     paddingHorizontal: 14,

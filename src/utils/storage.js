@@ -1,4 +1,4 @@
-import { loadLocalWithRetry, saveAndPush } from '../services/sync';
+import { loadLocalWithRetry, saveAndPush, pullFromServer } from '../services/sync';
 
 const STORAGE_KEY = '@diarybyte_entries';
 const COLLECTION = 'diary';
@@ -8,6 +8,11 @@ const COLLECTION = 'diary';
 
 export async function loadEntries() {
   return loadLocalWithRetry(COLLECTION, STORAGE_KEY);
+}
+
+// Pull only diary entries from the server, overwriting the local copy.
+export async function pullEntries() {
+  return pullFromServer(COLLECTION, STORAGE_KEY);
 }
 
 export async function saveEntries(entries) {
