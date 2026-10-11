@@ -97,6 +97,7 @@ export default function BankingScreen() {
   const [accountNumber, setAccountNumber] = useState('');
   const [ifsc, setIfsc] = useState('');
   const [upiId, setUpiId] = useState('');
+  const [balance, setBalance] = useState('');
   const [revealed, setRevealed] = useState({});
 
   // Card state
@@ -117,6 +118,7 @@ export default function BankingScreen() {
 
   const addItem = () => {
     if (!bankName.trim() || !accountNumber.trim()) return;
+    const parsedBalance = parseFloat(balance.replace(/[^\d.]/g, ''));
     const entry = {
       id: makeId(),
       bankName: bankName.trim(),
@@ -124,6 +126,7 @@ export default function BankingScreen() {
       accountNumber: accountNumber.trim(),
       ifsc: ifsc.trim().toUpperCase(),
       upiId: upiId.trim(),
+      balance: balance.trim() !== '' && !Number.isNaN(parsedBalance) ? parsedBalance : null,
       createdAt: new Date().toISOString(),
     };
     persist([entry, ...items]);
@@ -132,6 +135,7 @@ export default function BankingScreen() {
     setAccountNumber('');
     setIfsc('');
     setUpiId('');
+    setBalance('');
     setModalVisible(false);
   };
 
@@ -421,6 +425,13 @@ export default function BankingScreen() {
                   </View>
                   {field('hash-outline', 'IFSC', item.ifsc)}
                   {field('phone-portrait-outline', 'UPI', item.upiId)}
+                  {item.balance != null
+                    ? field(
+                        'cash-outline',
+                        'Bal',
+                        `₹${Number(item.balance).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+                      )
+                    : null}
                 </View>
               )}
             />
@@ -513,6 +524,14 @@ export default function BankingScreen() {
                 autoCapitalize="none"
                 value={upiId}
                 onChangeText={setUpiId}
+              />
+              <TextInput
+                style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                placeholder="Current balance (₹, optional)"
+                placeholderTextColor={theme.textMuted}
+                keyboardType="decimal-pad"
+                value={balance}
+                onChangeText={setBalance}
               />
               <View style={styles.modalActions}>
                 <TouchableOpacity

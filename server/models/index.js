@@ -29,6 +29,7 @@ const COLLECTIONS = {
       'accountNumber',
       'ifsc',
       'upiId',
+      'balance',
       'createdAt',
     ],
   },
@@ -46,6 +47,31 @@ const COLLECTIONS = {
   },
   cards: {
     fields: ['id', 'name', 'number', 'expiry', 'cvv', 'cardType', 'bankName', 'brand', 'createdAt'],
+  },
+  investments: {
+    fields: [
+      'id',
+      'category',
+      'name',
+      'invested',
+      'current',
+      'detail',
+      'note',
+      'createdAt',
+    ],
+  },
+  debts: {
+    fields: [
+      'id',
+      'name',
+      'type',
+      'principal',
+      'outstanding',
+      'emi',
+      'dueDate',
+      'note',
+      'createdAt',
+    ],
   },
 };
 

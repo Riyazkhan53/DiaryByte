@@ -67,7 +67,7 @@ export default function SettingsScreen() {
   const clearAllData = () => {
     Alert.alert(
       'Reset All Data',
-      'This will permanently delete all diary entries, movies, passwords, banking details, cards, to-dos, expenses and vault items. This cannot be undone.',
+      'This will permanently delete all diary entries, movies, passwords, banking details, cards, to-dos, expenses, investments, debts and vault items. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -84,6 +84,8 @@ export default function SettingsScreen() {
                 '@diarybyte_todo',
                 '@diarybyte_expenditure',
                 '@diarybyte_cards',
+                '@diarybyte_investments',
+                '@diarybyte_debts',
               ]);
               Alert.alert('Done', 'All data has been cleared.');
             } catch (error) {

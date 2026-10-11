@@ -13,6 +13,8 @@ export const SYNCED_COLLECTIONS = [
   { collection: 'todo', storageKey: '@diarybyte_todo' },
   { collection: 'expenditure', storageKey: '@diarybyte_expenditure' },
   { collection: 'cards', storageKey: '@diarybyte_cards' },
+  { collection: 'investments', storageKey: '@diarybyte_investments' },
+  { collection: 'debts', storageKey: '@diarybyte_debts' },
 ];
 
 const pendingKey = (storageKey) => `${storageKey}_pending`;
