@@ -46,7 +46,18 @@ const COLLECTIONS = {
     fields: ['id', 'title', 'amount', 'category', 'date', 'createdAt'],
   },
   cards: {
-    fields: ['id', 'name', 'number', 'expiry', 'cvv', 'cardType', 'bankName', 'brand', 'createdAt'],
+    fields: [
+      'id',
+      'name',
+      'number',
+      'expiry',
+      'cvv',
+      'cardType',
+      'bankName',
+      'brand',
+      'grid',
+      'createdAt',
+    ],
   },
   investments: {
     fields: [

@@ -18,6 +18,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Header from '../../components/Header';
 import SyncRow from '../../components/SyncRow';
 import CardScanner from '../../components/CardScanner';
+import CardGridEditor from '../../components/CardGridEditor';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 
@@ -113,6 +114,7 @@ export default function BankingScreen() {
   const [cardBank, setCardBank] = useState('');
   const [cardRevealed, setCardRevealed] = useState({});
   const [copied, setCopied] = useState(null);
+  const [gridEditorCard, setGridEditorCard] = useState(null);
 
   // ------- account actions -------
 
@@ -234,6 +236,15 @@ export default function BankingScreen() {
     setTimeout(() => setCopied(null), 1500);
   };
 
+  // Save the A-J verification grid onto a debit card.
+  const saveGrid = (grid) => {
+    if (!gridEditorCard) return;
+    persistCards(
+      cards.map((c) => (c.id === gridEditorCard.id ? { ...c, grid } : c))
+    );
+    setGridEditorCard(null);
+  };
+
   const copyBtn = (card, key, label, value, masked) => (
     <TouchableOpacity
       style={[
@@ -320,6 +331,23 @@ export default function BankingScreen() {
             {copyBtn(item, 'number', 'Number', item.number)}
             {copyBtn(item, 'expiry', 'Expiry', item.expiry)}
             {copyBtn(item, 'cvv', 'CVV', item.cvv)}
+            {(item.cardType || 'Debit') === 'Debit' ? (
+              <TouchableOpacity
+                style={[
+                  styles.copyBtn,
+                  {
+                    backgroundColor:
+                      item.grid && Object.keys(item.grid).length ? theme.secondary : theme.surfaceAlt,
+                  },
+                ]}
+                onPress={() => setGridEditorCard(item)}
+              >
+                <Ionicons name="grid-outline" size={13} color={theme.textSecondary} />
+                <Text style={[styles.copyBtnText, { color: theme.textSecondary }]}>
+                  {item.grid && Object.keys(item.grid).length ? 'Grid ✓' : 'Grid'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
           <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteCard(item.id)}>
             <Ionicons name="trash-outline" size={19} color={theme.danger} />
@@ -748,6 +776,13 @@ export default function BankingScreen() {
         visible={scannerVisible}
         onClose={() => setScannerVisible(false)}
         onDetected={handleCardDetected}
+      />
+
+      <CardGridEditor
+        visible={!!gridEditorCard}
+        card={gridEditorCard}
+        onClose={() => setGridEditorCard(null)}
+        onSave={saveGrid}
       />
     </SafeAreaView>
   );
