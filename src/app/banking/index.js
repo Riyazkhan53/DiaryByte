@@ -236,7 +236,7 @@ export default function BankingScreen() {
     setTimeout(() => setCopied(null), 1500);
   };
 
-  // Save the A-J verification grid onto a debit card.
+  // Save the A-P verification grid onto a debit card.
   const saveGrid = (grid) => {
     if (!gridEditorCard) return;
     persistCards(

@@ -13,17 +13,33 @@ import * as Clipboard from 'expo-clipboard';
 import { useTheme } from '../hooks/useTheme';
 
 // ICICI-style grid card (back of debit card):
-//   - Rows are lettered A-J down the left side
-//   - Columns are numbered 1-10 across the top
-//   - Each cell holds a 2-digit number
-//   - Bank challenges reference coordinates like "A5" (row A, column 5)
-// Stored on the card as { grid: { A: ['15','10',...], B: [...], ... } }
-const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
-const COLS = 10;
+//   - 16 cells lettered A-P, arranged 8 per row on the card
+//   - Each cell holds one 2-digit number
+//   - Bank challenges ask for letters, e.g. "F" -> enter/copy the 2-digit value
+// Stored on the card as { grid: { A: '15', B: '10', ..., P: '73' } }
+const LETTERS = [
+  'A',
+  'B',
+  'C',
+  'D',
+  'E',
+  'F',
+  'G',
+  'H',
+  'I',
+  'J',
+  'K',
+  'L',
+  'M',
+  'N',
+  'O',
+  'P',
+];
+const PER_ROW = 8;
 
 const emptyGrid = () =>
   LETTERS.reduce((acc, l) => {
-    acc[l] = Array(COLS).fill('');
+    acc[l] = '';
     return acc;
   }, {});
 
@@ -31,20 +47,14 @@ const normalizeGrid = (grid) => {
   const normalized = emptyGrid();
   if (grid && typeof grid === 'object') {
     LETTERS.forEach((l) => {
-      const row = grid[l];
-      if (Array.isArray(row)) {
-        row.slice(0, COLS).forEach((cell, i) => {
-          normalized[l][i] = String(cell ?? '').replace(/\D/g, '').slice(0, 2);
-        });
-      } else if (typeof row === 'string') {
-        // Legacy shape: plain digit string, one digit per cell.
-        row
+      const value = grid[l];
+      if (typeof value === 'string') {
+        normalized[l] = value.replace(/\D/g, '').slice(0, 2);
+      } else if (Array.isArray(value) && value.length) {
+        // Legacy shape: array of cells — keep the first entry.
+        normalized[l] = String(value[0] ?? '')
           .replace(/\D/g, '')
-          .slice(0, COLS)
-          .split('')
-          .forEach((digit, i) => {
-            normalized[l][i] = digit;
-          });
+          .slice(0, 2);
       }
     });
   }
@@ -52,8 +62,8 @@ const normalizeGrid = (grid) => {
 };
 
 /**
- * Full-screen editor for the debit-card verification grid.
- * Includes a coordinate lookup (e.g. "A5") for net-banking challenges.
+ * Full-screen editor for the debit-card verification grid (A-P cells).
+ * Includes a letter lookup for net-banking challenges.
  */
 export default function CardGridEditor({ visible, onClose, card, onSave }) {
   if (!visible) return null;
@@ -68,37 +78,27 @@ function GridEditorModal({ card, onClose, onSave }) {
 
   const hasGrid = !!(card && card.grid && Object.keys(card.grid).length);
 
-  const setCell = (letter, colIndex, value) => {
+  const setCell = (letter, value) => {
     const digits = value.replace(/\D/g, '').slice(0, 2);
-    setDraft((prev) => {
-      const row = [...prev[letter]];
-      row[colIndex] = digits;
-      return { ...prev, [letter]: row };
-    });
+    setDraft((prev) => ({ ...prev, [letter]: digits }));
   };
 
   const save = () => {
     const grid = {};
-    let filled = 0;
     LETTERS.forEach((l) => {
-      const cells = draft[l].map((c) => c || '');
-      if (cells.some((c) => c !== '')) {
-        grid[l] = cells;
-        filled += cells.filter((c) => c !== '').length;
-      }
+      if (draft[l]) grid[l] = draft[l];
     });
-    onSave(filled > 0 ? grid : null);
+    onSave(Object.keys(grid).length ? grid : null);
     onClose();
   };
 
-  // Lookup: parse "A5" / "a5" -> row A, column 5 (1-based)
+  // Lookup: a single letter A-P -> its 2-digit value
   const lookupResult = useMemo(() => {
-    const match = lookup.trim().toUpperCase().match(/^([A-J])\s*-?\s*(10|[1-9])$/);
+    const match = lookup.trim().toUpperCase().match(/^([A-P])$/);
     if (!match) return null;
     const letter = match[1];
-    const col = parseInt(match[2], 10) - 1;
-    const value = draft[letter][col];
-    return { key: `${letter}${match[2]}`, value: value || '—' };
+    const value = draft[letter];
+    return { key: letter, value: value || '—' };
   }, [lookup, draft]);
 
   const copyLookup = async () => {
@@ -107,6 +107,37 @@ function GridEditorModal({ card, onClose, onSave }) {
     setCopiedValue(lookupResult.value);
     setTimeout(() => setCopiedValue(null), 1500);
   };
+
+  const renderRow = (rowIndex) => (
+    <View key={rowIndex} style={styles.row}>
+      {LETTERS.slice(rowIndex * PER_ROW, rowIndex * PER_ROW + PER_ROW).map((letter) => {
+        const value = draft[letter];
+        return (
+          <View key={letter} style={styles.cellWrap}>
+            <View style={[styles.cellLabel, { backgroundColor: theme.primary }]}>
+              <Text style={styles.cellLabelText}>{letter}</Text>
+            </View>
+            <TextInput
+              style={[
+                styles.cell,
+                {
+                  backgroundColor: theme.surface,
+                  borderColor: theme.borderNeutral,
+                  color: theme.text,
+                },
+                value !== '' && { borderColor: theme.primary, borderWidth: 1.5 },
+              ]}
+              value={value}
+              onChangeText={(text) => setCell(letter, text)}
+              keyboardType="number-pad"
+              maxLength={2}
+              selectTextOnFocus
+            />
+          </View>
+        );
+      })}
+    </View>
+  );
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
@@ -124,60 +155,15 @@ function GridEditorModal({ card, onClose, onSave }) {
         </View>
 
         <Text style={[styles.hint, { color: theme.textMuted }]}>
-          Enter the grid from the back of your card — rows A–J, columns 1–10, two digits per cell.
+          Enter the 2-digit number printed under each letter (A–P) on the back of your card.
         </Text>
 
-        <ScrollView style={styles.gridScroll} showsVerticalScrollIndicator={false}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.gridWrap}
-          >
-            <View>
-              {/* Column numbers across the top */}
-              <View style={styles.headerRow}>
-                <View style={styles.rowHeaderSpacer} />
-                {Array.from({ length: COLS }).map((_, i) => (
-                  <View key={i} style={[styles.colHeader, { backgroundColor: theme.primary }]}>
-                    <Text style={styles.colHeaderText}>{i + 1}</Text>
-                  </View>
-                ))}
-              </View>
-              {/* Lettered rows A-J */}
-              {LETTERS.map((letter) => (
-                <View key={letter} style={styles.row}>
-                  <View style={[styles.rowHeader, { backgroundColor: theme.secondary }]}>
-                    <Text style={styles.rowHeaderText}>{letter}</Text>
-                  </View>
-                  {Array.from({ length: COLS }).map((_, col) => {
-                    const value = draft[letter][col];
-                    return (
-                      <TextInput
-                        key={col}
-                        style={[
-                          styles.cell,
-                          {
-                            backgroundColor: theme.surface,
-                            borderColor: theme.borderNeutral,
-                            color: theme.text,
-                          },
-                          value !== '' && { borderColor: theme.primary, borderWidth: 1.5 },
-                        ]}
-                        value={value}
-                        onChangeText={(text) => setCell(letter, col, text)}
-                        keyboardType="number-pad"
-                        maxLength={2}
-                        selectTextOnFocus
-                      />
-                    );
-                  })}
-                </View>
-              ))}
-            </View>
-          </ScrollView>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.gridWrap}>
+          {renderRow(0)}
+          {renderRow(1)}
         </ScrollView>
 
-        {/* Quick lookup for net-banking challenges, e.g. "A5" */}
+        {/* Quick lookup for net-banking challenges, e.g. "F" */}
         <View
           style={[
             styles.lookupCard,
@@ -188,12 +174,13 @@ function GridEditorModal({ card, onClose, onSave }) {
             <Ionicons name="search-outline" size={17} color={theme.textMuted} />
             <TextInput
               style={[styles.lookupInput, { color: theme.text }]}
-              placeholder="Grid lookup (e.g. A5)"
+              placeholder="Grid lookup (e.g. F)"
               placeholderTextColor={theme.textMuted}
               value={lookup}
               onChangeText={setLookup}
               autoCapitalize="characters"
               autoCorrect={false}
+              maxLength={1}
             />
             {lookupResult ? (
               <TouchableOpacity
@@ -207,8 +194,7 @@ function GridEditorModal({ card, onClose, onSave }) {
             ) : null}
           </View>
           <Text style={[styles.lookupHint, { color: theme.textMuted }]}>
-            When your bank asks for a grid value, type the coordinate (letter + number) to see and
-            copy it.
+            When your bank asks for a grid letter, type it here to see and copy the value.
           </Text>
         </View>
 
@@ -240,34 +226,24 @@ const styles = StyleSheet.create({
   headerSub: { fontSize: 12, marginTop: 2 },
   closeBtn: { padding: 6 },
   hint: { fontSize: 12, paddingHorizontal: 16, paddingVertical: 10 },
-  gridScroll: { flex: 1 },
-  gridWrap: { paddingHorizontal: 10, paddingBottom: 10 },
-  headerRow: { flexDirection: 'row', gap: 4, marginBottom: 4 },
-  rowHeaderSpacer: { width: 28 },
-  colHeader: {
-    width: 38,
-    height: 26,
-    borderRadius: 8,
+  gridWrap: { paddingHorizontal: 12, paddingBottom: 10, alignItems: 'center' },
+  row: { flexDirection: 'row', gap: 6, marginBottom: 10 },
+  cellWrap: { alignItems: 'center', gap: 4 },
+  cellLabel: {
+    width: 40,
+    height: 22,
+    borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  colHeaderText: { color: '#FFF', fontSize: 12, fontWeight: '800' },
-  row: { flexDirection: 'row', gap: 4, marginBottom: 4 },
-  rowHeader: {
-    width: 28,
-    height: 36,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rowHeaderText: { color: '#FFF', fontSize: 13, fontWeight: '800' },
+  cellLabelText: { color: '#FFF', fontSize: 12, fontWeight: '800' },
   cell: {
-    width: 38,
-    height: 36,
-    borderRadius: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 9,
     borderWidth: 1,
     textAlign: 'center',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
   },
   lookupCard: {
