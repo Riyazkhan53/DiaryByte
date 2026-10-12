@@ -12,14 +12,18 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useTheme } from '../hooks/useTheme';
 
+// ICICI-style grid card (back of debit card):
+//   - Rows are lettered A-J down the left side
+//   - Columns are numbered 1-10 across the top
+//   - Each cell holds a 2-digit number
+//   - Bank challenges reference coordinates like "A5" (row A, column 5)
+// Stored on the card as { grid: { A: ['15','10',...], B: [...], ... } }
 const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
-const ROWS = 10;
+const COLS = 10;
 
-// ICICI-style grid card: columns A-J, 10 rows each.
-// Stored on the card as { grid: { A: '1234567890', B: '...', ... } }
 const emptyGrid = () =>
   LETTERS.reduce((acc, l) => {
-    acc[l] = '';
+    acc[l] = Array(COLS).fill('');
     return acc;
   }, {});
 
@@ -27,8 +31,20 @@ const normalizeGrid = (grid) => {
   const normalized = emptyGrid();
   if (grid && typeof grid === 'object') {
     LETTERS.forEach((l) => {
-      if (typeof grid[l] === 'string') {
-        normalized[l] = grid[l].replace(/\D/g, '').slice(0, ROWS);
+      const row = grid[l];
+      if (Array.isArray(row)) {
+        row.slice(0, COLS).forEach((cell, i) => {
+          normalized[l][i] = String(cell ?? '').replace(/\D/g, '').slice(0, 2);
+        });
+      } else if (typeof row === 'string') {
+        // Legacy shape: plain digit string, one digit per cell.
+        row
+          .replace(/\D/g, '')
+          .slice(0, COLS)
+          .split('')
+          .forEach((digit, i) => {
+            normalized[l][i] = digit;
+          });
       }
     });
   }
@@ -37,17 +53,11 @@ const normalizeGrid = (grid) => {
 
 /**
  * Full-screen editor for the debit-card verification grid.
- * Includes a coordinate lookup (e.g. "F3") for net-banking challenges.
+ * Includes a coordinate lookup (e.g. "A5") for net-banking challenges.
  */
 export default function CardGridEditor({ visible, onClose, card, onSave }) {
   if (!visible) return null;
-  return (
-    <GridEditorModal
-      card={card}
-      onClose={onClose}
-      onSave={onSave}
-    />
-  );
+  return <GridEditorModal card={card} onClose={onClose} onSave={onSave} />;
 }
 
 function GridEditorModal({ card, onClose, onSave }) {
@@ -58,13 +68,12 @@ function GridEditorModal({ card, onClose, onSave }) {
 
   const hasGrid = !!(card && card.grid && Object.keys(card.grid).length);
 
-  const setCell = (letter, rowIndex, value) => {
-    const digit = value.replace(/\D/g, '').slice(-1);
+  const setCell = (letter, colIndex, value) => {
+    const digits = value.replace(/\D/g, '').slice(0, 2);
     setDraft((prev) => {
-      const col = (prev[letter] || '').padEnd(ROWS, ' ').split('');
-      col[rowIndex] = digit === '' ? ' ' : digit;
-      const joined = col.join('');
-      return { ...prev, [letter]: joined.trim() === '' ? '' : joined };
+      const row = [...prev[letter]];
+      row[colIndex] = digits;
+      return { ...prev, [letter]: row };
     });
   };
 
@@ -72,23 +81,23 @@ function GridEditorModal({ card, onClose, onSave }) {
     const grid = {};
     let filled = 0;
     LETTERS.forEach((l) => {
-      const value = (draft[l] || '').replace(/ /g, '');
-      if (value) {
-        grid[l] = value;
-        filled += value.length;
+      const cells = draft[l].map((c) => c || '');
+      if (cells.some((c) => c !== '')) {
+        grid[l] = cells;
+        filled += cells.filter((c) => c !== '').length;
       }
     });
     onSave(filled > 0 ? grid : null);
     onClose();
   };
 
-  // Lookup: parse "F3" / "f3" -> column F, row 3 (1-based)
+  // Lookup: parse "A5" / "a5" -> row A, column 5 (1-based)
   const lookupResult = useMemo(() => {
     const match = lookup.trim().toUpperCase().match(/^([A-J])\s*-?\s*(10|[1-9])$/);
     if (!match) return null;
     const letter = match[1];
-    const row = parseInt(match[2], 10) - 1;
-    const value = (draft[letter] || '').replace(/ /g, '')[row];
+    const col = parseInt(match[2], 10) - 1;
+    const value = draft[letter][col];
     return { key: `${letter}${match[2]}`, value: value || '—' };
   }, [lookup, draft]);
 
@@ -115,55 +124,60 @@ function GridEditorModal({ card, onClose, onSave }) {
         </View>
 
         <Text style={[styles.hint, { color: theme.textMuted }]}>
-          Enter the A–J grid numbers from the back of your card, one digit per row.
+          Enter the grid from the back of your card — rows A–J, columns 1–10, two digits per cell.
         </Text>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.gridWrap}
-        >
-          <View>
-            <View style={styles.headerRow}>
-              {LETTERS.map((l) => (
-                <View key={l} style={[styles.colHeader, { backgroundColor: theme.primary }]}>
-                  <Text style={styles.colHeaderText}>{l}</Text>
+        <ScrollView style={styles.gridScroll} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.gridWrap}
+          >
+            <View>
+              {/* Column numbers across the top */}
+              <View style={styles.headerRow}>
+                <View style={styles.rowHeaderSpacer} />
+                {Array.from({ length: COLS }).map((_, i) => (
+                  <View key={i} style={[styles.colHeader, { backgroundColor: theme.primary }]}>
+                    <Text style={styles.colHeaderText}>{i + 1}</Text>
+                  </View>
+                ))}
+              </View>
+              {/* Lettered rows A-J */}
+              {LETTERS.map((letter) => (
+                <View key={letter} style={styles.row}>
+                  <View style={[styles.rowHeader, { backgroundColor: theme.secondary }]}>
+                    <Text style={styles.rowHeaderText}>{letter}</Text>
+                  </View>
+                  {Array.from({ length: COLS }).map((_, col) => {
+                    const value = draft[letter][col];
+                    return (
+                      <TextInput
+                        key={col}
+                        style={[
+                          styles.cell,
+                          {
+                            backgroundColor: theme.surface,
+                            borderColor: theme.borderNeutral,
+                            color: theme.text,
+                          },
+                          value !== '' && { borderColor: theme.primary, borderWidth: 1.5 },
+                        ]}
+                        value={value}
+                        onChangeText={(text) => setCell(letter, col, text)}
+                        keyboardType="number-pad"
+                        maxLength={2}
+                        selectTextOnFocus
+                      />
+                    );
+                  })}
                 </View>
               ))}
             </View>
-            {Array.from({ length: ROWS }).map((_, row) => (
-              <View key={row} style={styles.row}>
-                {LETTERS.map((l) => {
-                  const value = (draft[l] || '').replace(/ /g, '')[row] || '';
-                  return (
-                    <TextInput
-                      key={l}
-                      style={[
-                        styles.cell,
-                        {
-                          backgroundColor: theme.surface,
-                          borderColor: theme.borderNeutral,
-                          color: theme.text,
-                        },
-                        value !== '' && { borderColor: theme.primary, borderWidth: 1.5 },
-                      ]}
-                      value={value}
-                      onChangeText={(text) => setCell(l, row, text)}
-                      keyboardType="number-pad"
-                      maxLength={1}
-                      selectTextOnFocus
-                    />
-                  );
-                })}
-              </View>
-            ))}
-            <View style={styles.rowNumbers}>
-              <Text style={[styles.rowNumberText, { color: theme.textMuted }]}>rows 1–10</Text>
-            </View>
-          </View>
+          </ScrollView>
         </ScrollView>
 
-        {/* Quick lookup for net-banking challenges, e.g. "F3" */}
+        {/* Quick lookup for net-banking challenges, e.g. "A5" */}
         <View
           style={[
             styles.lookupCard,
@@ -174,7 +188,7 @@ function GridEditorModal({ card, onClose, onSave }) {
             <Ionicons name="search-outline" size={17} color={theme.textMuted} />
             <TextInput
               style={[styles.lookupInput, { color: theme.text }]}
-              placeholder="Grid lookup (e.g. F3)"
+              placeholder="Grid lookup (e.g. A5)"
               placeholderTextColor={theme.textMuted}
               value={lookup}
               onChangeText={setLookup}
@@ -193,7 +207,8 @@ function GridEditorModal({ card, onClose, onSave }) {
             ) : null}
           </View>
           <Text style={[styles.lookupHint, { color: theme.textMuted }]}>
-            When your bank asks for a grid value, type the coordinate to see and copy it.
+            When your bank asks for a grid value, type the coordinate (letter + number) to see and
+            copy it.
           </Text>
         </View>
 
@@ -225,28 +240,36 @@ const styles = StyleSheet.create({
   headerSub: { fontSize: 12, marginTop: 2 },
   closeBtn: { padding: 6 },
   hint: { fontSize: 12, paddingHorizontal: 16, paddingVertical: 10 },
-  gridWrap: { paddingHorizontal: 10, paddingBottom: 6 },
+  gridScroll: { flex: 1 },
+  gridWrap: { paddingHorizontal: 10, paddingBottom: 10 },
   headerRow: { flexDirection: 'row', gap: 4, marginBottom: 4 },
+  rowHeaderSpacer: { width: 28 },
   colHeader: {
-    width: 31,
+    width: 38,
     height: 26,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  colHeaderText: { color: '#FFF', fontSize: 13, fontWeight: '800' },
+  colHeaderText: { color: '#FFF', fontSize: 12, fontWeight: '800' },
   row: { flexDirection: 'row', gap: 4, marginBottom: 4 },
+  rowHeader: {
+    width: 28,
+    height: 36,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowHeaderText: { color: '#FFF', fontSize: 13, fontWeight: '800' },
   cell: {
-    width: 31,
-    height: 34,
+    width: 38,
+    height: 36,
     borderRadius: 8,
     borderWidth: 1,
     textAlign: 'center',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
   },
-  rowNumbers: { flexDirection: 'row', justifyContent: 'flex-end', paddingRight: 2, paddingTop: 2 },
-  rowNumberText: { fontSize: 10, fontWeight: '600' },
   lookupCard: {
     marginHorizontal: 16,
     marginTop: 8,
