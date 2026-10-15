@@ -1,0 +1,52 @@
+# Publishes an over-the-air update (EAS Update) so installed builds pick up
+# JS changes without a new build. Needs an EXPO_TOKEN repository secret
+# (expo.dev → Account settings → Access tokens).
+#
+# Updates only reach builds with the same native runtime (runtimeVersion
+# policy "fingerprint"). After native changes — a new native package or an
+# app.json plugin change — make a new build with `eas build`.
+name: EAS Update
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'server/**'
+      - '**.md'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Channel to publish to'
+        type: choice
+        options: [preview, production, development]
+        default: preview
+
+concurrency:
+  group: eas-update-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    env:
+      CHANNEL: ${{ inputs.channel || 'preview' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Publish update
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          MESSAGE: ${{ github.event.head_commit.message || 'Manual update' }}
+        run: >
+          npx eas-cli@latest update
+          --channel "$CHANNEL"
+          --environment "$CHANNEL"
+          --message "$(echo "$MESSAGE" | head -n 1)"
+          --non-interactive

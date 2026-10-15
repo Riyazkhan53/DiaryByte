@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Header from '../components/Header';
 import { useTheme } from '../hooks/useTheme';
 import { pullAllFromServer } from '../services/sync';
+import { AppUpdatesSection } from '../components/AppUpdates';
 
 export default function SettingsScreen() {
   const { theme, isDark, toggleTheme, themeMode, updateThemeMode, userName, updateUserName } =
@@ -182,6 +183,19 @@ export default function SettingsScreen() {
               : 'Using your chosen theme. Turn Auto on to follow the time of day.'}
           </Text>
         </View>
+
+        <AppUpdatesSection
+          sectionStyle={[
+            styles.section,
+            {
+              backgroundColor: theme.surface,
+              borderColor: theme.border,
+              shadowColor: theme.shadow,
+            },
+          ]}
+          titleStyle={[styles.sectionTitle, { color: theme.text }]}
+          hintStyle={styles.hint}
+        />
 
         <View
           style={[
