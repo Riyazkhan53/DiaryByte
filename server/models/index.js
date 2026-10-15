@@ -84,6 +84,18 @@ const COLLECTIONS = {
       'createdAt',
     ],
   },
+  autopays: {
+    fields: [
+      'id',
+      'name',
+      'amount',
+      'recurrence',
+      'startDate',
+      'dates',
+      'ackDue',
+      'createdAt',
+    ],
+  },
 };
 
 const modelCache = {};

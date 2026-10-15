@@ -1,9 +1,12 @@
-import { StyleSheet, Text, ScrollView, TouchableOpacity, SafeAreaView } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useTheme } from '../hooks/useTheme';
+import { useSyncedCollection } from '../hooks/useSyncedCollection';
+import { AUTOPAY_STORAGE_KEY } from '../services/autopayReminders';
+import { activeReminder, dueLabel, formatDate, money } from '../utils/autopay';
 
 const TABS = [
   {
@@ -87,6 +90,14 @@ const TABS = [
     gradient: ['#FFCDD2', '#EF9A9A'],
   },
   {
+    key: 'autopays',
+    label: 'My Autopays',
+    description: 'Recurring payments with reminders',
+    icon: 'repeat-outline',
+    route: '/autopays',
+    gradient: ['#F8BBD0', '#F48FB1'],
+  },
+  {
     key: 'settings',
     label: 'Settings',
     description: 'Personalize your experience',
@@ -98,6 +109,18 @@ const TABS = [
 
 export default function Dashboard() {
   const { theme, userName } = useTheme();
+  const { items: autopays, persist: persistAutopays } = useSyncedCollection(
+    'autopays',
+    AUTOPAY_STORAGE_KEY
+  );
+  const reminders = autopays
+    .map((item) => ({ item, reminder: activeReminder(item) }))
+    .filter(({ reminder }) => reminder)
+    .sort((a, b) => a.reminder.daysLeft - b.reminder.daysLeft);
+
+  const stopReminders = (item, due) => {
+    persistAutopays(autopays.map((i) => (i.id === item.id ? { ...i, ackDue: due } : i)));
+  };
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -136,6 +159,35 @@ export default function Dashboard() {
         contentContainerStyle={styles.grid}
         showsVerticalScrollIndicator={false}
       >
+        {reminders.map(({ item, reminder }) => (
+          <View
+            key={item.id}
+            style={[styles.reminder, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}
+          >
+            <TouchableOpacity
+              style={styles.reminderMain}
+              onPress={() => router.push('/autopays')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="notifications" size={20} color="#E65100" />
+              <View style={styles.reminderText}>
+                <Text style={[styles.reminderTitle, { color: theme.text }]} numberOfLines={1}>
+                  {item.name} · {money(item.amount)}
+                </Text>
+                <Text style={[styles.reminderSub, { color: theme.textSecondary }]}>
+                  {dueLabel(reminder.daysLeft)} · {formatDate(reminder.due)}
+                </Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => stopReminders(item, reminder.due)}
+              style={styles.reminderDismiss}
+              accessibilityLabel={`Don't remind me about ${item.name} this cycle`}
+            >
+              <Ionicons name="notifications-off-outline" size={20} color={theme.textMuted} />
+            </TouchableOpacity>
+          </View>
+        ))}
         {TABS.map((tab) => (
           <TouchableOpacity
             key={tab.key}
@@ -202,6 +254,24 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingBottom: 30,
   },
+  reminder: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#FFB74D',
+    paddingLeft: 14,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  reminderMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
+  reminderText: { flex: 1 },
+  reminderTitle: { fontSize: 15, fontWeight: '700' },
+  reminderSub: { fontSize: 12, marginTop: 2 },
+  reminderDismiss: { padding: 14 },
   card: {
     width: '47%',
     borderRadius: 18,

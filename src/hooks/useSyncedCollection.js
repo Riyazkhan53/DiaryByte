@@ -1,5 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { loadLocalWithRetry, saveAndPush, pullFromServer } from '../services/sync';
+import {
+  loadLocalWithRetry,
+  saveAndPush,
+  pullFromServer,
+  subscribeLocal,
+  notifyLocal,
+} from '../services/sync';
 
 /**
  * Local-first synced collection.
@@ -28,14 +34,19 @@ export function useSyncedCollection(collection, storageKey) {
     };
   }, [collection, storageKey]);
 
+  // Pick up edits to the same collection made by other screens.
+  const [onExternalChange] = useState(() => (updated) => setItems(updated));
+  useEffect(() => subscribeLocal(storageKey, onExternalChange), [storageKey, onExternalChange]);
+
   const persist = useCallback(
     (updated) => {
       setItems(updated);
+      notifyLocal(storageKey, updated, onExternalChange);
       saveAndPush(collection, storageKey, updated).then(({ pushed }) => {
         setSynced(pushed);
       });
     },
-    [collection, storageKey]
+    [collection, storageKey, onExternalChange]
   );
 
   // Pull only this section's data from the server, overwriting local copy.
@@ -44,6 +55,7 @@ export function useSyncedCollection(collection, storageKey) {
     try {
       const remote = await pullFromServer(collection, storageKey);
       setItems(remote);
+      notifyLocal(storageKey, remote, onExternalChange);
       setSynced(true);
       setPullInfo({ count: remote.length });
       setTimeout(() => setPullInfo(null), 2500);
@@ -53,7 +65,7 @@ export function useSyncedCollection(collection, storageKey) {
     } finally {
       setPulling(false);
     }
-  }, [collection, storageKey]);
+  }, [collection, storageKey, onExternalChange]);
 
   return { items, loaded, synced, persist, pulling, pullInfo, pullNow };
 }

@@ -15,7 +15,26 @@ export const SYNCED_COLLECTIONS = [
   { collection: 'cards', storageKey: '@diarybyte_cards' },
   { collection: 'investments', storageKey: '@diarybyte_investments' },
   { collection: 'debts', storageKey: '@diarybyte_debts' },
+  { collection: 'autopays', storageKey: '@diarybyte_autopays' },
 ];
+
+// ------- in-app change events -------
+
+// Lets every mounted screen showing a collection see edits made elsewhere
+// (another screen, or a notification action), without re-reading storage.
+const localListeners = new Map();
+
+export function subscribeLocal(storageKey, listener) {
+  if (!localListeners.has(storageKey)) localListeners.set(storageKey, new Set());
+  localListeners.get(storageKey).add(listener);
+  return () => localListeners.get(storageKey).delete(listener);
+}
+
+export function notifyLocal(storageKey, items, source) {
+  (localListeners.get(storageKey) || []).forEach((listener) => {
+    if (listener !== source) listener(items);
+  });
+}
 
 const pendingKey = (storageKey) => `${storageKey}_pending`;
 
