@@ -18,7 +18,8 @@ import { useTheme } from '../hooks/useTheme';
 import { pullAllFromServer } from '../services/sync';
 
 export default function SettingsScreen() {
-  const { theme, isDark, toggleTheme, userName, updateUserName } = useTheme();
+  const { theme, isDark, toggleTheme, themeMode, updateThemeMode, userName, updateUserName } =
+    useTheme();
   const [nameDraft, setNameDraft] = useState(userName);
   const [syncing, setSyncing] = useState(false);
 
@@ -154,6 +155,18 @@ export default function SettingsScreen() {
         >
           <Text style={[styles.sectionTitle, { color: theme.text }]}>Appearance</Text>
           <View style={styles.settingRow}>
+            <Ionicons name="time-outline" size={22} color={theme.secondary} />
+            <Text style={[styles.settingLabel, { color: theme.text }]}>
+              Auto Dark Mode (6 PM – 6 AM)
+            </Text>
+            <Switch
+              value={themeMode === 'auto'}
+              onValueChange={(on) => updateThemeMode(on ? 'auto' : isDark ? 'dark' : 'light')}
+              trackColor={{ false: '#D1C4E9', true: theme.primary }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+          <View style={styles.settingRow}>
             <Ionicons name="moon-outline" size={22} color={theme.secondary} />
             <Text style={[styles.settingLabel, { color: theme.text }]}>Dark Mode</Text>
             <Switch
@@ -163,6 +176,11 @@ export default function SettingsScreen() {
               thumbColor="#FFFFFF"
             />
           </View>
+          <Text style={[styles.hint, { color: theme.textMuted }]}>
+            {themeMode === 'auto'
+              ? 'Switches automatically by time of day. Changing Dark Mode turns Auto off.'
+              : 'Using your chosen theme. Turn Auto on to follow the time of day.'}
+          </Text>
         </View>
 
         <View

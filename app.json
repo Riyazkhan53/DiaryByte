@@ -29,6 +29,7 @@
       "expo-font",
       "expo-router",
       "expo-mlkit-ocr",
+      "expo-notifications",
       [
         "expo-camera",
         {
