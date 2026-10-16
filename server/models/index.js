@@ -43,7 +43,7 @@ const COLLECTIONS = {
     fields: ['id', 'title', 'note', 'done', 'createdAt', 'completedAt'],
   },
   expenditure: {
-    fields: ['id', 'title', 'amount', 'category', 'date', 'createdAt'],
+    fields: ['id', 'title', 'amount', 'category', 'month', 'date', 'createdAt'],
   },
   cards: {
     fields: [
@@ -115,6 +115,10 @@ const COLLECTIONS = {
       'image',
       'createdAt',
     ],
+  },
+  // One document per month ('YYYY-MM'), holding that month's income entries.
+  months: {
+    fields: ['id', 'month', 'incomes', 'createdAt'],
   },
 };
 

@@ -45,6 +45,12 @@
         "projectId": "f2b94391-1e18-42bc-a449-e3bc9fdd8059"
       }
     },
-    "owner": "riyaz-creations"
+    "owner": "riyaz-creations",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/f2b94391-1e18-42bc-a449-e3bc9fdd8059"
+    }
   }
 }

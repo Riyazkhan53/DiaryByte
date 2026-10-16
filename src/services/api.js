@@ -14,6 +14,7 @@ const COLLECTIONS = [
   'debts',
   'autopays',
   'tickets',
+  'months',
 ];
 
 async function request(path, options = {}) {
