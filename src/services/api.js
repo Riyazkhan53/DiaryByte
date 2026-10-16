@@ -13,6 +13,7 @@ const COLLECTIONS = [
   'investments',
   'debts',
   'autopays',
+  'tickets',
 ];
 
 async function request(path, options = {}) {

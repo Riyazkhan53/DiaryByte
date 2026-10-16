@@ -87,6 +87,8 @@ export default function SettingsScreen() {
                 '@diarybyte_cards',
                 '@diarybyte_investments',
                 '@diarybyte_debts',
+                '@diarybyte_autopays',
+                '@diarybyte_tickets',
               ]);
               Alert.alert('Done', 'All data has been cleared.');
             } catch (error) {

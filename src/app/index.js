@@ -7,6 +7,7 @@ import { useTheme } from '../hooks/useTheme';
 import { useSyncedCollection } from '../hooks/useSyncedCollection';
 import { AUTOPAY_STORAGE_KEY } from '../services/autopayReminders';
 import { activeReminder, dueLabel, formatDate, money } from '../utils/autopay';
+import { TICKETS_STORAGE_KEY, ticketType, countdownLabel, daysUntil, sortTickets } from '../utils/tickets';
 
 const TABS = [
   {
@@ -98,6 +99,14 @@ const TABS = [
     gradient: ['#F8BBD0', '#F48FB1'],
   },
   {
+    key: 'tickets',
+    label: 'My Tickets',
+    description: 'Flights, trains, movies & events',
+    icon: 'ticket-outline',
+    route: '/tickets',
+    gradient: ['#C5CAE9', '#9FA8DA'],
+  },
+  {
     key: 'settings',
     label: 'Settings',
     description: 'Personalize your experience',
@@ -117,6 +126,9 @@ export default function Dashboard() {
     .map((item) => ({ item, reminder: activeReminder(item) }))
     .filter(({ reminder }) => reminder)
     .sort((a, b) => a.reminder.daysLeft - b.reminder.daysLeft);
+
+  const { items: tickets } = useSyncedCollection('tickets', TICKETS_STORAGE_KEY);
+  const soonTickets = sortTickets(tickets).upcoming.filter((t) => daysUntil(t) <= 1);
 
   const stopReminders = (item, due) => {
     persistAutopays(autopays.map((i) => (i.id === item.id ? { ...i, ackDue: due } : i)));
@@ -188,6 +200,37 @@ export default function Dashboard() {
             </TouchableOpacity>
           </View>
         ))}
+        {soonTickets.map((ticket) => {
+          const type = ticketType(ticket.type);
+          return (
+            <TouchableOpacity
+              key={ticket.id}
+              style={styles.ticketBannerWrap}
+              onPress={() => router.push({ pathname: '/tickets', params: { open: ticket.id } })}
+              activeOpacity={0.8}
+            >
+              <LinearGradient
+                colors={type.gradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.ticketBanner}
+              >
+                <Ionicons name={type.icon} size={20} color="#FFF" />
+                <View style={styles.reminderText}>
+                  <Text style={styles.ticketBannerTitle} numberOfLines={1}>
+                    {ticket.title}
+                  </Text>
+                  <Text style={styles.ticketBannerSub} numberOfLines={1}>
+                    {countdownLabel(ticket)}
+                    {ticket.time ? ` · ${ticket.time}` : ''}
+                    {ticket.seat ? ` · Seat ${ticket.seat}` : ''}
+                  </Text>
+                </View>
+                <Ionicons name="qr-code-outline" size={20} color="#FFF" />
+              </LinearGradient>
+            </TouchableOpacity>
+          );
+        })}
         {TABS.map((tab) => (
           <TouchableOpacity
             key={tab.key}
@@ -272,6 +315,17 @@ const styles = StyleSheet.create({
   reminderTitle: { fontSize: 15, fontWeight: '700' },
   reminderSub: { fontSize: 12, marginTop: 2 },
   reminderDismiss: { padding: 14 },
+  ticketBannerWrap: { width: '100%' },
+  ticketBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  ticketBannerTitle: { color: '#FFF', fontSize: 15, fontWeight: '700' },
+  ticketBannerSub: { color: 'rgba(255,255,255,0.9)', fontSize: 12, marginTop: 2 },
   card: {
     width: '47%',
     borderRadius: 18,

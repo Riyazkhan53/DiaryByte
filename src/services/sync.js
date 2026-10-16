@@ -16,6 +16,7 @@ export const SYNCED_COLLECTIONS = [
   { collection: 'investments', storageKey: '@diarybyte_investments' },
   { collection: 'debts', storageKey: '@diarybyte_debts' },
   { collection: 'autopays', storageKey: '@diarybyte_autopays' },
+  { collection: 'tickets', storageKey: '@diarybyte_tickets' },
 ];
 
 // ------- in-app change events -------

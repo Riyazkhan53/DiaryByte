@@ -35,6 +35,14 @@ DiaryByte greets you by name on a personal dashboard and keeps your daily journa
 - Private notes for things like WiFi passwords and locker codes
 - Contents hidden until you tap Reveal
 
+### My Tickets
+- Wallet-style passes for flights, trains, buses, movies, events and more
+- Save the ticket's QR / barcode as a screenshot or a camera photo
+- Route (From → To) for travel, venue for shows, plus date, time, seat and PNR
+- Upcoming / Past tabs with a countdown ("Today", "Tomorrow", "In 5 days")
+- Tap a pass to open it full screen for scanning at the gate
+- Tickets due today or tomorrow appear on the dashboard
+
 ### Settings
 - Change your name (used in the dashboard greeting)
 - Dark mode toggle (persisted)
@@ -88,6 +96,7 @@ src/
 │   ├── passwords/      # Saved passwords
 │   ├── banking/        # Banking details
 │   ├── vault/          # Personal vault
+│   ├── tickets/        # My Tickets wallet
 │   └── settings.js     # Settings
 ├── components/         # Reusable UI components
 ├── constants/          # Theme, moods, categories

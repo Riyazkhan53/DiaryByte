@@ -96,6 +96,23 @@ const COLLECTIONS = {
       'createdAt',
     ],
   },
+  tickets: {
+    fields: [
+      'id',
+      'type',
+      'title',
+      'from',
+      'to',
+      'venue',
+      'date',
+      'time',
+      'seat',
+      'bookingRef',
+      'note',
+      'image',
+      'createdAt',
+    ],
+  },
 };
 
 const modelCache = {};

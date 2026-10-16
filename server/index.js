@@ -25,7 +25,7 @@ function createApp() {
   const app = express();
 
   app.use(cors());
-  app.use(express.json({ limit: '5mb' }));
+  app.use(express.json({ limit: '25mb' }));
 
   // Simple shared-secret auth for this personal app
   const apiKey = process.env.API_KEY;
