@@ -44,7 +44,8 @@ export default function EntryDetailScreen() {
           style: 'destructive',
           onPress: async () => {
             await deleteEntry(id);
-            router.replace('/');
+            if (router.canGoBack()) router.back();
+            else router.replace('/diary');
           },
         },
       ]

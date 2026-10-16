@@ -16,6 +16,7 @@ import Header from '../../components/Header';
 import SyncRow from '../../components/SyncRow';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
+import { loanStatus, endMonthLabel } from '../../utils/debts';
 
 const STORAGE_KEY = '@diarybyte_debts';
 
@@ -35,6 +36,8 @@ const makeId = () =>
 const money = (n) =>
   `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
+const toNum = (text) => parseFloat(String(text).replace(/[^\d.]/g, ''));
+
 const typeMeta = (key) => DEBT_TYPES.find((t) => t.key === key) || DEBT_TYPES[DEBT_TYPES.length - 1];
 
 export default function DebtsScreen() {
@@ -53,6 +56,65 @@ export default function DebtsScreen() {
   const [dueDate, setDueDate] = useState('');
   const [note, setNote] = useState('');
   const [filter, setFilter] = useState('all');
+
+  // "Update" sheet: EMI + remaining EMIs (+ optional rate) → outstanding.
+  const [updating, setUpdating] = useState(null);
+  const [uEmi, setUEmi] = useState('');
+  const [uRemaining, setURemaining] = useState('');
+  const [uRate, setURate] = useState('');
+  const [uOutstanding, setUOutstanding] = useState('');
+
+  const openUpdate = (item) => {
+    setUpdating(item);
+    setUEmi(item.emi ? String(item.emi) : '');
+    setURemaining(item.remainingEmis != null ? String(item.remainingEmis) : '');
+    setURate(item.interestRate ? String(item.interestRate) : '');
+    setUOutstanding(item.outstanding != null ? String(item.outstanding) : '');
+  };
+
+  const uEmiNum = toNum(uEmi) || 0;
+  const uRemainingNum = uRemaining.trim() === '' ? null : Math.max(0, Math.round(toNum(uRemaining) || 0));
+  const uRateNum = toNum(uRate) || 0;
+  // With an EMI and a count of EMIs left we can calculate; otherwise the
+  // remaining amount is entered by hand (e.g. money borrowed from a friend).
+  const usesEmiMaths = uEmiNum > 0 && uRemainingNum != null;
+  const preview = updating
+    ? usesEmiMaths
+      ? loanStatus({
+          principal: updating.principal,
+          emi: uEmiNum,
+          remainingEmis: uRemainingNum,
+          interestRate: uRateNum,
+        })
+      : (() => {
+          const outstandingNum = Math.max(0, toNum(uOutstanding) || 0);
+          const paidOffNum = Math.max(0, (updating.principal || 0) - outstandingNum);
+          return {
+            outstanding: outstandingNum,
+            paidOff: paidOffNum,
+            paidPct: updating.principal > 0 ? Math.min((paidOffNum / updating.principal) * 100, 100) : 0,
+          };
+        })()
+    : null;
+  const updateValid = usesEmiMaths || uOutstanding.trim() !== '';
+
+  const payOneEmi = () => {
+    if (uRemainingNum != null && uRemainingNum > 0) setURemaining(String(uRemainingNum - 1));
+  };
+
+  const saveUpdate = () => {
+    if (!updating || !updateValid) return;
+    const updated = {
+      ...updating,
+      emi: uEmiNum,
+      remainingEmis: uRemainingNum,
+      interestRate: uRateNum,
+      outstanding: preview.outstanding,
+      updatedAt: new Date().toISOString(),
+    };
+    persist(items.map((i) => (i.id === updating.id ? updated : i)));
+    setUpdating(null);
+  };
 
   const openAdd = () => {
     setEditingId(null);
@@ -83,7 +145,10 @@ export default function DebtsScreen() {
     const outstandingNum = parseFloat(outstanding.replace(/[^\d.]/g, ''));
     const emiNum = parseFloat(emi.replace(/[^\d.]/g, '')) || 0;
     if (!name.trim() || !principalNum || !outstandingNum) return;
+    const existing = editingId ? items.find((i) => i.id === editingId) : null;
     const entry = {
+      // Keep fields this form doesn't edit (remaining EMIs, rate, updatedAt).
+      ...existing,
       id: editingId || makeId(),
       name: name.trim(),
       type,
@@ -232,6 +297,9 @@ export default function DebtsScreen() {
                     <Text style={[styles.cardSub, { color: theme.textSecondary }]}>
                       {item.type}
                       {item.dueDate ? ` · by ${item.dueDate}` : ''}
+                      {item.remainingEmis > 0
+                        ? ` · ${item.remainingEmis} EMI${item.remainingEmis === 1 ? '' : 's'} left · ends ${endMonthLabel(item.remainingEmis)}`
+                        : ''}
                     </Text>
                   </View>
                   <TouchableOpacity style={styles.iconBtn} onPress={() => openEdit(item)}>
@@ -273,9 +341,23 @@ export default function DebtsScreen() {
                 <View style={[styles.progressTrack, { backgroundColor: theme.surfaceAlt }]}>
                   <View style={[styles.progressFill, { width: `${itemPct}%`, backgroundColor: theme.primary }]} />
                 </View>
-                <Text style={[styles.progressLabel, { color: theme.textMuted }]}>
-                  {itemPct.toFixed(0)}% paid off
-                </Text>
+                <View style={styles.progressRow}>
+                  <Text style={[styles.progressLabel, { color: theme.textMuted }]}>
+                    {itemPct.toFixed(0)}% paid off
+                    {item.updatedAt
+                      ? ` · updated ${new Date(item.updatedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`
+                      : ''}
+                  </Text>
+                  {!cleared ? (
+                    <TouchableOpacity
+                      style={[styles.updateBtn, { backgroundColor: theme.primary }]}
+                      onPress={() => openUpdate(item)}
+                    >
+                      <Ionicons name="refresh-outline" size={14} color={theme.text} />
+                      <Text style={[styles.updateBtnText, { color: theme.text }]}>Update</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
 
                 {item.note ? (
                   <Text style={[styles.note, { color: theme.textSecondary }]} numberOfLines={2}>
@@ -399,7 +481,129 @@ export default function DebtsScreen() {
           </View>
         </View>
       </Modal>
+      <Modal visible={!!updating} transparent animationType="fade" onRequestClose={() => setUpdating(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+            {updating ? (
+              <ScrollView keyboardShouldPersistTaps="handled">
+                <Text style={[styles.modalTitle, styles.updateTitle, { color: theme.text }]}>
+                  Update {updating.name}
+                </Text>
+                <Text style={[styles.updateSub, { color: theme.textMuted }]}>
+                  Principal {money(updating.principal)} · {updating.type}
+                </Text>
+
+                <Text style={[styles.fieldLabelText, { color: theme.textSecondary }]}>EMI amount (₹ / month)</Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                  placeholder="e.g. 12500"
+                  placeholderTextColor={theme.textMuted}
+                  keyboardType="decimal-pad"
+                  value={uEmi}
+                  onChangeText={setUEmi}
+                />
+
+                <Text style={[styles.fieldLabelText, { color: theme.textSecondary }]}>Remaining EMIs</Text>
+                <View style={styles.amountRow}>
+                  <TextInput
+                    style={[styles.input, styles.smallInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                    placeholder="e.g. 24"
+                    placeholderTextColor={theme.textMuted}
+                    keyboardType="number-pad"
+                    value={uRemaining}
+                    onChangeText={setURemaining}
+                  />
+                  <TouchableOpacity
+                    style={[styles.payBtn, { borderColor: theme.primaryDark }, !(uRemainingNum > 0) && styles.btnDisabled]}
+                    onPress={payOneEmi}
+                    disabled={!(uRemainingNum > 0)}
+                  >
+                    <Ionicons name="checkmark-done-outline" size={16} color={theme.primaryDark} />
+                    <Text style={[styles.payBtnText, { color: theme.primaryDark }]}>Paid 1 EMI</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={[styles.fieldLabelText, { color: theme.textSecondary }]}>Interest rate (% per year, optional)</Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                  placeholder="e.g. 10.5 — leave blank if unknown"
+                  placeholderTextColor={theme.textMuted}
+                  keyboardType="decimal-pad"
+                  value={uRate}
+                  onChangeText={setURate}
+                />
+
+                {!usesEmiMaths ? (
+                  <>
+                    <Text style={[styles.fieldLabelText, { color: theme.textSecondary }]}>
+                      No EMI? Enter the remaining amount (₹)
+                    </Text>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                      placeholder="Remaining amount"
+                      placeholderTextColor={theme.textMuted}
+                      keyboardType="decimal-pad"
+                      value={uOutstanding}
+                      onChangeText={setUOutstanding}
+                    />
+                  </>
+                ) : null}
+
+                <View style={[styles.calcBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral }]}>
+                  <CalcRow label="Outstanding principal" value={money(preview.outstanding)} theme={theme} strong />
+                  {usesEmiMaths ? (
+                    <>
+                      <CalcRow label="Total EMIs left to pay" value={money(preview.totalPayable)} theme={theme} />
+                      {uRateNum > 0 ? (
+                        <CalcRow label="Interest left" value={money(preview.interestLeft)} theme={theme} />
+                      ) : null}
+                    </>
+                  ) : null}
+                  <CalcRow
+                    label="Principal paid off"
+                    value={`${money(preview.paidOff)} · ${preview.paidPct.toFixed(0)}%`}
+                    theme={theme}
+                  />
+                  {usesEmiMaths ? (
+                    <CalcRow label="Loan ends" value={preview.endsOn || 'Cleared 🎉'} theme={theme} />
+                  ) : null}
+                  {usesEmiMaths && !(uRateNum > 0) ? (
+                    <Text style={[styles.calcHint, { color: theme.textMuted }]}>
+                      Add the interest rate to split EMIs into principal and interest.
+                    </Text>
+                  ) : null}
+                </View>
+
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    style={[styles.cancelBtn, { backgroundColor: theme.surfaceAlt }]}
+                    onPress={() => setUpdating(null)}
+                  >
+                    <Text style={[styles.cancelText, { color: theme.textSecondary }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.saveBtn, { backgroundColor: theme.primary }, !updateValid && styles.btnDisabled]}
+                    onPress={saveUpdate}
+                    disabled={!updateValid}
+                  >
+                    <Text style={[styles.saveText, { color: theme.text }]}>Save</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
+  );
+}
+
+function CalcRow({ label, value, theme, strong }) {
+  return (
+    <View style={styles.calcRow}>
+      <Text style={[styles.calcLabel, { color: theme.textSecondary }]}>{label}</Text>
+      <Text style={[styles.calcValue, { color: theme.text }, strong && styles.calcStrong]}>{value}</Text>
+    </View>
   );
 }
 
@@ -467,7 +671,36 @@ const styles = StyleSheet.create({
   amountCol: { flex: 1 },
   amountLabel: { fontSize: 11, fontWeight: '600' },
   amountValue: { fontSize: 15, fontWeight: '700', marginTop: 2 },
-  progressLabel: { fontSize: 11, marginTop: 4 },
+  progressLabel: { flex: 1, fontSize: 11 },
+  progressRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 8 },
+  updateBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+  },
+  updateBtnText: { fontSize: 12, fontWeight: '700' },
+  updateTitle: { marginBottom: 2 },
+  updateSub: { fontSize: 13, marginBottom: 16 },
+  payBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    borderWidth: 1.5,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  payBtnText: { fontSize: 13, fontWeight: '700' },
+  calcBox: { borderWidth: 1, borderRadius: 14, padding: 14, gap: 8, marginBottom: 6 },
+  calcRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+  calcLabel: { fontSize: 13 },
+  calcValue: { fontSize: 13, fontWeight: '700' },
+  calcStrong: { fontSize: 16, color: '#C62828' },
+  calcHint: { fontSize: 11, marginTop: 2 },
   note: { fontSize: 12, marginTop: 8 },
   fab: {
     position: 'absolute',
@@ -497,7 +730,7 @@ const styles = StyleSheet.create({
   fieldLabelText: { fontSize: 12, fontWeight: '600', marginBottom: 8, letterSpacing: 0.5 },
   typeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
   amountRow: { flexDirection: 'row', gap: 12 },
-  smallInput: { flex: 1 },
+  smallInput: { flex: 1, minWidth: 0 },
   noteInput: { minHeight: 70, textAlignVertical: 'top' },
   modalActions: { flexDirection: 'row', gap: 12, marginTop: 8 },
   cancelBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center' },

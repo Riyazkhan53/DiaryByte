@@ -136,23 +136,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  // Header letters and day cells share the same 1/7 width so columns line up.
   weekDays: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
     marginBottom: 8,
   },
   weekDay: {
-    width: 36,
+    width: `${100 / 7}%`,
     textAlign: 'center',
     fontSize: 12,
     fontWeight: '600',
   },
   dayCell: {
-    width: 36,
+    width: `${100 / 7}%`,
     height: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    margin: 2,
+    marginVertical: 2,
   },
   dayText: {
     fontSize: 14,

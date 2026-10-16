@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -11,7 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import Header from '../../components/Header';
 import SearchBar from '../../components/SearchBar';
 import EntryCard from '../../components/EntryCard';
@@ -45,12 +45,12 @@ export default function HomeScreen() {
     setEntries(data);
   }, []);
 
-  useEffect(() => {
-    const initialize = async () => {
-      await fetchEntries();
-    };
-    initialize();
-  }, [fetchEntries]);
+  // Reload on focus so new or deleted entries show when coming back.
+  useFocusEffect(
+    useCallback(() => {
+      fetchEntries();
+    }, [fetchEntries])
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -101,8 +101,9 @@ export default function HomeScreen() {
                 borderColor: theme.borderNeutral,
               },
             ]}
-            onPress={() => router.push('/calendar')}
+            onPress={() => router.push('/diary/calendar')}
             activeOpacity={0.7}
+            accessibilityLabel="Open calendar"
           >
             <Ionicons
               name="calendar-outline"
@@ -149,7 +150,7 @@ export default function HomeScreen() {
             renderItem={({ item }) => (
               <EntryCard
                 entry={item}
-                onPress={() => router.push(`/entry/${item.id}`)}
+                onPress={() => router.push(`/diary/entry/${item.id}`)}
               />
             )}
             contentContainerStyle={styles.list}
@@ -178,8 +179,9 @@ export default function HomeScreen() {
             shadowColor: theme.secondary,
           },
         ]}
-        onPress={() => router.push('/new')}
+        onPress={() => router.push('/diary/new')}
         activeOpacity={0.8}
+        accessibilityLabel="New entry"
       >
         <Ionicons name="add" size={32} color="#FFF" />
       </TouchableOpacity>

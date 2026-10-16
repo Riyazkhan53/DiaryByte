@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   SafeAreaView,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import Header from '../../components/Header';
 import CalendarView from '../../components/CalendarView';
 import EntryCard from '../../components/EntryCard';
@@ -24,12 +24,12 @@ export default function CalendarScreen() {
     setEntries(data);
   }, []);
 
-  useEffect(() => {
-    const initialize = async () => {
-      await fetchEntries();
-    };
-    initialize();
-  }, [fetchEntries]);
+  // Reload on focus so new or deleted entries show when coming back.
+  useFocusEffect(
+    useCallback(() => {
+      fetchEntries();
+    }, [fetchEntries])
+  );
 
   const filteredEntries = selectedDate
     ? entries.filter(
@@ -73,7 +73,7 @@ export default function CalendarScreen() {
           renderItem={({ item }) => (
             <EntryCard
               entry={item}
-              onPress={() => router.push(`/entry/${item.id}`)}
+              onPress={() => router.push(`/diary/entry/${item.id}`)}
             />
           )}
           contentContainerStyle={styles.list}

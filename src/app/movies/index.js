@@ -60,7 +60,7 @@ const PLATFORMS = [
   'Prime',
   'Hotstar',
   'Zee5',
-  'Sony Six',
+  'Sony LIV',
   'Sun Nxt',
   'Aaha',
   'Tentkotta',

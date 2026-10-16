@@ -60,7 +60,8 @@ export default function NewEntryScreen() {
     };
 
     await addEntry(newEntry);
-    router.replace('/');
+    if (router.canGoBack()) router.back();
+    else router.replace('/diary');
   };
 
   return (
