@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -12,11 +12,15 @@ import {
   Image,
   ScrollView,
   useWindowDimensions,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
+import * as Linking from 'expo-linking';
 import { useLocalSearchParams } from 'expo-router';
+import { useShareIntentContext } from 'expo-share-intent';
 import Header from '../../components/Header';
 import SyncRow from '../../components/SyncRow';
 import DatePicker from '../../components/DatePicker';
@@ -30,6 +34,8 @@ import {
   countdownLabel,
   sortTickets,
 } from '../../utils/tickets';
+import { linkLabel, parseBookingText } from '../../utils/ticketShare';
+import { ticketFromShare } from '../../services/sharedTicket';
 
 const FILTERS = [
   { key: 'upcoming', label: 'Upcoming' },
@@ -47,6 +53,7 @@ const EMPTY_FORM = {
   time: '',
   seat: '',
   bookingRef: '',
+  link: '',
   note: '',
   image: null,
 };
@@ -78,6 +85,30 @@ export default function TicketsScreen() {
   const { open } = useLocalSearchParams();
   const activeId = viewingId || (linkDismissed ? null : open);
   const viewing = activeId ? items.find((t) => t.id === activeId) || null : null;
+
+  // Something shared from another app (BookMyShow, an airline, a screenshot):
+  // open the form pre-filled so it can be checked and saved.
+  const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
+  useEffect(() => {
+    if (!hasShareIntent) return;
+    let cancelled = false;
+    ticketFromShare(shareIntent)
+      .catch(() => ({}))
+      .then((fields) => {
+        if (cancelled) return;
+        setViewingId(null);
+        setLinkDismissed(true);
+        setEditingId(null);
+        setForm({ ...EMPTY_FORM, date: todayKey(), ...fields });
+        setFormVisible(true);
+        resetShareIntent();
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Runs once per share; shareIntent and resetShareIntent change with it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasShareIntent]);
   const setViewing = (ticket) => {
     setViewingId(ticket ? ticket.id : null);
     setLinkDismissed(true);
@@ -116,6 +147,7 @@ export default function TicketsScreen() {
       time: form.time.trim(),
       seat: form.seat.trim(),
       bookingRef: form.bookingRef.trim(),
+      link: (form.link || '').trim(),
       note: form.note.trim(),
       image: form.image,
     };
@@ -139,6 +171,33 @@ export default function TicketsScreen() {
         },
       },
     ]);
+  };
+
+  // Fill the form from a booking message copied from SMS, email or WhatsApp.
+  const pasteBookingMessage = async () => {
+    const text = await Clipboard.getStringAsync();
+    const fields = text ? parseBookingText(text) : {};
+    if (!fields.title && !fields.date && !fields.bookingRef && !fields.link) {
+      Alert.alert(
+        'Nothing to fill',
+        'Copy the booking message first (from BookMyShow, SMS, email or WhatsApp), then tap Paste again.'
+      );
+      return;
+    }
+    setForm((prev) => ({ ...prev, ...fields }));
+  };
+
+  // On phones this opens the booking app (e.g. BookMyShow) when it's installed.
+  const openLink = async (url) => {
+    if (Platform.OS === 'web') {
+      window.open(url, '_blank', 'noopener');
+      return;
+    }
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert('Could not open link', url);
+    }
   };
 
   const pickFromGallery = async () => {
@@ -208,8 +267,11 @@ export default function TicketsScreen() {
             <PassField label="Date" value={formatDate(item.date)} />
             {item.time ? <PassField label="Time" value={item.time} /> : null}
             {item.seat ? <PassField label="Seat" value={item.seat} /> : null}
-            {item.image ? (
-              <Ionicons name="qr-code-outline" size={22} color="#FFF" style={styles.qrHint} />
+            {item.image || item.link ? (
+              <View style={styles.qrHint}>
+                {item.link ? <Ionicons name="link" size={20} color="#FFF" /> : null}
+                {item.image ? <Ionicons name="qr-code-outline" size={22} color="#FFF" /> : null}
+              </View>
             ) : null}
           </View>
         </LinearGradient>
@@ -326,6 +388,17 @@ export default function TicketsScreen() {
                 <Detail label="Booking ref / PNR" value={viewing.bookingRef} theme={theme} selectable />
               </View>
 
+              {viewing.link ? (
+                <TouchableOpacity
+                  style={[styles.openLinkBtn, { backgroundColor: viewingType.gradient[1] }]}
+                  onPress={() => openLink(viewing.link)}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="open-outline" size={18} color="#FFF" />
+                  <Text style={styles.openLinkText}>{linkLabel(viewing.link)}</Text>
+                </TouchableOpacity>
+              ) : null}
+
               {viewing.image ? (
                 <View style={[styles.ticketImageWrap, { borderColor: theme.border }]}>
                   <Image
@@ -363,6 +436,15 @@ export default function TicketsScreen() {
               <Text style={[styles.modalTitle, { color: theme.text }]}>
                 {editingId ? 'Edit Ticket' : 'Add Ticket'}
               </Text>
+
+              <TouchableOpacity
+                style={[styles.pasteBtn, { borderColor: theme.secondary }]}
+                onPress={pasteBookingMessage}
+                accessibilityLabel="Fill from a copied booking message"
+              >
+                <Ionicons name="clipboard-outline" size={18} color={theme.secondary} />
+                <Text style={[styles.pasteText, { color: theme.secondary }]}>Paste booking message</Text>
+              </TouchableOpacity>
 
               <View style={styles.typeRow}>
                 {TICKET_TYPES.map((t) => {
@@ -449,6 +531,16 @@ export default function TicketsScreen() {
                 autoCapitalize="characters"
                 value={form.bookingRef}
                 onChangeText={setField('bookingRef')}
+              />
+              <TextInput
+                style={inputStyle}
+                placeholder="Ticket link (e.g. from BookMyShow, optional)"
+                placeholderTextColor={theme.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                value={form.link}
+                onChangeText={setField('link')}
               />
               <TextInput
                 style={[inputStyle, styles.noteInput]}
@@ -591,7 +683,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   passFieldValue: { color: '#FFF', fontSize: 14, fontWeight: '700', marginTop: 2 },
-  qrHint: { marginLeft: 'auto' },
+  qrHint: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 8 },
 
   fab: {
     position: 'absolute',
@@ -651,6 +743,28 @@ const styles = StyleSheet.create({
   },
   noImageText: { fontSize: 13, textAlign: 'center' },
   viewerNote: { fontSize: 14, lineHeight: 20, marginTop: 14 },
+  openLinkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 14,
+    paddingVertical: 14,
+    marginBottom: 14,
+  },
+  openLinkText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
+  pasteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    paddingVertical: 11,
+    marginBottom: 14,
+  },
+  pasteText: { fontSize: 14, fontWeight: '700' },
 
   modalOverlay: {
     flex: 1,

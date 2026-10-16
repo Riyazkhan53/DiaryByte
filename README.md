@@ -42,6 +42,9 @@ DiaryByte greets you by name on a personal dashboard and keeps your daily journa
 - Upcoming / Past tabs with a countdown ("Today", "Tomorrow", "In 5 days")
 - Tap a pass to open it full screen for scanning at the gate
 - Tickets due today or tomorrow appear on the dashboard
+- Android: share a booking from BookMyShow, an airline, IRCTC, redBus etc. (or a ticket screenshot) to DiaryByte and it opens as a pre-filled ticket
+- "Paste booking message" fills the form from a copied SMS, email or WhatsApp message
+- Save the booking link and open the ticket in its app ("Open in BookMyShow")
 
 ### Settings
 - Change your name (used in the dashboard greeting)
