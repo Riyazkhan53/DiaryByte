@@ -8,9 +8,7 @@ import {
   FlatList,
   SafeAreaView,
   Modal,
-  Alert,
   ScrollView,
-  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
@@ -18,6 +16,7 @@ import SyncRow from '../../components/SyncRow';
 import DatePicker from '../../components/DatePicker';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
+import { confirmDelete } from '../../utils/confirm';
 import {
   AUTOPAY_STORAGE_KEY,
   requestWebNotificationPermission,
@@ -38,18 +37,6 @@ import {
 
 const makeId = () =>
   `${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`;
-
-// Alert.alert has no buttons on web, so confirm there with the browser dialog.
-function confirmDelete(title, message, onConfirm) {
-  if (Platform.OS === 'web') {
-    if (window.confirm(`${title}\n\n${message}`)) onConfirm();
-    return;
-  }
-  Alert.alert(title, message, [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Delete', style: 'destructive', onPress: onConfirm },
-  ]);
-}
 
 export default function AutopaysScreen() {
   const { theme } = useTheme();

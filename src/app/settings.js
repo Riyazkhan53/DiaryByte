@@ -15,7 +15,8 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Header from '../components/Header';
 import { useTheme } from '../hooks/useTheme';
-import { pullAllFromServer } from '../services/sync';
+import { pullAllFromServer, SYNCED_COLLECTIONS } from '../services/sync';
+import { AppUpdatesSection } from '../components/AppUpdates';
 
 export default function SettingsScreen() {
   const { theme, isDark, toggleTheme, themeMode, updateThemeMode, userName, updateUserName } =
@@ -68,7 +69,7 @@ export default function SettingsScreen() {
   const clearAllData = () => {
     Alert.alert(
       'Reset All Data',
-      'This will permanently delete all diary entries, movies, passwords, banking details, cards, to-dos, expenses, investments, debts and vault items. This cannot be undone.',
+      'This will permanently delete all diary entries, movies, passwords, banking details, cards, to-dos, expenses, income, investments, debts, autopays and vault items. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -76,18 +77,9 @@ export default function SettingsScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await AsyncStorage.multiRemove([
-                '@diarybyte_entries',
-                '@diarybyte_movies',
-                '@diarybyte_passwords',
-                '@diarybyte_banking',
-                '@diarybyte_vault',
-                '@diarybyte_todo',
-                '@diarybyte_expenditure',
-                '@diarybyte_cards',
-                '@diarybyte_investments',
-                '@diarybyte_debts',
-              ]);
+              await AsyncStorage.multiRemove(
+                SYNCED_COLLECTIONS.flatMap(({ storageKey }) => [storageKey, `${storageKey}_pending`])
+              );
               Alert.alert('Done', 'All data has been cleared.');
             } catch (error) {
               console.error('Failed to clear data', error);
@@ -182,6 +174,19 @@ export default function SettingsScreen() {
               : 'Using your chosen theme. Turn Auto on to follow the time of day.'}
           </Text>
         </View>
+
+        <AppUpdatesSection
+          sectionStyle={[
+            styles.section,
+            {
+              backgroundColor: theme.surface,
+              borderColor: theme.border,
+              shadowColor: theme.shadow,
+            },
+          ]}
+          titleStyle={[styles.sectionTitle, { color: theme.text }]}
+          hintStyle={styles.hint}
+        />
 
         <View
           style={[

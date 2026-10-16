@@ -6,6 +6,7 @@ import { router } from 'expo-router';
 import { useTheme } from '../hooks/useTheme';
 import { useSyncedCollection } from '../hooks/useSyncedCollection';
 import { AUTOPAY_STORAGE_KEY } from '../services/autopayReminders';
+import { UpdateReadyBanner } from '../components/AppUpdates';
 import { activeReminder, dueLabel, formatDate, money } from '../utils/autopay';
 
 const TABS = [
@@ -159,6 +160,7 @@ export default function Dashboard() {
         contentContainerStyle={styles.grid}
         showsVerticalScrollIndicator={false}
       >
+        <UpdateReadyBanner />
         {reminders.map(({ item, reminder }) => (
           <View
             key={item.id}
