@@ -31,19 +31,20 @@ export default function ServerGate({ children }) {
     const startedAt = Date.now();
     let cancelled = false;
 
+    // Idempotent via doneRef, so it is safe to call from any effect
+    // instance (React dev StrictMode remounts make "cancelled" unreliable
+    // for one-shot completion logic).
     const finish = () => {
       if (doneRef.current) return;
       doneRef.current = true;
-      fill.stopAnimation();
+      const wait = Math.max(0, MIN_SPLASH_MS - (Date.now() - startedAt));
+      setTimeout(() => setReady(true), wait + 150);
       Animated.timing(fill, {
         toValue: 1,
         duration: 450,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: false,
-      }).start(() => {
-        const wait = Math.max(0, MIN_SPLASH_MS - (Date.now() - startedAt));
-        setTimeout(() => !cancelled && setReady(true), wait + 150);
-      });
+      }).start();
     };
 
     const tick = setInterval(() => {
@@ -64,7 +65,7 @@ export default function ServerGate({ children }) {
     const poll = async () => {
       while (!cancelled && !doneRef.current) {
         if (await checkHealth()) {
-          if (!cancelled) finish();
+          finish();
           return;
         }
         await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));

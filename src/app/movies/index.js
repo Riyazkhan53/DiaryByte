@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -109,7 +109,7 @@ export default function MoviesScreen() {
   const [platformMenuOpen, setPlatformMenuOpen] = useState(false);
   const [manualType, setManualType] = useState('Movie');
   const [status, setStatus] = useState('watchlist');
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState('watchlist');
   const [typeFilter, setTypeFilter] = useState('all');
   const [platformFilter, setPlatformFilter] = useState('all');
   const [filterModalVisible, setFilterModalVisible] = useState(false);
@@ -330,6 +330,14 @@ export default function MoviesScreen() {
 
   const statusMeta = (key) => STATUSES.find((s) => s.key === key);
 
+  const statusCounts = useMemo(() => {
+    const counts = { watchlist: 0, watching: 0, watched: 0 };
+    movies.forEach((m) => {
+      if (counts[m.status] !== undefined) counts[m.status] += 1;
+    });
+    return counts;
+  }, [movies]);
+
   const renderMovieRow = ({ item }) => {
     const meta = statusMeta(item.status);
     const thumb = posterUrl(item.posterPath, 'w92');
@@ -444,7 +452,10 @@ export default function MoviesScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <Header title="Movies Watch List" subtitle="What's next to watch" />
+      <Header
+        title="Movies Watch List"
+        subtitle={`What's next to watch · ${movies.length} ${movies.length === 1 ? 'title' : 'titles'}`}
+      />
 
       <View style={styles.content}>
         <View
@@ -487,18 +498,6 @@ export default function MoviesScreen() {
             <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} />
 
             <View style={styles.filters}>
-              <TouchableOpacity
-                style={[
-                  styles.chip,
-                  {
-                    backgroundColor: filter === 'all' ? theme.primary : theme.surface,
-                    borderColor: filter === 'all' ? theme.primaryDark : theme.borderNeutral,
-                  },
-                ]}
-                onPress={() => setFilter('all')}
-              >
-                <Text style={[styles.chipText, { color: theme.text }]}>All</Text>
-              </TouchableOpacity>
               {STATUSES.map((s) => (
                 <TouchableOpacity
                   key={s.key}
@@ -511,7 +510,9 @@ export default function MoviesScreen() {
                   ]}
                   onPress={() => setFilter(s.key)}
                 >
-                  <Text style={[styles.chipText, { color: theme.text }]}>{s.label}</Text>
+                  <Text style={[styles.chipText, { color: theme.text }]}>
+                    {s.label} ({statusCounts[s.key]})
+                  </Text>
                 </TouchableOpacity>
               ))}
               <TouchableOpacity
@@ -567,7 +568,9 @@ export default function MoviesScreen() {
                 <View style={styles.empty}>
                   <Ionicons name="film-outline" size={56} color={theme.textMuted} />
                   <Text style={[styles.emptyText, { color: theme.textMuted }]}>
-                    No movies yet. Tap + to add one!
+                    {movies.length === 0
+                      ? 'No movies yet. Tap + to add one!'
+                      : `Nothing in ${statusMeta(filter)?.label || 'this filter'} yet.`}
                   </Text>
                 </View>
               }
