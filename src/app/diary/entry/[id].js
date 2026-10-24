@@ -55,7 +55,7 @@ export default function EntryDetailScreen() {
   if (!entry) {
     return (
       <SafeAreaView
-        style={[styles.container, { backgroundColor: theme.background }]}
+        style={[styles.container, { backgroundColor: 'transparent' }]}
       >
         <Header
           title="Entry"
@@ -84,7 +84,7 @@ export default function EntryDetailScreen() {
 
   return (
     <SafeAreaView
-      style={[styles.container, { backgroundColor: theme.background }]}
+      style={[styles.container, { backgroundColor: 'transparent' }]}
     >
       <Header
         title="Entry"

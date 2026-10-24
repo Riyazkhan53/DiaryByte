@@ -9,6 +9,7 @@ import { AUTOPAY_STORAGE_KEY } from '../services/autopayReminders';
 import { UpdateReadyBanner } from '../components/AppUpdates';
 import { activeReminder, dueLabel, formatDate, money } from '../utils/autopay';
 import { TICKETS_STORAGE_KEY, ticketType, countdownLabel, daysUntil, sortTickets } from '../utils/tickets';
+import { DATES_STORAGE_KEY, sortDates, daysUntil as daysUntilDate } from '../utils/importantDates';
 
 const TABS = [
   {
@@ -108,6 +109,14 @@ const TABS = [
     gradient: ['#C5CAE9', '#9FA8DA'],
   },
   {
+    key: 'dates',
+    label: 'Important Dates',
+    description: 'Birthdays, anniversaries & occasions',
+    icon: 'calendar-outline',
+    route: '/important-dates',
+    gradient: ['#FFECB3', '#FFD54F'],
+  },
+  {
     key: 'settings',
     label: 'Settings',
     description: 'Personalize your experience',
@@ -131,6 +140,9 @@ export default function Dashboard() {
   const { items: tickets } = useSyncedCollection('tickets', TICKETS_STORAGE_KEY);
   const soonTickets = sortTickets(tickets).upcoming.filter((t) => daysUntil(t) <= 1);
 
+  const { items: dates } = useSyncedCollection('dates', DATES_STORAGE_KEY);
+  const soonDates = sortDates(dates).upcoming.filter((d) => daysUntilDate(d) <= 7);
+
   const stopReminders = (item, due) => {
     persistAutopays(autopays.map((i) => (i.id === item.id ? { ...i, ackDue: due } : i)));
   };
@@ -152,121 +164,153 @@ export default function Dashboard() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <StatusBar style={theme.statusBar} />
-      <LinearGradient
-        colors={theme.headerGradient}
-        style={styles.header}
-      >
-        <Text style={styles.greetingEmoji}>{getGreetingEmoji()}</Text>
-        <Text style={[styles.greeting, { color: theme.text }]}>
-          Hi, {getGreeting()} {userName}!!
-        </Text>
-        <Text style={[styles.welcome, { color: theme.textSecondary }]}>
-          Welcome back to your personal space
-        </Text>
-      </LinearGradient>
+    <LinearGradient colors={theme.backgroundGradient} style={styles.root}>
+      <SafeAreaView style={styles.container}>
+        <StatusBar style={theme.statusBar} />
+        <LinearGradient
+          colors={theme.headerGradient}
+          style={styles.header}
+        >
+          <Text style={styles.greetingEmoji}>{getGreetingEmoji()}</Text>
+          <Text style={[styles.greeting, { color: theme.text }]}>
+            Hi, {getGreeting()} {userName}!!
+          </Text>
+          <Text style={[styles.welcome, { color: theme.textSecondary }]}>
+            Welcome back to your personal space
+          </Text>
+        </LinearGradient>
 
-      <ScrollView
-        style={styles.content}
-        contentContainerStyle={styles.grid}
-        showsVerticalScrollIndicator={false}
-      >
-        <UpdateReadyBanner />
-        {reminders.map(({ item, reminder }) => (
-          <View
-            key={item.id}
-            style={[styles.reminder, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}
-          >
-            <TouchableOpacity
-              style={styles.reminderMain}
-              onPress={() => router.push('/autopays')}
-              activeOpacity={0.7}
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.grid}
+          showsVerticalScrollIndicator={false}
+        >
+          <UpdateReadyBanner />
+          {reminders.map(({ item, reminder }) => (
+            <View
+              key={item.id}
+              style={[
+                styles.reminder,
+                { backgroundColor: theme.glassSurfaceStrong, borderColor: theme.border },
+              ]}
             >
-              <Ionicons name="notifications" size={20} color="#E65100" />
-              <View style={styles.reminderText}>
-                <Text style={[styles.reminderTitle, { color: theme.text }]} numberOfLines={1}>
-                  {item.name} · {money(item.amount)}
-                </Text>
-                <Text style={[styles.reminderSub, { color: theme.textSecondary }]}>
-                  {dueLabel(reminder.daysLeft)} · {formatDate(reminder.due)}
-                </Text>
-              </View>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.reminderMain}
+                onPress={() => router.push('/autopays')}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="notifications" size={20} color="#E65100" />
+                <View style={styles.reminderText}>
+                  <Text style={[styles.reminderTitle, { color: theme.text }]} numberOfLines={1}>
+                    {item.name} · {money(item.amount)}
+                  </Text>
+                  <Text style={[styles.reminderSub, { color: theme.textSecondary }]}>
+                    {dueLabel(reminder.daysLeft)} · {formatDate(reminder.due)}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => stopReminders(item, reminder.due)}
+                style={styles.reminderDismiss}
+                accessibilityLabel={`Don't remind me about ${item.name} this cycle`}
+              >
+                <Ionicons name="notifications-off-outline" size={20} color={theme.textMuted} />
+              </TouchableOpacity>
+            </View>
+          ))}
+          {soonTickets.map((ticket) => {
+            const type = ticketType(ticket.type);
+            return (
+              <TouchableOpacity
+                key={ticket.id}
+                style={styles.ticketBannerWrap}
+                onPress={() => router.push({ pathname: '/tickets', params: { open: ticket.id } })}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={type.gradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.ticketBanner}
+                >
+                  <Ionicons name={type.icon} size={20} color="#FFF" />
+                  <View style={styles.reminderText}>
+                    <Text style={styles.ticketBannerTitle} numberOfLines={1}>
+                      {ticket.title}
+                    </Text>
+                    <Text style={styles.ticketBannerSub} numberOfLines={1}>
+                      {countdownLabel(ticket)}
+                      {ticket.time ? ` · ${ticket.time}` : ''}
+                      {ticket.seat ? ` · Seat ${ticket.seat}` : ''}
+                    </Text>
+                  </View>
+                  <Ionicons name="qr-code-outline" size={20} color="#FFF" />
+                </LinearGradient>
+              </TouchableOpacity>
+            );
+          })}
+          {soonDates.map((date) => (
             <TouchableOpacity
-              onPress={() => stopReminders(item, reminder.due)}
-              style={styles.reminderDismiss}
-              accessibilityLabel={`Don't remind me about ${item.name} this cycle`}
-            >
-              <Ionicons name="notifications-off-outline" size={20} color={theme.textMuted} />
-            </TouchableOpacity>
-          </View>
-        ))}
-        {soonTickets.map((ticket) => {
-          const type = ticketType(ticket.type);
-          return (
-            <TouchableOpacity
-              key={ticket.id}
+              key={date.id}
               style={styles.ticketBannerWrap}
-              onPress={() => router.push({ pathname: '/tickets', params: { open: ticket.id } })}
+              onPress={() => router.push({ pathname: '/important-dates', params: { open: date.id } })}
               activeOpacity={0.8}
             >
               <LinearGradient
-                colors={type.gradient}
+                colors={['#FFD54F', '#FFCA28']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.ticketBanner}
               >
-                <Ionicons name={type.icon} size={20} color="#FFF" />
+                <Ionicons name="calendar" size={20} color="#FFF" />
                 <View style={styles.reminderText}>
                   <Text style={styles.ticketBannerTitle} numberOfLines={1}>
-                    {ticket.title}
+                    {date.title}
                   </Text>
                   <Text style={styles.ticketBannerSub} numberOfLines={1}>
-                    {countdownLabel(ticket)}
-                    {ticket.time ? ` · ${ticket.time}` : ''}
-                    {ticket.seat ? ` · Seat ${ticket.seat}` : ''}
+                    {date.section === 'recurring' ? '🎉 Every year' : '📌 Upcoming occasion'}
+                    {' · '}
+                    {daysUntilDate(date) === 0 ? 'Today' : daysUntilDate(date) === 1 ? 'Tomorrow' : `In ${daysUntilDate(date)} days`}
                   </Text>
                 </View>
-                <Ionicons name="qr-code-outline" size={20} color="#FFF" />
+                <Ionicons name="gift-outline" size={20} color="#FFF" />
               </LinearGradient>
             </TouchableOpacity>
-          );
-        })}
-        {TABS.map((tab) => (
-          <TouchableOpacity
-            key={tab.key}
-            style={[
-              styles.card,
-              {
-                backgroundColor: theme.surface,
-                borderColor: theme.border,
-                shadowColor: theme.shadow,
-              },
-            ]}
-            onPress={() => router.push(tab.route)}
-            activeOpacity={0.7}
-          >
-            <LinearGradient
-              colors={tab.gradient}
-              style={styles.iconWrap}
+          ))}
+          {TABS.map((tab) => (
+            <TouchableOpacity
+              key={tab.key}
+              style={[
+                styles.card,
+                { backgroundColor: theme.glassSurface, borderColor: theme.border },
+              ]}
+              onPress={() => router.push(tab.route)}
+              activeOpacity={0.7}
             >
-              <Ionicons name={tab.icon} size={26} color="#37474F" />
-            </LinearGradient>
-            <Text style={[styles.cardTitle, { color: theme.text }]}>
-              {tab.label}
-            </Text>
-            <Text style={[styles.cardDescription, { color: theme.textMuted }]}>
-              {tab.description}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-    </SafeAreaView>
+              <LinearGradient
+                colors={tab.gradient}
+                style={styles.iconWrap}
+              >
+                <Ionicons name={tab.icon} size={26} color="#37474F" />
+              </LinearGradient>
+              <Text style={[styles.cardTitle, { color: theme.text }]}>
+                {tab.label}
+              </Text>
+              <Text style={[styles.cardDescription, { color: theme.textMuted }]}>
+                {tab.description}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
   container: {
     flex: 1,
   },
@@ -276,6 +320,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     borderBottomLeftRadius: 28,
     borderBottomRightRadius: 28,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    borderTopWidth: 0,
   },
   greetingEmoji: {
     fontSize: 40,

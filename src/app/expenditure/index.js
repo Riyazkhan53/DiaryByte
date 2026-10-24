@@ -422,7 +422,7 @@ export default function ExpenditureScreen() {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
       <Header title="My Expenditure" subtitle="Income and spending, month by month" />
 
       <FlatList

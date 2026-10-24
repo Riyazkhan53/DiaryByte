@@ -361,7 +361,7 @@ export default function BankingScreen() {
   const cardDigits = cardNumber.replace(/\D/g, '');
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
       <Header title="Banking Details" subtitle="Accounts and cards, synced to your cloud" />
 
       <View style={styles.content}>

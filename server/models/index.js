@@ -116,6 +116,9 @@ const COLLECTIONS = {
       'createdAt',
     ],
   },
+  dates: {
+    fields: ['id', 'title', 'date', 'section', 'note', 'updatedAt', 'createdAt'],
+  },
   // One document per month ('YYYY-MM'), holding that month's income entries.
   months: {
     fields: ['id', 'month', 'incomes', 'createdAt'],

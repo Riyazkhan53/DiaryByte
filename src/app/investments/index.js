@@ -131,7 +131,7 @@ export default function InvestmentsScreen() {
     parseFloat(current.replace(/[^\d.]/g, '')) > 0;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
       <Header title="My Investments" subtitle="Savings & investments, all in one place" />
 
       <View style={styles.content}>

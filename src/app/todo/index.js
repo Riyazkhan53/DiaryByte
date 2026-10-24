@@ -107,7 +107,7 @@ export default function TodoScreen() {
   const visible = hideDone ? items.filter((i) => !i.done) : items;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
       <Header
         title="To-Do List"
         subtitle={`Stay on top of your day · ${pendingCount} ${pendingCount === 1 ? 'task' : 'tasks'} pending`}

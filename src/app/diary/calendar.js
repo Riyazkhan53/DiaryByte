@@ -39,7 +39,7 @@ export default function CalendarScreen() {
 
   return (
     <SafeAreaView
-      style={[styles.container, { backgroundColor: theme.background }]}
+      style={[styles.container, { backgroundColor: 'transparent' }]}
     >
       <Header
         title="Calendar"

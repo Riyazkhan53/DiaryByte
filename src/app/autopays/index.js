@@ -143,7 +143,7 @@ export default function AutopaysScreen() {
   const dueSoon = items.filter((i) => activeReminder(i, today)).length;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
       <Header title="My Autopays" subtitle="Recurring payments and reminders" />
 
       <View style={styles.content}>

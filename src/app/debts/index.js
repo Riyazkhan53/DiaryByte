@@ -189,7 +189,7 @@ export default function DebtsScreen() {
     parseFloat(outstanding.replace(/[^\d.]/g, '')) > 0;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
       <Header title="My Debts" subtitle="Loans and money you owe" />
 
       <View style={styles.content}>

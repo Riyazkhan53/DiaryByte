@@ -62,7 +62,7 @@ export default function VaultScreen() {
     });
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
       <Header title="Personal Vault" subtitle="Keep your secrets safe" />
 
       <View style={styles.content}>

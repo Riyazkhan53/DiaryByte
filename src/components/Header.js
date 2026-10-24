@@ -16,17 +16,17 @@ export default function Header({ title, subtitle, showBack, onBack }) {
       <StatusBar style={theme.statusBar} />
       <View style={styles.topRow}>
         {showBack ? (
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+          <TouchableOpacity onPress={onBack} style={styles.glassButton}>
             <Ionicons name="arrow-back" size={24} color={theme.text} />
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity onPress={() => router.replace('/')} style={styles.backButton}>
+          <TouchableOpacity onPress={() => router.replace('/')} style={styles.glassButton}>
             <Ionicons name="home-outline" size={22} color={theme.text} />
           </TouchableOpacity>
         )}
         <TouchableOpacity
           onPress={toggleTheme}
-          style={[styles.themeButton, { backgroundColor: theme.surface }]}
+          style={styles.glassButton}
           activeOpacity={0.7}
         >
           <Ionicons
@@ -52,8 +52,11 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'android' ? 48 : 20,
     paddingBottom: 24,
     paddingHorizontal: 20,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    borderTopWidth: 0,
   },
   topRow: {
     flexDirection: 'row',
@@ -61,22 +64,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  backButton: {
-    padding: 8,
-    borderRadius: 12,
-  },
-  backPlaceholder: {
-    width: 40,
-  },
-
-  themeButton: {
-    padding: 8,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+  glassButton: {
+    padding: 10,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.4)',
   },
   headerTitle: {
     fontSize: 30,

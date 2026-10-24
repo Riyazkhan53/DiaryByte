@@ -102,7 +102,7 @@ export default function PasswordsScreen() {
   const maskPassword = (pwd) => '•'.repeat(Math.min(pwd.length, 12));
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
       <Header title="Saved Passwords" subtitle="Your credentials, privately stored" />
 
       <View style={styles.content}>

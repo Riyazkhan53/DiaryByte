@@ -66,7 +66,7 @@ export default function NewEntryScreen() {
 
   return (
     <SafeAreaView
-      style={[styles.container, { backgroundColor: theme.background }]}
+      style={[styles.container, { backgroundColor: 'transparent' }]}
     >
       <Header
         title="New Entry"

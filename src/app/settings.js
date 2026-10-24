@@ -91,7 +91,7 @@ export default function SettingsScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
       <Header title="Settings" subtitle="Make DiaryByte yours" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>

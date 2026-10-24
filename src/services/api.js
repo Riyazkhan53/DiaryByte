@@ -14,6 +14,7 @@ const COLLECTIONS = [
   'debts',
   'autopays',
   'tickets',
+  'dates',
   'months',
 ];
 

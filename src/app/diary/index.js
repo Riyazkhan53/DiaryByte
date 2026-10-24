@@ -80,7 +80,7 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView
-      style={[styles.container, { backgroundColor: theme.background }]}
+      style={[styles.container, { backgroundColor: 'transparent' }]}
     >
       <Header title="DiaryByte" subtitle="Your personal space" />
 

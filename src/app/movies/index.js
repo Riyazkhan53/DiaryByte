@@ -451,7 +451,7 @@ export default function MoviesScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
       <Header
         title="Movies Watch List"
         subtitle={`What's next to watch · ${movies.length} ${movies.length === 1 ? 'title' : 'titles'}`}

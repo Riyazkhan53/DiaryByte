@@ -282,7 +282,7 @@ export default function TicketsScreen() {
   const viewingType = viewing ? ticketType(viewing.type) : null;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
       <Header title="My Tickets" subtitle="All your passes in one wallet" />
 
       <View style={styles.content}>
@@ -347,7 +347,7 @@ export default function TicketsScreen() {
         onRequestClose={() => setViewing(null)}
       >
         {viewing && (
-          <SafeAreaView style={[styles.viewer, { backgroundColor: theme.background }]}>
+          <SafeAreaView style={[styles.viewer, { backgroundColor: 'transparent' }]}>
             <LinearGradient colors={viewingType.gradient} style={styles.viewerHeader}>
               <View style={styles.viewerTopRow}>
                 <TouchableOpacity onPress={() => setViewing(null)} style={styles.iconBtn} accessibilityLabel="Close">

@@ -61,7 +61,7 @@ export default function BalanceScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
       <Header title="My Account Balance" subtitle="Bank balances at a glance" />
 
       <View style={styles.content}>
