@@ -21,13 +21,13 @@ import { loanStatus, endMonthLabel } from '../../utils/debts';
 const STORAGE_KEY = '@diarybyte_debts';
 
 const DEBT_TYPES = [
-  { key: 'Personal Loan', icon: 'person-outline', color: '#FFAB91' },
-  { key: 'Home Loan', icon: 'home-outline', color: '#81D4FA' },
-  { key: 'Car Loan', icon: 'car-outline', color: '#CE93D8' },
-  { key: 'Education Loan', icon: 'school-outline', color: '#90CAF9' },
-  { key: 'Credit Card', icon: 'card-outline', color: '#FFCC80' },
-  { key: 'Borrowed', icon: 'people-outline', color: '#A5D6A7' },
-  { key: 'Other', icon: 'ellipsis-horizontal-outline', color: '#BDBDBD' },
+  { key: 'Personal Loan', icon: 'person-outline', color: '#FF6F61' },
+  { key: 'Home Loan', icon: 'home-outline', color: '#32ADE6' },
+  { key: 'Car Loan', icon: 'car-outline', color: '#AF52DE' },
+  { key: 'Education Loan', icon: 'school-outline', color: '#007AFF' },
+  { key: 'Credit Card', icon: 'card-outline', color: '#FF9500' },
+  { key: 'Borrowed', icon: 'people-outline', color: '#34C759' },
+  { key: 'Other', icon: 'ellipsis-horizontal-outline', color: '#8E8E93' },
 ];
 
 const makeId = () =>
@@ -204,7 +204,7 @@ export default function DebtsScreen() {
           <View style={styles.summaryRow}>
             <View style={styles.summaryCol}>
               <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>Total outstanding</Text>
-              <Text style={[styles.summaryValue, { color: '#C62828' }]}>
+              <Text style={[styles.summaryValue, { color: '#E5383B' }]}>
                 {money(totalOutstanding)}
               </Text>
             </View>
@@ -217,7 +217,7 @@ export default function DebtsScreen() {
             <Text style={[styles.plLabel, { color: theme.textMuted }]}>
               Paid off {money(paidOff)} of {money(totalPrincipal)}
             </Text>
-            <Text style={[styles.plValue, { color: '#2E7D32' }]}>{paidPct.toFixed(0)}%</Text>
+            <Text style={[styles.plValue, { color: '#2DA44E' }]}>{paidPct.toFixed(0)}%</Text>
           </View>
           <View style={[styles.progressTrack, { backgroundColor: theme.surfaceAlt }]}>
             <View style={[styles.progressFill, { width: `${paidPct}%`, backgroundColor: theme.primary }]} />
@@ -316,7 +316,7 @@ export default function DebtsScreen() {
                     <Text
                       style={[
                         styles.amountValue,
-                        { color: cleared ? '#2E7D32' : '#C62828' },
+                        { color: cleared ? '#2DA44E' : '#E5383B' },
                       ]}
                     >
                       {cleared ? 'Cleared' : money(item.outstanding)}
@@ -353,8 +353,8 @@ export default function DebtsScreen() {
                       style={[styles.updateBtn, { backgroundColor: theme.primary }]}
                       onPress={() => openUpdate(item)}
                     >
-                      <Ionicons name="refresh-outline" size={14} color={theme.text} />
-                      <Text style={[styles.updateBtnText, { color: theme.text }]}>Update</Text>
+                      <Ionicons name="refresh-outline" size={14} color={theme.onPrimary} />
+                      <Text style={[styles.updateBtnText, { color: theme.onPrimary }]}>Update</Text>
                     </TouchableOpacity>
                   ) : null}
                 </View>
@@ -380,7 +380,7 @@ export default function DebtsScreen() {
 
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
             <ScrollView keyboardShouldPersistTaps="handled">
               <Text style={[styles.modalTitle, { color: theme.text }]}>
                 {editingId ? 'Edit Debt' : 'Add Debt'}
@@ -472,7 +472,7 @@ export default function DebtsScreen() {
                   onPress={saveItem}
                   disabled={!formValid}
                 >
-                  <Text style={[styles.saveText, { color: theme.text }]}>
+                  <Text style={[styles.saveText, { color: theme.onPrimary }]}>
                     {editingId ? 'Update' : 'Save'}
                   </Text>
                 </TouchableOpacity>
@@ -483,7 +483,7 @@ export default function DebtsScreen() {
       </Modal>
       <Modal visible={!!updating} transparent animationType="fade" onRequestClose={() => setUpdating(null)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
             {updating ? (
               <ScrollView keyboardShouldPersistTaps="handled">
                 <Text style={[styles.modalTitle, styles.updateTitle, { color: theme.text }]}>
@@ -586,7 +586,7 @@ export default function DebtsScreen() {
                     onPress={saveUpdate}
                     disabled={!updateValid}
                   >
-                    <Text style={[styles.saveText, { color: theme.text }]}>Save</Text>
+                    <Text style={[styles.saveText, { color: theme.onPrimary }]}>Save</Text>
                   </TouchableOpacity>
                 </View>
               </ScrollView>
@@ -699,7 +699,7 @@ const styles = StyleSheet.create({
   calcRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
   calcLabel: { fontSize: 13 },
   calcValue: { fontSize: 13, fontWeight: '700' },
-  calcStrong: { fontSize: 16, color: '#C62828' },
+  calcStrong: { fontSize: 16, color: '#E5383B' },
   calcHint: { fontSize: 11, marginTop: 2 },
   note: { fontSize: 12, marginTop: 8 },
   fab: {

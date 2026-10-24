@@ -144,7 +144,7 @@ export default function VaultScreen() {
 
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>Add to Vault</Text>
             <TextInput
               style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
@@ -174,7 +174,7 @@ export default function VaultScreen() {
                 onPress={addItem}
                 disabled={!title.trim() || !content.trim()}
               >
-                <Text style={[styles.saveText, { color: theme.text }]}>Save</Text>
+                <Text style={[styles.saveText, { color: theme.onPrimary }]}>Save</Text>
               </TouchableOpacity>
             </View>
           </View>

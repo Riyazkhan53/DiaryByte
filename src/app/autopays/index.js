@@ -273,7 +273,7 @@ export default function AutopaysScreen() {
 
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
             <ScrollView keyboardShouldPersistTaps="handled">
               <Text style={[styles.modalTitle, { color: theme.text }]}>
                 {editingId ? 'Edit Autopay' : 'Add Autopay'}
@@ -371,7 +371,7 @@ export default function AutopaysScreen() {
                   onPress={saveItem}
                   disabled={!formValid}
                 >
-                  <Text style={[styles.saveText, { color: theme.text }]}>
+                  <Text style={[styles.saveText, { color: theme.onPrimary }]}>
                     {editingId ? 'Update' : 'Save'}
                   </Text>
                 </TouchableOpacity>

@@ -127,7 +127,7 @@ export default function SettingsScreen() {
               style={[styles.saveNameBtn, { backgroundColor: theme.primary }]}
               onPress={saveName}
             >
-              <Ionicons name="checkmark" size={20} color={theme.text} />
+              <Ionicons name="checkmark" size={20} color={theme.onPrimary} />
             </TouchableOpacity>
           </View>
           <Text style={[styles.hint, { color: theme.textMuted }]}>
@@ -154,7 +154,9 @@ export default function SettingsScreen() {
             <Switch
               value={themeMode === 'auto'}
               onValueChange={(on) => updateThemeMode(on ? 'auto' : isDark ? 'dark' : 'light')}
-              trackColor={{ false: '#D1C4E9', true: theme.primary }}
+              trackColor={{ false: theme.surfaceAlt, true: '#34C759' }}
+              ios_backgroundColor={theme.surfaceAlt}
+              activeThumbColor="#FFFFFF"
               thumbColor="#FFFFFF"
             />
           </View>
@@ -164,7 +166,9 @@ export default function SettingsScreen() {
             <Switch
               value={isDark}
               onValueChange={toggleTheme}
-              trackColor={{ false: '#D1C4E9', true: theme.primary }}
+              trackColor={{ false: theme.surfaceAlt, true: '#34C759' }}
+              ios_backgroundColor={theme.surfaceAlt}
+              activeThumbColor="#FFFFFF"
               thumbColor="#FFFFFF"
             />
           </View>
@@ -214,9 +218,9 @@ export default function SettingsScreen() {
             {syncing ? (
               <ActivityIndicator size="small" color={theme.text} />
             ) : (
-              <Ionicons name="cloud-download-outline" size={20} color={theme.text} />
+              <Ionicons name="cloud-download-outline" size={20} color={theme.onPrimary} />
             )}
-            <Text style={[styles.syncBtnText, { color: theme.text }]}>
+            <Text style={[styles.syncBtnText, { color: theme.onPrimary }]}>
               {syncing ? 'Syncing...' : 'Sync from Server'}
             </Text>
           </TouchableOpacity>

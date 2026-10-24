@@ -372,18 +372,18 @@ export default function BankingScreen() {
           ]}
         >
           <TouchableOpacity
-            style={[styles.tabBtn, tab === 'accounts' && { backgroundColor: theme.accent }]}
+            style={[styles.tabBtn, tab === 'accounts' && { backgroundColor: theme.primary }]}
             onPress={() => setTab('accounts')}
           >
-            <Ionicons name="business-outline" size={15} color={theme.text} style={{ marginRight: 6 }} />
-            <Text style={[styles.tabBtnText, { color: theme.text }]}>Bank Accounts</Text>
+            <Ionicons name="business-outline" size={15} color={tab === 'accounts' ? theme.onPrimary : theme.text} style={{ marginRight: 6 }} />
+            <Text style={[styles.tabBtnText, { color: tab === 'accounts' ? theme.onPrimary : theme.text }]}>Bank Accounts</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tabBtn, tab === 'cards' && { backgroundColor: theme.secondary }]}
             onPress={() => setTab('cards')}
           >
-            <Ionicons name="card-outline" size={15} color={theme.text} style={{ marginRight: 6 }} />
-            <Text style={[styles.tabBtnText, { color: theme.text }]}>Cards</Text>
+            <Ionicons name="card-outline" size={15} color={tab === 'cards' ? theme.onPrimary : theme.text} style={{ marginRight: 6 }} />
+            <Text style={[styles.tabBtnText, { color: tab === 'cards' ? theme.onPrimary : theme.text }]}>Cards</Text>
           </TouchableOpacity>
         </View>
 
@@ -502,7 +502,7 @@ export default function BankingScreen() {
 
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
             <ScrollView keyboardShouldPersistTaps="handled">
               <Text style={[styles.modalTitle, { color: theme.text }]}>Add Account</Text>
               <TextInput
@@ -573,7 +573,7 @@ export default function BankingScreen() {
                   onPress={addItem}
                   disabled={!bankName.trim() || !accountNumber.trim()}
                 >
-                  <Text style={[styles.saveText, { color: theme.text }]}>Save</Text>
+                  <Text style={[styles.saveText, { color: theme.onPrimary }]}>Save</Text>
                 </TouchableOpacity>
               </View>
             </ScrollView>
@@ -588,7 +588,7 @@ export default function BankingScreen() {
         onRequestClose={() => setCardModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
             <ScrollView keyboardShouldPersistTaps="handled">
               <Text style={[styles.modalTitle, { color: theme.text }]}>Add Card</Text>
 
@@ -606,7 +606,7 @@ export default function BankingScreen() {
                   ) : null}
                   <View style={styles.scanHeader}>
                     <Ionicons name="scan-outline" size={40} color={theme.secondary} />
-                    <Text style={[styles.scanTitle, { color: theme.text }]}>Scan Card</Text>
+                    <Text style={[styles.scanTitle, { color: theme.onPrimary }]}>Scan Card</Text>
                     <Text style={[styles.scanHint, { color: theme.textSecondary }]}>
                       Type or paste the long number printed on your card. We&apos;ll auto-format it
                       and detect the card brand.
@@ -657,7 +657,7 @@ export default function BankingScreen() {
                       onPress={applyScan}
                       disabled={scanInput.length < 12}
                     >
-                      <Text style={[styles.saveText, { color: theme.text }]}>Continue</Text>
+                      <Text style={[styles.saveText, { color: theme.onPrimary }]}>Continue</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -762,7 +762,7 @@ export default function BankingScreen() {
                       onPress={addCard}
                       disabled={!cardName.trim() || cardDigits.length < 12 || !expiry.trim() || !cvv.trim()}
                     >
-                      <Text style={[styles.saveText, { color: theme.text }]}>Save</Text>
+                      <Text style={[styles.saveText, { color: theme.onPrimary }]}>Save</Text>
                     </TouchableOpacity>
                   </View>
                 </View>

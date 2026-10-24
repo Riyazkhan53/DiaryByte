@@ -20,10 +20,10 @@ import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 const STORAGE_KEY = '@diarybyte_investments';
 
 const CATEGORIES = [
-  { key: 'Mutual Funds', icon: 'pie-chart-outline', color: '#CE93D8' },
-  { key: 'Stocks', icon: 'trending-up-outline', color: '#81D4FA' },
-  { key: 'Digital Gold', icon: 'diamond-outline', color: '#FFD54F' },
-  { key: 'FD', icon: 'lock-closed-outline', color: '#A5D6A7' },
+  { key: 'Mutual Funds', icon: 'pie-chart-outline', color: '#AF52DE' },
+  { key: 'Stocks', icon: 'trending-up-outline', color: '#32ADE6' },
+  { key: 'Digital Gold', icon: 'diamond-outline', color: '#FFCC00' },
+  { key: 'FD', icon: 'lock-closed-outline', color: '#34C759' },
 ];
 
 const DETAIL_PLACEHOLDERS = {
@@ -119,7 +119,7 @@ export default function InvestmentsScreen() {
   const totalCurrent = items.reduce((s, i) => s + (i.current || 0), 0);
   const pl = totalCurrent - totalInvested;
   const plPct = totalInvested > 0 ? (pl / totalInvested) * 100 : 0;
-  const plColor = pl >= 0 ? '#2E7D32' : '#C62828';
+  const plColor = pl >= 0 ? '#2DA44E' : '#E5383B';
 
   const visible = filter === 'all' ? items : items.filter((i) => i.category === filter);
   const visibleInvested = visible.reduce((s, i) => s + (i.invested || 0), 0);
@@ -271,7 +271,7 @@ export default function InvestmentsScreen() {
                     </Text>
                   </View>
                   <View style={[styles.plBadge, { backgroundColor: itemPl >= 0 ? '#A5D6A740' : '#EF9A9A40' }]}>
-                    <Text style={[styles.plBadgeText, { color: itemPl >= 0 ? '#2E7D32' : '#C62828' }]}>
+                    <Text style={[styles.plBadgeText, { color: itemPl >= 0 ? '#2DA44E' : '#E5383B' }]}>
                       {itemPl >= 0 ? '+' : ''}
                       {itemPlPct.toFixed(1)}%
                     </Text>
@@ -299,7 +299,7 @@ export default function InvestmentsScreen() {
 
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
             <ScrollView keyboardShouldPersistTaps="handled">
               <Text style={[styles.modalTitle, { color: theme.text }]}>
                 {editingId ? 'Edit Investment' : 'Add Investment'}
@@ -392,7 +392,7 @@ export default function InvestmentsScreen() {
                   onPress={saveItem}
                   disabled={!formValid}
                 >
-                  <Text style={[styles.saveText, { color: theme.text }]}>
+                  <Text style={[styles.saveText, { color: theme.onPrimary }]}>
                     {editingId ? 'Update' : 'Save'}
                   </Text>
                 </TouchableOpacity>

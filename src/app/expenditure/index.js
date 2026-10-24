@@ -21,14 +21,14 @@ const STORAGE_KEY = '@diarybyte_expenditure';
 const MONTHS_STORAGE_KEY = '@diarybyte_months';
 
 const CATEGORIES = [
-  { key: 'Food', icon: 'restaurant-outline', color: '#FFAB91' },
-  { key: 'Travel', icon: 'car-outline', color: '#81D4FA' },
-  { key: 'Shopping', icon: 'bag-outline', color: '#CE93D8' },
-  { key: 'Bills', icon: 'receipt-outline', color: '#FFCC80' },
-  { key: 'Entertainment', icon: 'film-outline', color: '#A5D6A7' },
-  { key: 'Health', icon: 'medkit-outline', color: '#EF9A9A' },
-  { key: 'Education', icon: 'school-outline', color: '#90CAF9' },
-  { key: 'Other', icon: 'wallet-outline', color: '#BDBDBD' },
+  { key: 'Food', icon: 'restaurant-outline', color: '#FF6F61' },
+  { key: 'Travel', icon: 'car-outline', color: '#32ADE6' },
+  { key: 'Shopping', icon: 'bag-outline', color: '#AF52DE' },
+  { key: 'Bills', icon: 'receipt-outline', color: '#FF9500' },
+  { key: 'Entertainment', icon: 'film-outline', color: '#34C759' },
+  { key: 'Health', icon: 'medkit-outline', color: '#FF3B30' },
+  { key: 'Education', icon: 'school-outline', color: '#007AFF' },
+  { key: 'Other', icon: 'wallet-outline', color: '#8E8E93' },
 ];
 
 const INCOME_SOURCES = [
@@ -298,11 +298,11 @@ export default function ExpenditureScreen() {
         <View style={styles.statsRow}>
           <View style={styles.statCol}>
             <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>Income</Text>
-            <Text style={[styles.statValue, { color: '#2E7D32' }]}>{formatAmount(totalIncome)}</Text>
+            <Text style={[styles.statValue, { color: '#2DA44E' }]}>{formatAmount(totalIncome)}</Text>
           </View>
           <View style={styles.statCol}>
             <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>Spent</Text>
-            <Text style={[styles.statValue, { color: '#C62828' }]}>{formatAmount(totalSpent)}</Text>
+            <Text style={[styles.statValue, { color: '#E5383B' }]}>{formatAmount(totalSpent)}</Text>
           </View>
         </View>
         <View style={[styles.progressTrack, { backgroundColor: theme.surfaceAlt }]}>
@@ -318,7 +318,7 @@ export default function ExpenditureScreen() {
             <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>
               {overspent ? 'Overspent' : 'In hand'}
             </Text>
-            <Text style={[styles.balanceValue, { color: overspent ? '#C62828' : '#2E7D32' }]}>
+            <Text style={[styles.balanceValue, { color: overspent ? '#E5383B' : '#2DA44E' }]}>
               {overspent ? '−' : ''}
               {formatAmount(Math.abs(balance))}
             </Text>
@@ -342,8 +342,8 @@ export default function ExpenditureScreen() {
             onPress={openAddIncome}
             accessibilityLabel="Add income"
           >
-            <Ionicons name="add" size={16} color={theme.text} />
-            <Text style={[styles.smallBtnText, { color: theme.text }]}>Income</Text>
+            <Ionicons name="add" size={16} color={theme.onPrimary} />
+            <Text style={[styles.smallBtnText, { color: theme.onPrimary }]}>Income</Text>
           </TouchableOpacity>
         </View>
         {incomes.length === 0 ? (
@@ -364,7 +364,7 @@ export default function ExpenditureScreen() {
                   <Text style={[styles.rowSub, { color: theme.textSecondary }]}>{income.source}</Text>
                 ) : null}
               </TouchableOpacity>
-              <Text style={[styles.rowAmount, { color: '#2E7D32' }]}>+{formatAmount(income.amount)}</Text>
+              <Text style={[styles.rowAmount, { color: '#2DA44E' }]}>+{formatAmount(income.amount)}</Text>
               <TouchableOpacity
                 style={styles.deleteBtn}
                 onPress={() => deleteIncome(income)}
@@ -485,7 +485,7 @@ export default function ExpenditureScreen() {
       {/* Add expense */}
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>Add Expense</Text>
             <Text style={[styles.modalSub, { color: theme.textSecondary }]}>
               {monthLabel(selectedMonth, true)}
@@ -542,7 +542,7 @@ export default function ExpenditureScreen() {
                 onPress={addItem}
                 disabled={!(title.trim() && parseAmount(amount) > 0)}
               >
-                <Text style={[styles.saveText, { color: theme.text }]}>Add</Text>
+                <Text style={[styles.saveText, { color: theme.onPrimary }]}>Add</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -552,7 +552,7 @@ export default function ExpenditureScreen() {
       {/* Add / edit income */}
       <Modal visible={incomeVisible} transparent animationType="fade" onRequestClose={() => setIncomeVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>
               {editingIncomeId ? 'Edit Income' : 'Add Income'}
             </Text>
@@ -569,7 +569,7 @@ export default function ExpenditureScreen() {
                     style={[
                       styles.chip,
                       {
-                        backgroundColor: selected ? '#A5D6A7' : theme.surfaceAlt,
+                        backgroundColor: selected ? '#34C759' : theme.surfaceAlt,
                         borderColor: selected ? '#81C784' : theme.borderNeutral,
                       },
                     ]}
@@ -611,7 +611,7 @@ export default function ExpenditureScreen() {
                 onPress={saveIncome}
                 disabled={!(parseAmount(incomeAmount) > 0)}
               >
-                <Text style={[styles.saveText, { color: theme.text }]}>
+                <Text style={[styles.saveText, { color: theme.onPrimary }]}>
                   {editingIncomeId ? 'Update' : 'Add'}
                 </Text>
               </TouchableOpacity>
@@ -623,7 +623,7 @@ export default function ExpenditureScreen() {
       {/* Add month */}
       <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>Add Month</Text>
             <View style={styles.yearRow}>
               <TouchableOpacity onPress={() => setPickerYear(pickerYear - 1)} accessibilityLabel="Previous year">

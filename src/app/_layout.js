@@ -1,28 +1,41 @@
-import { Stack } from 'expo-router';
+import { Stack, ThemeProvider as NavigationThemeProvider, DefaultTheme, DarkTheme } from 'expo-router';
 import { ShareIntentProvider } from 'expo-share-intent';
-import { LinearGradient } from 'expo-linear-gradient';
-import { StyleSheet } from 'react-native';
 import { ThemeProvider, useTheme } from '../hooks/useTheme';
 import ServerGate from '../components/ServerGate';
+import GlassBackground from '../components/GlassBackground';
 import AutopayReminderService from '../components/AutopayReminderService';
 import ShareIntentHandler from '../components/ShareIntentHandler';
 
+const renderScreen = ({ children }) => <GlassBackground>{children}</GlassBackground>;
+
 function GlassRoot() {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
+  // Navigation paints its own opaque background behind every screen unless
+  // told otherwise, which hides GlassBackground.
+  const base = isDark ? DarkTheme : DefaultTheme;
+  const navigationTheme = {
+    ...base,
+    colors: { ...base.colors, background: 'transparent', card: 'transparent', primary: theme.primary },
+  };
   return (
-    <LinearGradient colors={theme.backgroundGradient} style={styles.root}>
-      <AutopayReminderService />
-      <ServerGate>
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: 'transparent' },
-            animation: 'slide_from_right',
-          }}
-        />
-        <ShareIntentHandler />
-      </ServerGate>
-    </LinearGradient>
+    <NavigationThemeProvider value={navigationTheme}>
+      <GlassBackground>
+        <AutopayReminderService />
+        <ServerGate>
+          <Stack
+            // Each screen gets its own backdrop so slide transitions don't
+            // show the previous screen through the translucent glass.
+            screenLayout={renderScreen}
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: 'transparent' },
+              animation: 'slide_from_right',
+            }}
+          />
+          <ShareIntentHandler />
+        </ServerGate>
+      </GlassBackground>
+    </NavigationThemeProvider>
   );
 }
 
@@ -35,9 +48,3 @@ export default function RootLayout() {
     </ShareIntentProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-});

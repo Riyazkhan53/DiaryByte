@@ -141,7 +141,7 @@ export default function CardScanner({ visible, onClose, onDetected }) {
         style={[styles.allowBtn, { backgroundColor: theme.primary }]}
         onPress={requestPermission}
       >
-        <Text style={[styles.allowText, { color: theme.text }]}>Allow Camera</Text>
+        <Text style={[styles.allowText, { color: theme.onPrimary }]}>Allow Camera</Text>
       </TouchableOpacity>
       <TouchableOpacity style={styles.manualFallback} onPress={resetAndClose}>
         <Text style={[styles.manualText, { color: theme.textSecondary }]}>

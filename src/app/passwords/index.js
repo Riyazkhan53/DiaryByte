@@ -211,7 +211,7 @@ export default function PasswordsScreen() {
 
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>
               {editingId ? 'Edit Password' : 'Add Password'}
             </Text>
@@ -250,7 +250,7 @@ export default function PasswordsScreen() {
                 onPress={saveItem}
                 disabled={!site.trim() || !password.trim()}
               >
-                <Text style={[styles.saveText, { color: theme.text }]}>
+                <Text style={[styles.saveText, { color: theme.onPrimary }]}>
                   {editingId ? 'Update' : 'Save'}
                 </Text>
               </TouchableOpacity>

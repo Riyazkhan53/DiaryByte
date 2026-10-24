@@ -155,7 +155,7 @@ export default function BalanceScreen() {
         onRequestClose={() => setEditModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>Update Balance</Text>
             <Text style={[styles.modalSub, { color: theme.textSecondary }]}>
               {items.find((i) => i.id === editingId)?.bankName}
@@ -180,7 +180,7 @@ export default function BalanceScreen() {
                 style={[styles.saveBtn, { backgroundColor: theme.primary }]}
                 onPress={saveBalance}
               >
-                <Text style={[styles.saveText, { color: theme.text }]}>Save</Text>
+                <Text style={[styles.saveText, { color: theme.onPrimary }]}>Save</Text>
               </TouchableOpacity>
             </View>
           </View>

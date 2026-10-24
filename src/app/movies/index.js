@@ -31,9 +31,9 @@ import {
 const STORAGE_KEY = '@diarybyte_movies';
 
 const STATUSES = [
-  { key: 'watchlist', label: 'Watchlist', icon: 'time-outline', color: '#81D4FA' },
-  { key: 'watching', label: 'Watching', icon: 'play-outline', color: '#FFCC80' },
-  { key: 'watched', label: 'Watched', icon: 'checkmark-circle-outline', color: '#A5D6A7' },
+  { key: 'watchlist', label: 'Watchlist', icon: 'time-outline', color: '#32ADE6' },
+  { key: 'watching', label: 'Watching', icon: 'play-outline', color: '#FF9500' },
+  { key: 'watched', label: 'Watched', icon: 'checkmark-circle-outline', color: '#34C759' },
 ];
 
 const MEDIA_TYPES = [
@@ -437,7 +437,7 @@ export default function MoviesScreen() {
             <TouchableOpacity
               style={[
                 styles.cardAddBtn,
-                { backgroundColor: added ? '#A5D6A7' : theme.secondary },
+                { backgroundColor: added ? '#34C759' : theme.secondary },
               ]}
               onPress={() => addFromTMDB(item)}
               disabled={added}
@@ -474,10 +474,10 @@ export default function MoviesScreen() {
             <Ionicons
               name="list-outline"
               size={16}
-              color={theme.text}
+              color={tab === 'mylist' ? theme.onPrimary : theme.text}
               style={{ marginRight: 6 }}
             />
-            <Text style={[styles.tabBtnText, { color: theme.text }]}>My List</Text>
+            <Text style={[styles.tabBtnText, { color: tab === 'mylist' ? theme.onPrimary : theme.text }]}>My List</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tabBtn, tab === 'ott' && { backgroundColor: theme.secondary }]}
@@ -486,10 +486,10 @@ export default function MoviesScreen() {
             <Ionicons
               name="sparkles-outline"
               size={16}
-              color={theme.text}
+              color={tab === 'ott' ? theme.onPrimary : theme.text}
               style={{ marginRight: 6 }}
             />
-            <Text style={[styles.tabBtnText, { color: theme.text }]}>New on OTT</Text>
+            <Text style={[styles.tabBtnText, { color: tab === 'ott' ? theme.onPrimary : theme.text }]}>New on OTT</Text>
           </TouchableOpacity>
         </View>
 
@@ -669,10 +669,10 @@ export default function MoviesScreen() {
                       <Ionicons
                         name={t.icon}
                         size={15}
-                        color={theme.text}
+                        color={mediaType === t.key ? theme.onPrimary : theme.text}
                         style={{ marginRight: 6 }}
                       />
-                      <Text style={[styles.typeBtnText, { color: theme.text }]}>{t.label}</Text>
+                      <Text style={[styles.typeBtnText, { color: mediaType === t.key ? theme.onPrimary : theme.text }]}>{t.label}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -793,7 +793,7 @@ export default function MoviesScreen() {
 
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>Add Title</Text>
             <TextInput
               style={[
@@ -918,7 +918,7 @@ export default function MoviesScreen() {
                 onPress={addMovie}
                 disabled={!title.trim()}
               >
-                <Text style={[styles.saveText, { color: theme.text }]}>Add</Text>
+                <Text style={[styles.saveText, { color: theme.onPrimary }]}>Add</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -932,7 +932,7 @@ export default function MoviesScreen() {
         onRequestClose={() => setFilterModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>Filter Watch List</Text>
 
             <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Type</Text>
@@ -997,7 +997,7 @@ export default function MoviesScreen() {
                 style={[styles.saveBtn, { backgroundColor: theme.primary }]}
                 onPress={() => setFilterModalVisible(false)}
               >
-                <Text style={[styles.saveText, { color: theme.text }]}>Done</Text>
+                <Text style={[styles.saveText, { color: theme.onPrimary }]}>Done</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1186,7 +1186,7 @@ const styles = StyleSheet.create({
   },
   linkBtnText: { fontSize: 13, fontWeight: '600' },
   keyErrorText: {
-    color: '#EF9A9A',
+    color: '#FF3B30',
     fontSize: 13,
     marginTop: 10,
     textAlign: 'center',

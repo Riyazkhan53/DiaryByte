@@ -203,7 +203,7 @@ function GridEditorModal({ card, onClose, onSave }) {
           onPress={save}
           activeOpacity={0.8}
         >
-          <Text style={[styles.saveText, { color: theme.text }]}>
+          <Text style={[styles.saveText, { color: theme.onPrimary }]}>
             {hasGrid ? 'Update Grid' : 'Save Grid'}
           </Text>
         </TouchableOpacity>

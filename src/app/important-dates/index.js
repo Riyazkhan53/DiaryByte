@@ -149,7 +149,7 @@ export default function ImportantDatesScreen() {
               activeOpacity={0.8}
             >
               <LinearGradient
-                colors={section.key === 'recurring' ? ['#FFECB3', '#FFD54F'] : ['#B3E5FC', '#81D4FA']}
+                colors={section.key === 'recurring' ? ['#FFECB3', '#FFCC00'] : ['#B3E5FC', '#32ADE6']}
                 style={styles.dateIcon}
               >
                 <Text style={styles.dateIconText}>{formatDisplayDate(item).split(' ')[0]}</Text>
@@ -198,7 +198,7 @@ export default function ImportantDatesScreen() {
 
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>
               {editingId ? 'Edit Date' : 'Add Date'}
             </Text>
@@ -262,7 +262,7 @@ export default function ImportantDatesScreen() {
                 onPress={save}
                 disabled={!form.title.trim() || !form.date}
               >
-                <Text style={[styles.saveText, { color: theme.text }]}>{'Save'}</Text>
+                <Text style={[styles.saveText, { color: theme.onPrimary }]}>{'Save'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -271,7 +271,7 @@ export default function ImportantDatesScreen() {
 
       <Modal visible={!!viewing} transparent animationType="fade" onRequestClose={() => setViewingId(null)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
             {viewing ? (
               <>
                 <View style={styles.viewHeader}>

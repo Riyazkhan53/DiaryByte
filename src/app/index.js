@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -7,6 +8,7 @@ import { useTheme } from '../hooks/useTheme';
 import { useSyncedCollection } from '../hooks/useSyncedCollection';
 import { AUTOPAY_STORAGE_KEY } from '../services/autopayReminders';
 import { UpdateReadyBanner } from '../components/AppUpdates';
+import { GlassIconButton } from '../components/Header';
 import { activeReminder, dueLabel, formatDate, money } from '../utils/autopay';
 import { TICKETS_STORAGE_KEY, ticketType, countdownLabel, daysUntil, sortTickets } from '../utils/tickets';
 import { DATES_STORAGE_KEY, sortDates, daysUntil as daysUntilDate } from '../utils/importantDates';
@@ -18,7 +20,7 @@ const TABS = [
     description: 'Write and revisit your daily thoughts',
     icon: 'book-outline',
     route: '/diary',
-    gradient: ['#C8E6C9', '#A5D6A7'],
+    gradient: ['#FFB340', '#FF8A00'],
   },
   {
     key: 'movies',
@@ -26,7 +28,7 @@ const TABS = [
     description: 'Track films you want to watch',
     icon: 'film-outline',
     route: '/movies',
-    gradient: ['#B3E5FC', '#81D4FA'],
+    gradient: ['#FF6482', '#FF2D55'],
   },
   {
     key: 'passwords',
@@ -34,7 +36,7 @@ const TABS = [
     description: 'Keep your login credentials handy',
     icon: 'key-outline',
     route: '/passwords',
-    gradient: ['#E1BEE7', '#CE93D8'],
+    gradient: ['#8E8CF8', '#5856D6'],
   },
   {
     key: 'banking',
@@ -42,7 +44,7 @@ const TABS = [
     description: 'Accounts, cards and UPI at a glance',
     icon: 'card-outline',
     route: '/banking',
-    gradient: ['#FFCCBC', '#FFAB91'],
+    gradient: ['#5AC8FA', '#0A84FF'],
   },
   {
     key: 'vault',
@@ -50,7 +52,7 @@ const TABS = [
     description: 'Private notes and important info',
     icon: 'lock-closed-outline',
     route: '/vault',
-    gradient: ['#D1C4E9', '#B39DDB'],
+    gradient: ['#C77DFF', '#AF52DE'],
   },
   {
     key: 'todo',
@@ -58,7 +60,7 @@ const TABS = [
     description: 'Tasks to keep your day on track',
     icon: 'checkbox-outline',
     route: '/todo',
-    gradient: ['#C8E6C9', '#A5D6A7'],
+    gradient: ['#5EDC7E', '#34C759'],
   },
   {
     key: 'expenditure',
@@ -66,7 +68,7 @@ const TABS = [
     description: 'Track where your money goes',
     icon: 'wallet-outline',
     route: '/expenditure',
-    gradient: ['#FFE0B2', '#FFCC80'],
+    gradient: ['#FFD60A', '#FF9F0A'],
   },
   {
     key: 'investments',
@@ -74,7 +76,7 @@ const TABS = [
     description: 'Mutual funds, stocks, gold & FDs',
     icon: 'trending-up-outline',
     route: '/investments',
-    gradient: ['#B2DFDB', '#80CBC4'],
+    gradient: ['#4FD8C8', '#00A99D'],
   },
   {
     key: 'balance',
@@ -82,7 +84,7 @@ const TABS = [
     description: 'Bank balances at a glance',
     icon: 'cash-outline',
     route: '/balance',
-    gradient: ['#BBDEFB', '#90CAF9'],
+    gradient: ['#64B5FF', '#007AFF'],
   },
   {
     key: 'debts',
@@ -90,7 +92,7 @@ const TABS = [
     description: 'Loans and money owed',
     icon: 'alert-circle-outline',
     route: '/debts',
-    gradient: ['#FFCDD2', '#EF9A9A'],
+    gradient: ['#FF7B72', '#FF3B30'],
   },
   {
     key: 'autopays',
@@ -98,7 +100,7 @@ const TABS = [
     description: 'Recurring payments with reminders',
     icon: 'repeat-outline',
     route: '/autopays',
-    gradient: ['#F8BBD0', '#F48FB1'],
+    gradient: ['#FF8FB1', '#FF375F'],
   },
   {
     key: 'tickets',
@@ -106,7 +108,7 @@ const TABS = [
     description: 'Flights, trains, movies & events',
     icon: 'ticket-outline',
     route: '/tickets',
-    gradient: ['#C5CAE9', '#9FA8DA'],
+    gradient: ['#8C9BFF', '#5E5CE6'],
   },
   {
     key: 'dates',
@@ -114,7 +116,7 @@ const TABS = [
     description: 'Birthdays, anniversaries & occasions',
     icon: 'calendar-outline',
     route: '/important-dates',
-    gradient: ['#FFECB3', '#FFD54F'],
+    gradient: ['#FFD75E', '#FFB300'],
   },
   {
     key: 'settings',
@@ -122,12 +124,13 @@ const TABS = [
     description: 'Personalize your experience',
     icon: 'settings-outline',
     route: '/settings',
-    gradient: ['#E0E0E0', '#BDBDBD'],
+    gradient: ['#B5B5BA', '#8E8E93'],
   },
 ];
 
 export default function Dashboard() {
-  const { theme, userName } = useTheme();
+  const { theme, userName, isDark, toggleTheme } = useTheme();
+  const insets = useSafeAreaInsets();
   const { items: autopays, persist: persistAutopays } = useSyncedCollection(
     'autopays',
     AUTOPAY_STORAGE_KEY
@@ -163,22 +166,37 @@ export default function Dashboard() {
     return '🌙';
   };
 
+  const today = new Date().toLocaleDateString(undefined, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  });
+
   return (
-    <LinearGradient colors={theme.backgroundGradient} style={styles.root}>
+    <View style={styles.root}>
       <SafeAreaView style={styles.container}>
         <StatusBar style={theme.statusBar} />
-        <LinearGradient
-          colors={theme.headerGradient}
-          style={styles.header}
-        >
-          <Text style={styles.greetingEmoji}>{getGreetingEmoji()}</Text>
+        <View style={[styles.header, { paddingTop: Platform.OS === 'ios' ? 10 : insets.top + 16 }]}>
+          <View style={styles.headerRow}>
+            <Text style={[styles.dateLine, { color: theme.textMuted }]}>
+              {today.toUpperCase()}
+            </Text>
+            <GlassIconButton
+              icon={isDark ? 'sunny-outline' : 'moon-outline'}
+              onPress={toggleTheme}
+              accessibilityLabel={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            />
+          </View>
           <Text style={[styles.greeting, { color: theme.text }]}>
-            Hi, {getGreeting()} {userName}!!
+            {getGreeting()} {getGreetingEmoji()}
           </Text>
-          <Text style={[styles.welcome, { color: theme.textSecondary }]}>
+          <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
+            {userName}
+          </Text>
+          <Text style={[styles.welcome, { color: theme.textMuted }]}>
             Welcome back to your personal space
           </Text>
-        </LinearGradient>
+        </View>
 
         <ScrollView
           style={styles.content}
@@ -191,7 +209,7 @@ export default function Dashboard() {
               key={item.id}
               style={[
                 styles.reminder,
-                { backgroundColor: theme.glassSurfaceStrong, borderColor: theme.border },
+                { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow },
               ]}
             >
               <TouchableOpacity
@@ -257,7 +275,7 @@ export default function Dashboard() {
               activeOpacity={0.8}
             >
               <LinearGradient
-                colors={['#FFD54F', '#FFCA28']}
+                colors={['#FFCC00', '#FFCA28']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.ticketBanner}
@@ -282,16 +300,18 @@ export default function Dashboard() {
               key={tab.key}
               style={[
                 styles.card,
-                { backgroundColor: theme.glassSurface, borderColor: theme.border },
+                { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow },
               ]}
               onPress={() => router.push(tab.route)}
               activeOpacity={0.7}
             >
               <LinearGradient
                 colors={tab.gradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
                 style={styles.iconWrap}
               >
-                <Ionicons name={tab.icon} size={26} color="#37474F" />
+                <Ionicons name={tab.icon} size={24} color="#FFFFFF" />
               </LinearGradient>
               <Text style={[styles.cardTitle, { color: theme.text }]}>
                 {tab.label}
@@ -303,7 +323,7 @@ export default function Dashboard() {
           ))}
         </ScrollView>
       </SafeAreaView>
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -315,26 +335,32 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    paddingTop: 60,
-    paddingBottom: 32,
-    paddingHorizontal: 24,
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 28,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
-    borderTopWidth: 0,
+    paddingHorizontal: 20,
+    paddingBottom: 4,
   },
-  greetingEmoji: {
-    fontSize: 40,
-    marginBottom: 8,
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  dateLine: {
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.6,
   },
   greeting: {
-    fontSize: 26,
-    fontWeight: 'bold',
+    fontSize: 22,
+    fontWeight: '600',
+  },
+  name: {
+    fontSize: 34,
+    fontWeight: '700',
+    letterSpacing: 0.4,
   },
   welcome: {
     fontSize: 15,
-    marginTop: 6,
+    marginTop: 4,
   },
   content: {
     flex: 1,
@@ -343,21 +369,19 @@ const styles = StyleSheet.create({
     padding: 16,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 14,
-    paddingBottom: 30,
+    gap: 12,
+    paddingBottom: 40,
   },
   reminder: {
     width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 16,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#FFB74D',
     paddingLeft: 14,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 1,
+    shadowRadius: 24,
   },
   reminderMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
   reminderText: { flex: 1 },
@@ -369,34 +393,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    borderRadius: 16,
+    borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
   ticketBannerTitle: { color: '#FFF', fontSize: 15, fontWeight: '700' },
   ticketBannerSub: { color: 'rgba(255,255,255,0.9)', fontSize: 12, marginTop: 2 },
   card: {
-    width: '47%',
-    borderRadius: 18,
+    width: '47.8%',
+    borderRadius: 22,
     padding: 16,
     borderWidth: 1,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 3,
+    // No Android elevation: it draws a grey shadow through translucent views.
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 1,
+    shadowRadius: 24,
   },
   iconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
+    width: 46,
+    height: 46,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
   },
   cardTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    marginBottom: 6,
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
   },
   cardDescription: {
     fontSize: 12,

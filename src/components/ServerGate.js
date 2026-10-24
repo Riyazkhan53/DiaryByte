@@ -93,7 +93,7 @@ export default function ServerGate({ children }) {
   });
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View style={styles.container}>
       <StatusBar style={theme.statusBar} />
 
       <View
@@ -107,7 +107,7 @@ export default function ServerGate({ children }) {
       >
         <Animated.View style={[styles.fill, { height: fillHeight }]}>
           <LinearGradient
-            colors={theme.headerGradient}
+            colors={[theme.primary, theme.secondary]}
             start={{ x: 0, y: 1 }}
             end={{ x: 1, y: 0 }}
             style={styles.fillGradient}

@@ -53,7 +53,7 @@ function UpdateReadyBannerInner() {
         style={[styles.bannerBtn, { backgroundColor: theme.primary }]}
         onPress={() => Updates.reloadAsync()}
       >
-        <Text style={[styles.bannerBtnText, { color: theme.text }]}>Restart</Text>
+        <Text style={[styles.bannerBtnText, { color: theme.onPrimary }]}>Restart</Text>
       </TouchableOpacity>
     </View>
   );

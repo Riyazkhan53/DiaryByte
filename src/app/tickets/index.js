@@ -431,7 +431,7 @@ export default function TicketsScreen() {
       {/* Add / edit form */}
       <Modal visible={formVisible} transparent animationType="fade" onRequestClose={() => setFormVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modal, { backgroundColor: theme.surface }]}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
             <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
               <Text style={[styles.modalTitle, { color: theme.text }]}>
                 {editingId ? 'Edit Ticket' : 'Add Ticket'}
@@ -595,7 +595,7 @@ export default function TicketsScreen() {
                   onPress={saveTicket}
                   disabled={!formValid}
                 >
-                  <Text style={[styles.saveText, { color: theme.text }]}>
+                  <Text style={[styles.saveText, { color: theme.onPrimary }]}>
                     {editingId ? 'Update' : 'Save'}
                   </Text>
                 </TouchableOpacity>
