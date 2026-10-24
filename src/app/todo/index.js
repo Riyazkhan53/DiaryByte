@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -17,6 +17,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 
 const STORAGE_KEY = '@diarybyte_todo';
+const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 export default function TodoScreen() {
   const { theme } = useTheme();
@@ -27,7 +28,25 @@ export default function TodoScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
-  const [hideDone, setHideDone] = useState(false);
+  const [hideDone, setHideDone] = useState(true);
+
+  // Auto-delete completed tasks one week after they were completed.
+  const cleanedRef = useRef(false);
+  useEffect(() => {
+    if (cleanedRef.current) return;
+    const now = Date.now();
+    const hasStale = items.some(
+      (i) => i.done && i.completedAt && now - new Date(i.completedAt).getTime() > ONE_WEEK_MS
+    );
+    if (!hasStale) return;
+    cleanedRef.current = true;
+    persist(
+      items.filter(
+        (i) => !(i.done && i.completedAt && now - new Date(i.completedAt).getTime() > ONE_WEEK_MS)
+      )
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
 
   const openAdd = () => {
     setTitle('');
@@ -84,11 +103,15 @@ export default function TodoScreen() {
   };
 
   const doneCount = items.filter((i) => i.done).length;
+  const pendingCount = items.length - doneCount;
   const visible = hideDone ? items.filter((i) => !i.done) : items;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <Header title="To-Do List" subtitle="Stay on top of your day" />
+      <Header
+        title="To-Do List"
+        subtitle={`Stay on top of your day · ${pendingCount} ${pendingCount === 1 ? 'task' : 'tasks'} pending`}
+      />
 
       <View style={styles.content}>
         <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} />
@@ -117,7 +140,7 @@ export default function TodoScreen() {
               style={{ marginRight: 5 }}
             />
             <Text style={[styles.pillText, { color: theme.text }]}>
-              {hideDone ? 'Pending only' : 'All tasks'}
+              {hideDone ? `Pending (${pendingCount})` : `All (${items.length})`}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.clearBtn} onPress={clearCompleted} disabled={doneCount === 0}>
@@ -128,6 +151,12 @@ export default function TodoScreen() {
             />
           </TouchableOpacity>
         </View>
+
+        {doneCount > 0 ? (
+          <Text style={[styles.autoDeleteHint, { color: theme.textMuted }]}>
+            Completed tasks are removed automatically after 1 week.
+          </Text>
+        ) : null}
 
         <FlatList
           data={visible}
@@ -238,7 +267,8 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
   list: { paddingBottom: 90 },
-  statsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
+  statsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  autoDeleteHint: { fontSize: 11, marginBottom: 12, marginLeft: 2 },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',

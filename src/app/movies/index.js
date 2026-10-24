@@ -498,6 +498,20 @@ export default function MoviesScreen() {
             <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} />
 
             <View style={styles.filters}>
+              <TouchableOpacity
+                style={[
+                  styles.chip,
+                  {
+                    backgroundColor: filter === 'all' ? theme.primary : theme.surface,
+                    borderColor: filter === 'all' ? theme.primaryDark : theme.borderNeutral,
+                  },
+                ]}
+                onPress={() => setFilter('all')}
+              >
+                <Text style={[styles.chipText, { color: theme.text }]}>
+                  All ({movies.length})
+                </Text>
+              </TouchableOpacity>
               {STATUSES.map((s) => (
                 <TouchableOpacity
                   key={s.key}
