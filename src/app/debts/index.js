@@ -662,7 +662,7 @@ export default function DebtsScreen() {
           </View>
         </View>
         <Text style={[styles.hint, { color: theme.textMuted }]}>
-          Tick a bill when you pay it — it's added to My Expenditure for the month it's due. Use the copy icon to add next month's bill.
+          Tick a bill when you pay it — it&apos;s added to My Expenditure for the month it&apos;s due. Use the copy icon to add next month&apos;s bill.
         </Text>
       </View>
       <Text style={[styles.listTitle, { color: theme.text }]}>Pending</Text>
@@ -810,7 +810,7 @@ export default function DebtsScreen() {
                     />
                   </View>
                   <Text style={[styles.hint, styles.hintTight, { color: theme.textMuted }]}>
-                    Leave EMI blank to calculate it. If your bank's EMI is slightly different, type it in.
+                    Leave EMI blank to calculate it. If your bank&apos;s EMI is slightly different, type it in.
                   </Text>
 
                   <View style={styles.amountRow}>
