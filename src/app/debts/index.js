@@ -41,6 +41,17 @@ import {
 
 const STORAGE_KEY = '@diarybyte_debts';
 const EXPENSES_KEY = '@diarybyte_expenditure';
+const CARDS_KEY = '@diarybyte_cards';
+
+// Short label for a card saved in Banking & Cards, e.g. "HDFC Visa ••4242".
+// Only this label and the last 4 digits are copied onto a bill, never the
+// full number or CVV.
+const savedCardLabel = (card) => {
+  const last4 = (card.number || '').slice(-4);
+  const brand = card.brand && card.brand !== 'Card' ? card.brand : '';
+  const base = [card.bankName, brand].filter(Boolean).join(' ') || card.name || 'Card';
+  return last4 ? `${base} ••${last4}` : base;
+};
 
 const SECTIONS = [
   { key: 'emi', label: 'My EMIs', icon: 'calendar-outline' },
@@ -102,12 +113,14 @@ const EMPTY_LOAN = {
   note: '',
 };
 
-const EMPTY_BILL = { name: '', billType: 'Electricity', amount: '', minDue: '', dueDate: '', note: '' };
+const EMPTY_BILL = { name: '', billType: 'Electricity', amount: '', minDue: '', dueDate: '', note: '', cardId: null, cardLast4: '' };
 
 export default function DebtsScreen() {
   const { theme } = useTheme();
   const { items, synced, persist, pulling, pullInfo, pullNow } = useSyncedCollection('debts', STORAGE_KEY);
   const { items: expenses, persist: persistExpenses } = useSyncedCollection('expenditure', EXPENSES_KEY);
+  const { items: savedCards } = useSyncedCollection('cards', CARDS_KEY);
+  const creditCards = savedCards.filter((c) => c.cardType === 'Credit');
   const thisMonth = currentMonthKey();
   const today = todayKey();
 
@@ -303,6 +316,8 @@ export default function DebtsScreen() {
       minDue: item.minDue ? String(item.minDue) : '',
       dueDate: item.dueDate || today,
       note: item.note || '',
+      cardId: item.cardId || null,
+      cardLast4: item.cardLast4 || '',
     });
     setBillVisible(true);
   };
@@ -320,6 +335,8 @@ export default function DebtsScreen() {
       billType: section === 'bill' ? bill.billType : undefined,
       amount: toNum(bill.amount),
       minDue: section === 'card' ? toNum(bill.minDue) || 0 : undefined,
+      cardId: section === 'card' ? bill.cardId || undefined : undefined,
+      cardLast4: section === 'card' ? bill.cardLast4 || undefined : undefined,
       dueDate: bill.dueDate,
       month: bill.dueDate.slice(0, 7),
       paid: existing?.paid || false,
@@ -901,8 +918,41 @@ export default function DebtsScreen() {
                 placeholder={section === 'card' ? 'Card (e.g. HDFC Millennia)' : 'Bill name (e.g. TNEB, Airtel)'}
                 placeholderTextColor={theme.textMuted}
                 value={bill.name}
-                onChangeText={setBillField('name')}
+                // Typing a different name unlinks the picked card.
+                onChangeText={(name) => setBill((f) => ({ ...f, name, cardId: null, cardLast4: '' }))}
               />
+              {section === 'card' ? (
+                <>
+                  <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Pick from your cards</Text>
+                  {creditCards.length ? (
+                    <View style={styles.chipWrap}>
+                      {creditCards.map((card) => {
+                        const selected = bill.cardId === card.id;
+                        return (
+                          <TouchableOpacity
+                            key={card.id}
+                            style={[styles.chip, styles.cardChip, { backgroundColor: selected ? theme.secondary : theme.surfaceAlt, borderColor: selected ? theme.secondary : theme.borderNeutral }]}
+                            onPress={() =>
+                              setBill((f) =>
+                                selected
+                                  ? { ...f, cardId: null, cardLast4: '' }
+                                  : { ...f, name: savedCardLabel(card), cardId: card.id, cardLast4: (card.number || '').slice(-4) }
+                              )
+                            }
+                          >
+                            <Ionicons name="card-outline" size={14} color={selected ? '#FFF' : theme.text} />
+                            <Text style={[styles.chipText, { color: selected ? '#FFF' : theme.text }]}>{savedCardLabel(card)}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  ) : (
+                    <Text style={[styles.cardHint, { color: theme.textMuted }]}>
+                      Credit cards you add in Banking &amp; Cards show up here, so you don&apos;t have to type them again.
+                    </Text>
+                  )}
+                </>
+              ) : null}
               {section === 'bill' ? (
                 <>
                   <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Type</Text>
@@ -1154,6 +1204,8 @@ const styles = StyleSheet.create({
   paidToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, marginBottom: 10 },
   chip: { paddingVertical: 7, paddingHorizontal: 14, borderRadius: 18, borderWidth: 1 },
   chipText: { fontSize: 13, fontWeight: '600' },
+  cardChip: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  cardHint: { fontSize: 12, marginBottom: 14 },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
   empty: { alignItems: 'center', marginTop: 40 },
   emptyText: { marginTop: 12, fontSize: 14, textAlign: 'center', paddingHorizontal: 30 },
