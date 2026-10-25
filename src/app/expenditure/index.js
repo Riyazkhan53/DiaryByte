@@ -16,15 +16,27 @@ import SyncRow from '../../components/SyncRow';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 import { confirmDelete } from '../../utils/confirm';
+import {
+  addMonths,
+  duesForMonth,
+  dueFromSourceId,
+  markDuePaid,
+  markDueUnpaid,
+  shortDate,
+} from '../../utils/debts';
+import { todayKey } from '../../utils/autopay';
 
 const STORAGE_KEY = '@diarybyte_expenditure';
 const MONTHS_STORAGE_KEY = '@diarybyte_months';
+const DEBTS_STORAGE_KEY = '@diarybyte_debts';
 
 const CATEGORIES = [
   { key: 'Food', icon: 'restaurant-outline', color: '#FF6F61' },
   { key: 'Travel', icon: 'car-outline', color: '#32ADE6' },
   { key: 'Shopping', icon: 'bag-outline', color: '#AF52DE' },
   { key: 'Bills', icon: 'receipt-outline', color: '#FF9500' },
+  { key: 'EMI', icon: 'calendar-outline', color: '#5856D6' },
+  { key: 'Credit Card', icon: 'card-outline', color: '#FF375F' },
   { key: 'Entertainment', icon: 'film-outline', color: '#34C759' },
   { key: 'Health', icon: 'medkit-outline', color: '#FF3B30' },
   { key: 'Education', icon: 'school-outline', color: '#007AFF' },
@@ -39,6 +51,16 @@ const INCOME_SOURCES = [
   { key: 'Interest', icon: 'trending-up-outline' },
   { key: 'Other', icon: 'cash-outline' },
 ];
+
+// How a month that ended in the red was covered.
+const ADJUSTMENT_KINDS = [
+  { key: 'borrowed', label: 'Borrowed', icon: 'people-outline' },
+  { key: 'savings', label: 'From savings', icon: 'wallet-outline' },
+  { key: 'extra', label: 'Extra income', icon: 'add-circle-outline' },
+];
+
+const adjustmentMeta = (key) =>
+  ADJUSTMENT_KINDS.find((k) => k.key === key) || ADJUSTMENT_KINDS[ADJUSTMENT_KINDS.length - 1];
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -89,6 +111,7 @@ export default function ExpenditureScreen() {
     'months',
     MONTHS_STORAGE_KEY
   );
+  const { items: debts, persist: persistDebts } = useSyncedCollection('debts', DEBTS_STORAGE_KEY);
   const currentMonth = monthKeyOf(new Date());
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [filter, setFilter] = useState('all');
@@ -106,12 +129,20 @@ export default function ExpenditureScreen() {
   const [incomeNote, setIncomeNote] = useState('');
   const [incomeAmount, setIncomeAmount] = useState('');
 
+  // "How was the shortfall covered?" modal
+  const [adjustVisible, setAdjustVisible] = useState(false);
+  const [adjustKind, setAdjustKind] = useState('borrowed');
+  const [adjustAmount, setAdjustAmount] = useState('');
+  const [adjustNote, setAdjustNote] = useState('');
+  const [adjustAddDebt, setAdjustAddDebt] = useState(true);
+
   // Month picker
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerYear, setPickerYear] = useState(new Date().getFullYear());
 
   const monthDoc = months.find((m) => m.month === selectedMonth);
   const incomes = monthDoc?.incomes || [];
+  const adjustments = monthDoc?.adjustments || [];
 
   const monthKeys = Array.from(
     new Set([
@@ -122,13 +153,15 @@ export default function ExpenditureScreen() {
     ])
   ).sort((a, b) => b.localeCompare(a));
 
-  const saveMonthIncomes = (monthKey, updatedIncomes) => {
+  const saveMonthDoc = (monthKey, changes) => {
     const existing = months.find((m) => m.month === monthKey);
     const doc = existing
-      ? { ...existing, incomes: updatedIncomes }
-      : { id: monthKey, month: monthKey, incomes: updatedIncomes, createdAt: new Date().toISOString() };
+      ? { ...existing, ...changes }
+      : { id: monthKey, month: monthKey, incomes: [], createdAt: new Date().toISOString(), ...changes };
     persistMonths(existing ? months.map((m) => (m.month === monthKey ? doc : m)) : [doc, ...months]);
   };
+
+  const saveMonthIncomes = (monthKey, updatedIncomes) => saveMonthDoc(monthKey, { incomes: updatedIncomes });
 
   // ------- expenses -------
 
@@ -157,9 +190,81 @@ export default function ExpenditureScreen() {
     setModalVisible(false);
   };
 
-  const deleteItem = (id) => {
-    confirmDelete('Delete Expense', 'Remove this expense?', () =>
-      persist(items.filter((i) => i.id !== id))
+  const deleteItem = (item) => {
+    const due = dueFromSourceId(item.sourceId, debts);
+    confirmDelete(
+      'Delete Expense',
+      due ? 'Remove this payment? It will be marked unpaid in My Debts too.' : 'Remove this expense?',
+      () => {
+        if (due) {
+          const result = markDueUnpaid(due, debts, items);
+          persistDebts(result.debts);
+          persist(result.expenses);
+        } else {
+          persist(items.filter((i) => i.id !== item.id));
+        }
+      }
+    );
+  };
+
+  // ------- EMIs and bills due this month -------
+
+  const dues = duesForMonth(debts, selectedMonth);
+  const pendingDues = dues.filter((d) => !d.paid);
+  const pendingDuesTotal = pendingDues.reduce((sum, d) => sum + d.amount, 0);
+
+  const toggleDue = (due) => {
+    const result = due.paid ? markDueUnpaid(due, debts, items) : markDuePaid(due, debts, items);
+    persistDebts(result.debts);
+    persist(result.expenses);
+  };
+
+  // ------- covering a shortfall -------
+
+  const openAdjust = (suggested) => {
+    setAdjustKind('borrowed');
+    setAdjustAmount(suggested > 0 ? String(Math.round(suggested)) : '');
+    setAdjustNote('');
+    setAdjustAddDebt(true);
+    setAdjustVisible(true);
+  };
+
+  const saveAdjust = () => {
+    const parsed = parseAmount(adjustAmount);
+    if (!parsed || parsed <= 0) return;
+    const entry = {
+      id: makeId(),
+      kind: adjustKind,
+      amount: parsed,
+      note: adjustNote.trim(),
+      createdAt: new Date().toISOString(),
+    };
+    // Money borrowed to cover the month is a debt to repay — track it there.
+    if (adjustKind === 'borrowed' && adjustAddDebt) {
+      const debtId = makeId();
+      entry.debtId = debtId;
+      persistDebts([
+        {
+          id: debtId,
+          section: 'emi',
+          manual: true,
+          name: adjustNote.trim() || 'Borrowed',
+          type: 'Borrowed',
+          principal: parsed,
+          outstanding: parsed,
+          note: `Borrowed to cover ${monthLabel(selectedMonth, true)}`,
+          createdAt: new Date().toISOString(),
+        },
+        ...debts,
+      ]);
+    }
+    saveMonthDoc(selectedMonth, { adjustments: [...adjustments, entry] });
+    setAdjustVisible(false);
+  };
+
+  const deleteAdjust = (adj) => {
+    confirmDelete('Remove', `Remove ${adjustmentMeta(adj.kind).label} ${formatAmount(adj.amount)}?`, () =>
+      saveMonthDoc(selectedMonth, { adjustments: adjustments.filter((a) => a.id !== adj.id) })
     );
   };
 
@@ -235,6 +340,30 @@ export default function ExpenditureScreen() {
   }, {});
   const topCategory = Object.entries(monthByCategory).sort((a, b) => b[1] - a[1])[0];
 
+  // Month-end report: where the money went, and whether a gap was covered.
+  const outflow = [
+    { key: 'EMI', label: 'EMIs' },
+    { key: 'Credit Card', label: 'Credit card bills' },
+    { key: 'Bills', label: 'Other bills' },
+  ].map((g) => ({ ...g, amount: monthByCategory[g.key] || 0 }));
+  const otherSpend = totalSpent - outflow.reduce((sum, g) => sum + g.amount, 0);
+  const shortfall = Math.max(0, -balance);
+  const covered = adjustments.reduce((sum, a) => sum + (a.amount || 0), 0);
+  const untallied = Math.max(0, shortfall - covered);
+  const monthOver = selectedMonth < currentMonth;
+
+  // Last month ended short and nothing (or not enough) was recorded to cover it.
+  const lastMonth = addMonths(currentMonth, -1);
+  const lastMonthGap = (() => {
+    const doc = months.find((m) => m.month === lastMonth);
+    const income = (doc?.incomes || []).reduce((sum, i) => sum + (i.amount || 0), 0);
+    const spent = items
+      .filter((i) => expenseMonth(i) === lastMonth)
+      .reduce((sum, i) => sum + (i.amount || 0), 0);
+    const cover = (doc?.adjustments || []).reduce((sum, a) => sum + (a.amount || 0), 0);
+    return Math.max(0, spent - income - cover);
+  })();
+
   const visible = filter === 'all' ? monthItems : monthItems.filter((i) => i.category === filter);
   const visibleTotal = visible.reduce((sum, i) => sum + (i.amount || 0), 0);
 
@@ -253,6 +382,22 @@ export default function ExpenditureScreen() {
   const listHeader = (
     <View>
       <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} />
+
+      {selectedMonth === currentMonth && lastMonthGap > 0 ? (
+        <TouchableOpacity
+          style={[styles.banner, { backgroundColor: '#E5383B1F', borderColor: '#E5383B66' }]}
+          onPress={() => {
+            setSelectedMonth(lastMonth);
+            setFilter('all');
+          }}
+        >
+          <Ionicons name="alert-circle-outline" size={20} color="#E5383B" />
+          <Text style={[styles.bannerText, { color: theme.text }]}>
+            {monthLabel(lastMonth, true)} ended {formatAmount(lastMonthGap)} short. Tap to tally it — borrowed, from savings or extra income.
+          </Text>
+          <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+        </TouchableOpacity>
+      ) : null}
 
       <ScrollView
         horizontal
@@ -332,6 +477,28 @@ export default function ExpenditureScreen() {
             {topCategory ? `\nmostly ${topCategory[0]}` : ''}
           </Text>
         </View>
+        {pendingDuesTotal > 0 ? (
+          <View style={[styles.dueLine, { borderTopColor: theme.borderNeutral }]}>
+            <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>
+              Still to pay · {pendingDues.length} EMI{pendingDues.length === 1 ? '' : 's'}/bill{pendingDues.length === 1 ? '' : 's'}
+            </Text>
+            <Text style={[styles.dueLineValue, { color: '#E5383B' }]}>{formatAmount(pendingDuesTotal)}</Text>
+          </View>
+        ) : null}
+        {pendingDuesTotal > 0 ? (
+          <View style={styles.dueLineTight}>
+            <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>Left after paying them</Text>
+            <Text
+              style={[
+                styles.dueLineValue,
+                { color: balance - pendingDuesTotal < 0 ? '#E5383B' : '#2DA44E' },
+              ]}
+            >
+              {balance - pendingDuesTotal < 0 ? '−' : ''}
+              {formatAmount(Math.abs(balance - pendingDuesTotal))}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       <View style={cardStyle}>
@@ -375,6 +542,123 @@ export default function ExpenditureScreen() {
             </View>
           ))
         )}
+      </View>
+
+      {dues.length > 0 ? (
+        <View style={cardStyle}>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.cardTitle, styles.noMargin, { color: theme.text }]}>EMIs & Bills</Text>
+            <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>
+              {dues.length - pendingDues.length}/{dues.length} paid
+            </Text>
+          </View>
+          {dues.map((due) => {
+            const overdue = !due.paid && due.dueDate && due.dueDate < todayKey();
+            const meta = categoryMeta(due.category);
+            return (
+              <View key={due.key} style={styles.incomeRow}>
+                <View style={[styles.catIcon, styles.dueIcon, { backgroundColor: meta.color + '40' }]}>
+                  <Ionicons name={meta.icon} size={16} color="#455A64" />
+                </View>
+                <View style={styles.rowBody}>
+                  <Text style={[styles.rowTitle, { color: due.paid ? theme.textMuted : theme.text }]} numberOfLines={1}>
+                    {due.title}
+                  </Text>
+                  <Text style={[styles.rowSub, { color: overdue ? theme.danger : theme.textSecondary }]}>
+                    {due.paid ? 'Paid' : overdue ? 'Overdue' : 'Due'} {shortDate(due.dueDate)} · {due.subtitle}
+                  </Text>
+                </View>
+                <Text style={[styles.rowAmount, { color: due.paid ? theme.textMuted : theme.text }]}>
+                  {formatAmount(due.amount)}
+                </Text>
+                <TouchableOpacity
+                  style={[
+                    styles.checkBtn,
+                    {
+                      borderColor: due.paid ? '#2DA44E' : theme.borderNeutral,
+                      backgroundColor: due.paid ? '#2DA44E' : 'transparent',
+                    },
+                  ]}
+                  onPress={() => toggleDue(due)}
+                  accessibilityLabel={due.paid ? `Mark ${due.title} unpaid` : `Mark ${due.title} paid`}
+                >
+                  <Ionicons name="checkmark" size={16} color={due.paid ? '#FFF' : theme.textMuted} />
+                </TouchableOpacity>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
+
+      <View style={cardStyle}>
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.cardTitle, styles.noMargin, { color: theme.text }]}>
+            {monthOver ? 'Month-end report' : 'Month so far'}
+          </Text>
+          {shortfall > 0 ? (
+            <View
+              style={[
+                styles.badge,
+                { backgroundColor: untallied > 0 ? '#E5383B22' : '#2DA44E22' },
+              ]}
+            >
+              <Text style={[styles.badgeText, { color: untallied > 0 ? '#E5383B' : '#2DA44E' }]}>
+                {untallied > 0 ? 'Not tallied' : 'Tallied'}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+        <ReportRow label="Income" value={formatAmount(totalIncome)} color="#2DA44E" theme={theme} strong />
+        {outflow.map((g) => (
+          <ReportRow key={g.key} label={g.label} value={`− ${formatAmount(g.amount)}`} theme={theme} indent />
+        ))}
+        <ReportRow label="Other spending" value={`− ${formatAmount(otherSpend)}`} theme={theme} indent />
+        <ReportRow label="Total outgoing" value={formatAmount(totalSpent)} color="#E5383B" theme={theme} strong />
+        <View style={[styles.reportDivider, { backgroundColor: theme.borderNeutral }]} />
+        <ReportRow
+          label={balance < 0 ? 'Shortfall' : 'Saved'}
+          value={`${balance < 0 ? '−' : ''}${formatAmount(Math.abs(balance))}`}
+          color={balance < 0 ? '#E5383B' : '#2DA44E'}
+          theme={theme}
+          strong
+        />
+
+        {shortfall > 0 ? (
+          <View style={[styles.coverBox, { backgroundColor: theme.surfaceAlt }]}>
+            <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>
+              Spent more than you earned — how was it covered?
+            </Text>
+            {adjustments.map((adj) => (
+              <View key={adj.id} style={styles.coverRow}>
+                <Ionicons name={adjustmentMeta(adj.kind).icon} size={16} color={theme.textSecondary} />
+                <Text style={[styles.coverText, { color: theme.text }]} numberOfLines={1}>
+                  {adjustmentMeta(adj.kind).label}
+                  {adj.note ? ` · ${adj.note}` : ''}
+                </Text>
+                <Text style={[styles.coverAmount, { color: theme.text }]}>{formatAmount(adj.amount)}</Text>
+                <TouchableOpacity onPress={() => deleteAdjust(adj)} style={styles.deleteBtn} accessibilityLabel="Remove">
+                  <Ionicons name="close-circle-outline" size={18} color={theme.textMuted} />
+                </TouchableOpacity>
+              </View>
+            ))}
+            <View style={styles.coverFooter}>
+              <Text style={[styles.summaryLabel, { color: untallied > 0 ? '#E5383B' : '#2DA44E' }]}>
+                {untallied > 0
+                  ? `${formatAmount(untallied)} still to account for`
+                  : covered > shortfall
+                    ? `Covered, with ${formatAmount(covered - shortfall)} extra`
+                    : 'Fully covered'}
+              </Text>
+              <TouchableOpacity
+                style={[styles.smallBtn, { backgroundColor: theme.primary }]}
+                onPress={() => openAdjust(untallied)}
+              >
+                <Ionicons name="add" size={16} color={theme.onPrimary} />
+                <Text style={[styles.smallBtnText, { color: theme.onPrimary }]}>Tally</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
       </View>
 
       <Text style={[styles.listTitle, { color: theme.text }]}>Expenses</Text>
@@ -458,12 +742,13 @@ export default function ExpenditureScreen() {
                 </Text>
                 <Text style={[styles.rowSub, { color: theme.textSecondary }]}>
                   {item.category} · {formatDate(item.date || item.createdAt)}
+                  {item.sourceId ? ' · from My Debts' : ''}
                 </Text>
               </View>
               <Text style={[styles.rowAmount, { color: theme.text }]}>{formatAmount(item.amount)}</Text>
               <TouchableOpacity
                 style={styles.deleteBtn}
-                onPress={() => deleteItem(item.id)}
+                onPress={() => deleteItem(item)}
                 accessibilityLabel={`Delete ${item.title}`}
               >
                 <Ionicons name="trash-outline" size={19} color={theme.danger} />
@@ -620,6 +905,87 @@ export default function ExpenditureScreen() {
         </View>
       </Modal>
 
+      {/* Cover a shortfall */}
+      <Modal visible={adjustVisible} transparent animationType="fade" onRequestClose={() => setAdjustVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Tally the shortfall</Text>
+            <Text style={[styles.modalSub, { color: theme.textSecondary }]}>
+              {monthLabel(selectedMonth, true)} · {formatAmount(untallied)} to account for
+            </Text>
+            <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Covered by</Text>
+            <View style={styles.catRow}>
+              {ADJUSTMENT_KINDS.map((k) => {
+                const selected = adjustKind === k.key;
+                return (
+                  <TouchableOpacity
+                    key={k.key}
+                    style={[
+                      styles.chip,
+                      styles.kindChip,
+                      {
+                        backgroundColor: selected ? theme.primary : theme.surfaceAlt,
+                        borderColor: selected ? theme.primary : theme.borderNeutral,
+                      },
+                    ]}
+                    onPress={() => setAdjustKind(k.key)}
+                  >
+                    <Ionicons name={k.icon} size={15} color={selected ? theme.onPrimary : theme.text} />
+                    <Text style={[styles.chipText, { color: selected ? theme.onPrimary : theme.text }]}>{k.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <TextInput
+              style={[inputStyle, styles.spaced]}
+              placeholder={
+                adjustKind === 'borrowed'
+                  ? 'From whom? (e.g. Ravi, credit card)'
+                  : adjustKind === 'savings'
+                    ? 'Which savings? (optional)'
+                    : 'Source (e.g. bonus, freelance)'
+              }
+              placeholderTextColor={theme.textMuted}
+              value={adjustNote}
+              onChangeText={setAdjustNote}
+            />
+            <TextInput
+              style={inputStyle}
+              placeholder="Amount (₹)"
+              placeholderTextColor={theme.textMuted}
+              value={adjustAmount}
+              onChangeText={setAdjustAmount}
+              keyboardType="decimal-pad"
+            />
+            {adjustKind === 'borrowed' ? (
+              <TouchableOpacity style={styles.checkRow} onPress={() => setAdjustAddDebt(!adjustAddDebt)}>
+                <Ionicons name={adjustAddDebt ? 'checkbox' : 'square-outline'} size={20} color={theme.primary} />
+                <Text style={[styles.checkText, { color: theme.text }]}>Also add to My Debts so I repay it</Text>
+              </TouchableOpacity>
+            ) : null}
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.cancelBtn, { backgroundColor: theme.surfaceAlt }]}
+                onPress={() => setAdjustVisible(false)}
+              >
+                <Text style={[styles.cancelText, { color: theme.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.saveBtn,
+                  { backgroundColor: theme.primary },
+                  !(parseAmount(adjustAmount) > 0) && styles.btnDisabled,
+                ]}
+                onPress={saveAdjust}
+                disabled={!(parseAmount(adjustAmount) > 0)}
+              >
+                <Text style={[styles.saveText, { color: theme.onPrimary }]}>Add</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Add month */}
       <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
         <View style={styles.modalOverlay}>
@@ -665,6 +1031,31 @@ export default function ExpenditureScreen() {
         </View>
       </Modal>
     </SafeAreaView>
+  );
+}
+
+function ReportRow({ label, value, color, theme, strong, indent }) {
+  return (
+    <View style={[styles.reportRow, indent && styles.reportIndent]}>
+      <Text
+        style={[
+          styles.reportLabel,
+          { color: indent ? theme.textSecondary : theme.text },
+          strong && styles.reportStrong,
+        ]}
+      >
+        {label}
+      </Text>
+      <Text
+        style={[
+          styles.reportValue,
+          { color: color || (indent ? theme.textSecondary : theme.text) },
+          strong && styles.reportStrong,
+        ]}
+      >
+        {value}
+      </Text>
+    </View>
   );
 }
 
@@ -822,5 +1213,51 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
   },
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 12,
+  },
+  bannerText: { flex: 1, fontSize: 13, fontWeight: '600' },
+  dueLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    marginTop: 12,
+    paddingTop: 10,
+  },
+  dueLineTight: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
+  dueLineValue: { fontSize: 15, fontWeight: '700' },
+  dueIcon: { width: 34, height: 34 },
+  checkBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4,
+  },
+  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
+  badgeText: { fontSize: 11, fontWeight: '700' },
+  reportRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
+  reportIndent: { paddingLeft: 12 },
+  reportLabel: { fontSize: 13 },
+  reportValue: { fontSize: 13, fontWeight: '600' },
+  reportStrong: { fontSize: 15, fontWeight: '700' },
+  reportDivider: { height: 1, marginVertical: 8 },
+  coverBox: { borderRadius: 12, padding: 12, marginTop: 12, gap: 8 },
+  coverRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  coverText: { flex: 1, fontSize: 13 },
+  coverAmount: { fontSize: 13, fontWeight: '700' },
+  coverFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  kindChip: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  checkText: { fontSize: 13, flex: 1 },
   pickerCancel: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto', marginTop: 16 },
 });
