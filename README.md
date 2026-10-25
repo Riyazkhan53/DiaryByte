@@ -46,6 +46,18 @@ DiaryByte greets you by name on a personal dashboard and keeps your daily journa
 - "Paste booking message" fills the form from a copied SMS, email or WhatsApp message
 - Save the booking link and open the ticket in its app ("Open in BookMyShow")
 
+### My Debts
+- Three sections: **My EMIs**, **Credit Cards** and **Other Bills**
+- Add a loan with amount, interest rate, tenure and first EMI month — every EMI until the loan closes is planned automatically, with the principal/interest split and balance for each month
+- Outstanding principal is calculated from the EMIs you mark paid, so it never has to be typed in
+- Credit card and other bills are added by hand, with due dates and a one-tap "copy to next month"
+- Marking an EMI or bill paid adds it to My Expenditure for the month it's due (un-marking removes it)
+
+### My Expenditure
+- Income and spending month by month, with this month's EMIs and bills to tick off
+- Month-end report: income vs EMIs, credit card bills, other bills and other spending
+- If a month ends in the red, tally it as borrowed (optionally added to My Debts), from savings or extra income
+
 ### Settings
 - Change your name (used in the dashboard greeting)
 - Dark mode toggle (persisted)

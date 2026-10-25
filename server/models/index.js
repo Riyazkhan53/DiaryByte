@@ -43,7 +43,8 @@ const COLLECTIONS = {
     fields: ['id', 'title', 'note', 'done', 'createdAt', 'completedAt'],
   },
   expenditure: {
-    fields: ['id', 'title', 'amount', 'category', 'month', 'date', 'createdAt'],
+    // sourceId links an expense to the EMI/bill in "debts" it pays.
+    fields: ['id', 'title', 'amount', 'category', 'month', 'date', 'createdAt', 'sourceId'],
   },
   cards: {
     fields: [
@@ -85,6 +86,21 @@ const COLLECTIONS = {
       'interestRate',
       'updatedAt',
       'createdAt',
+      // section: 'emi' (loans) | 'card' (credit card bills) | 'bill' (other bills)
+      'section',
+      // EMI schedule
+      'manual',
+      'tenure',
+      'startMonth',
+      'emiDay',
+      'paidMonths',
+      // credit card / other bills
+      'amount',
+      'minDue',
+      'billType',
+      'month',
+      'paid',
+      'paidAt',
     ],
   },
   autopays: {
@@ -119,9 +135,10 @@ const COLLECTIONS = {
   dates: {
     fields: ['id', 'title', 'date', 'section', 'note', 'updatedAt', 'createdAt'],
   },
-  // One document per month ('YYYY-MM'), holding that month's income entries.
+  // One document per month ('YYYY-MM'), holding that month's income entries
+  // and how any shortfall was covered (borrowed / savings / extra income).
   months: {
-    fields: ['id', 'month', 'incomes', 'createdAt'],
+    fields: ['id', 'month', 'incomes', 'adjustments', 'createdAt'],
   },
 };
 

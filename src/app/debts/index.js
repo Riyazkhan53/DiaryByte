@@ -8,407 +8,761 @@ import {
   FlatList,
   SafeAreaView,
   Modal,
-  Alert,
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import SyncRow from '../../components/SyncRow';
+import DatePicker from '../../components/DatePicker';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
-import { loanStatus, endMonthLabel } from '../../utils/debts';
+import { confirmDelete } from '../../utils/confirm';
+import { todayKey } from '../../utils/autopay';
+import {
+  addMonths,
+  billMonth,
+  billSourceId,
+  buildSchedule,
+  calcEmi,
+  currentMonthKey,
+  dueDateFor,
+  emiSourceId,
+  loanSummary,
+  markDuePaid,
+  markDueUnpaid,
+  monthLabel,
+  sectionOf,
+  shortDate,
+} from '../../utils/debts';
 
 const STORAGE_KEY = '@diarybyte_debts';
+const EXPENSES_KEY = '@diarybyte_expenditure';
 
-const DEBT_TYPES = [
+const SECTIONS = [
+  { key: 'emi', label: 'My EMIs', icon: 'calendar-outline' },
+  { key: 'card', label: 'Credit Cards', icon: 'card-outline' },
+  { key: 'bill', label: 'Other Bills', icon: 'receipt-outline' },
+];
+
+const LOAN_TYPES = [
   { key: 'Personal Loan', icon: 'person-outline', color: '#FF6F61' },
   { key: 'Home Loan', icon: 'home-outline', color: '#32ADE6' },
   { key: 'Car Loan', icon: 'car-outline', color: '#AF52DE' },
+  { key: 'Bike Loan', icon: 'bicycle-outline', color: '#5856D6' },
   { key: 'Education Loan', icon: 'school-outline', color: '#007AFF' },
+  { key: 'Gold Loan', icon: 'diamond-outline', color: '#FFCC00' },
+  { key: 'Consumer Loan', icon: 'phone-portrait-outline', color: '#00A99D' },
   { key: 'Credit Card', icon: 'card-outline', color: '#FF9500' },
   { key: 'Borrowed', icon: 'people-outline', color: '#34C759' },
   { key: 'Other', icon: 'ellipsis-horizontal-outline', color: '#8E8E93' },
 ];
 
-const makeId = () =>
-  `${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`;
+const BILL_TYPES = [
+  { key: 'Electricity', icon: 'flash-outline', color: '#FFCC00' },
+  { key: 'Rent', icon: 'home-outline', color: '#32ADE6' },
+  { key: 'Mobile', icon: 'phone-portrait-outline', color: '#5856D6' },
+  { key: 'Internet', icon: 'wifi-outline', color: '#007AFF' },
+  { key: 'Water', icon: 'water-outline', color: '#5AC8FA' },
+  { key: 'Gas', icon: 'flame-outline', color: '#FF6F61' },
+  { key: 'Insurance', icon: 'shield-checkmark-outline', color: '#34C759' },
+  { key: 'School Fees', icon: 'school-outline', color: '#AF52DE' },
+  { key: 'Subscription', icon: 'tv-outline', color: '#FF375F' },
+  { key: 'Other', icon: 'receipt-outline', color: '#8E8E93' },
+];
+
+const CARD_META = { icon: 'card-outline', color: '#FF9500' };
+
+const makeId = () => `${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`;
 
 const money = (n) =>
-  `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+  `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 
-const toNum = (text) => parseFloat(String(text).replace(/[^\d.]/g, ''));
+const toNum = (text) => parseFloat(String(text ?? '').replace(/[^\d.]/g, ''));
 
-const typeMeta = (key) => DEBT_TYPES.find((t) => t.key === key) || DEBT_TYPES[DEBT_TYPES.length - 1];
+const loanMeta = (key) => LOAN_TYPES.find((t) => t.key === key) || LOAN_TYPES[LOAN_TYPES.length - 1];
+const billMeta = (key) => BILL_TYPES.find((t) => t.key === key) || BILL_TYPES[BILL_TYPES.length - 1];
+
+const EMPTY_LOAN = {
+  name: '',
+  type: 'Personal Loan',
+  manual: false,
+  principal: '',
+  interestRate: '',
+  tenure: '',
+  emi: '',
+  startMonth: currentMonthKey(),
+  emiDay: '5',
+  paidBefore: true,
+  outstanding: '',
+  dueDate: '',
+  note: '',
+};
+
+const EMPTY_BILL = { name: '', billType: 'Electricity', amount: '', minDue: '', dueDate: '', note: '' };
 
 export default function DebtsScreen() {
   const { theme } = useTheme();
-  const { items, synced, persist, pulling, pullInfo, pullNow } = useSyncedCollection(
-    'debts',
-    STORAGE_KEY
-  );
-  const [modalVisible, setModalVisible] = useState(false);
+  const { items, synced, persist, pulling, pullInfo, pullNow } = useSyncedCollection('debts', STORAGE_KEY);
+  const { items: expenses, persist: persistExpenses } = useSyncedCollection('expenditure', EXPENSES_KEY);
+  const thisMonth = currentMonthKey();
+  const today = todayKey();
+
+  const [section, setSection] = useState('emi');
+
+  // Loan form
+  const [loanVisible, setLoanVisible] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [name, setName] = useState('');
-  const [type, setType] = useState('Personal Loan');
-  const [principal, setPrincipal] = useState('');
-  const [outstanding, setOutstanding] = useState('');
-  const [emi, setEmi] = useState('');
-  const [dueDate, setDueDate] = useState('');
-  const [note, setNote] = useState('');
-  const [filter, setFilter] = useState('all');
+  const [loan, setLoan] = useState(EMPTY_LOAN);
+  const setLoanField = (key) => (value) => setLoan((f) => ({ ...f, [key]: value }));
 
-  // "Update" sheet: EMI + remaining EMIs (+ optional rate) → outstanding.
-  const [updating, setUpdating] = useState(null);
-  const [uEmi, setUEmi] = useState('');
-  const [uRemaining, setURemaining] = useState('');
-  const [uRate, setURate] = useState('');
-  const [uOutstanding, setUOutstanding] = useState('');
+  // Bill form (credit card + other bills)
+  const [billVisible, setBillVisible] = useState(false);
+  const [bill, setBill] = useState(EMPTY_BILL);
+  const setBillField = (key) => (value) => setBill((f) => ({ ...f, [key]: value }));
 
-  const openUpdate = (item) => {
-    setUpdating(item);
-    setUEmi(item.emi ? String(item.emi) : '');
-    setURemaining(item.remainingEmis != null ? String(item.remainingEmis) : '');
-    setURate(item.interestRate ? String(item.interestRate) : '');
-    setUOutstanding(item.outstanding != null ? String(item.outstanding) : '');
+  // Schedule sheet and manual "update remaining" sheet
+  const [scheduleId, setScheduleId] = useState(null);
+  const [manualId, setManualId] = useState(null);
+  const [manualOutstanding, setManualOutstanding] = useState('');
+
+  const [showPaid, setShowPaid] = useState(false);
+
+  const loans = items.filter((i) => sectionOf(i) === 'emi');
+  const cards = items.filter((i) => sectionOf(i) === 'card');
+  const bills = items.filter((i) => sectionOf(i) === 'bill');
+
+  // ------- paying -------
+
+  const applyPayment = (due, paid) => {
+    const result = paid ? markDuePaid(due, items, expenses) : markDueUnpaid(due, items, expenses);
+    persist(result.debts);
+    persistExpenses(result.expenses);
   };
 
-  const uEmiNum = toNum(uEmi) || 0;
-  const uRemainingNum = uRemaining.trim() === '' ? null : Math.max(0, Math.round(toNum(uRemaining) || 0));
-  const uRateNum = toNum(uRate) || 0;
-  // With an EMI and a count of EMIs left we can calculate; otherwise the
-  // remaining amount is entered by hand (e.g. money borrowed from a friend).
-  const usesEmiMaths = uEmiNum > 0 && uRemainingNum != null;
-  const preview = updating
-    ? usesEmiMaths
-      ? loanStatus({
-          principal: updating.principal,
-          emi: uEmiNum,
-          remainingEmis: uRemainingNum,
-          interestRate: uRateNum,
-        })
-      : (() => {
-          const outstandingNum = Math.max(0, toNum(uOutstanding) || 0);
-          const paidOffNum = Math.max(0, (updating.principal || 0) - outstandingNum);
-          return {
-            outstanding: outstandingNum,
-            paidOff: paidOffNum,
-            paidPct: updating.principal > 0 ? Math.min((paidOffNum / updating.principal) * 100, 100) : 0,
-          };
-        })()
-    : null;
-  const updateValid = usesEmiMaths || uOutstanding.trim() !== '';
+  const payEmi = (item, row, paid = true) =>
+    applyPayment(
+      {
+        key: emiSourceId(item.id, row.month),
+        kind: 'emi',
+        debtId: item.id,
+        month: row.month,
+        title: `${item.name} EMI`,
+        amount: row.payment,
+        dueDate: row.dueDate,
+        category: 'EMI',
+      },
+      paid
+    );
 
-  const payOneEmi = () => {
-    if (uRemainingNum != null && uRemainingNum > 0) setURemaining(String(uRemainingNum - 1));
-  };
+  const payBill = (item, paid = true) =>
+    applyPayment(
+      {
+        key: billSourceId(item.id),
+        kind: sectionOf(item),
+        debtId: item.id,
+        month: billMonth(item),
+        title: item.name,
+        amount: Number(item.amount) || 0,
+        dueDate: item.dueDate,
+        category: sectionOf(item) === 'card' ? 'Credit Card' : 'Bills',
+      },
+      paid
+    );
 
-  const saveUpdate = () => {
-    if (!updating || !updateValid) return;
+  // EMIs from before you started tracking: mark paid without adding expenses.
+  const markEarlierPaid = (item) => {
+    const earlier = buildSchedule(item)
+      .filter((row) => row.month < thisMonth)
+      .map((row) => row.month);
     const updated = {
-      ...updating,
-      emi: uEmiNum,
-      remainingEmis: uRemainingNum,
-      interestRate: uRateNum,
-      outstanding: preview.outstanding,
+      ...item,
+      paidMonths: Array.from(new Set([...(item.paidMonths || []), ...earlier])).sort(),
       updatedAt: new Date().toISOString(),
     };
-    persist(items.map((i) => (i.id === updating.id ? updated : i)));
-    setUpdating(null);
+    updated.outstanding = loanSummary(updated).outstanding;
+    persist(items.map((i) => (i.id === item.id ? updated : i)));
   };
 
-  const openAdd = () => {
+  // ------- loan form -------
+
+  const openAddLoan = () => {
     setEditingId(null);
-    setName('');
-    setType('Personal Loan');
-    setPrincipal('');
-    setOutstanding('');
-    setEmi('');
-    setDueDate('');
-    setNote('');
-    setModalVisible(true);
+    setLoan({ ...EMPTY_LOAN, startMonth: thisMonth });
+    setLoanVisible(true);
   };
 
-  const openEdit = (item) => {
+  const openEditLoan = (item) => {
     setEditingId(item.id);
-    setName(item.name);
-    setType(item.type);
-    setPrincipal(item.principal != null ? String(item.principal) : '');
-    setOutstanding(item.outstanding != null ? String(item.outstanding) : '');
-    setEmi(item.emi != null ? String(item.emi) : '');
-    setDueDate(item.dueDate || '');
-    setNote(item.note || '');
-    setModalVisible(true);
+    const manual = !!item.manual || !(item.tenure > 0 && item.startMonth);
+    setLoan({
+      name: item.name || '',
+      type: item.type || 'Personal Loan',
+      manual,
+      principal: item.principal != null ? String(item.principal) : '',
+      interestRate: item.interestRate ? String(item.interestRate) : '',
+      // Older loans stored "EMIs left"; use it as a starting point for tenure.
+      tenure: item.tenure ? String(item.tenure) : item.remainingEmis ? String(item.remainingEmis) : '',
+      emi: item.emi ? String(item.emi) : '',
+      startMonth: item.startMonth || thisMonth,
+      emiDay: item.emiDay ? String(item.emiDay) : '5',
+      paidBefore: false,
+      outstanding: item.outstanding != null ? String(item.outstanding) : '',
+      dueDate: item.dueDate || '',
+      note: item.note || '',
+    });
+    setLoanVisible(true);
   };
 
-  const saveItem = () => {
-    const principalNum = parseFloat(principal.replace(/[^\d.]/g, ''));
-    const outstandingNum = parseFloat(outstanding.replace(/[^\d.]/g, ''));
-    const emiNum = parseFloat(emi.replace(/[^\d.]/g, '')) || 0;
-    if (!name.trim() || !principalNum || !outstandingNum) return;
+  const principalNum = toNum(loan.principal) || 0;
+  const rateNum = toNum(loan.interestRate) || 0;
+  const tenureNum = Math.round(toNum(loan.tenure) || 0);
+  const autoEmi = calcEmi(principalNum, rateNum, tenureNum);
+  const emiNum = toNum(loan.emi) || autoEmi;
+  const emiDayNum = Math.min(31, Math.max(1, Math.round(toNum(loan.emiDay) || 1)));
+
+  const draftLoan = {
+    section: 'emi',
+    manual: loan.manual,
+    principal: principalNum,
+    interestRate: rateNum,
+    tenure: tenureNum,
+    emi: emiNum,
+    startMonth: loan.startMonth,
+    emiDay: emiDayNum,
+  };
+  const existingLoan = editingId ? items.find((i) => i.id === editingId) : null;
+  const draftRows = loan.manual ? [] : buildSchedule(draftLoan);
+  const draftPaidMonths = existingLoan
+    ? existingLoan.paidMonths || []
+    : loan.paidBefore
+      ? draftRows.filter((r) => r.month < thisMonth).map((r) => r.month)
+      : [];
+  const draftSummary = loan.manual ? null : loanSummary({ ...draftLoan, paidMonths: draftPaidMonths });
+
+  const loanValid = loan.manual
+    ? loan.name.trim() && principalNum > 0 && String(loan.outstanding).trim() !== ''
+    : loan.name.trim() && principalNum > 0 && tenureNum > 0 && draftRows.length > 0;
+
+  const saveLoan = () => {
+    if (!loanValid) return;
+    const base = {
+      ...existingLoan,
+      id: editingId || makeId(),
+      section: 'emi',
+      name: loan.name.trim(),
+      type: loan.type,
+      principal: principalNum,
+      note: loan.note.trim(),
+      createdAt: existingLoan?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const entry = loan.manual
+      ? {
+          ...base,
+          manual: true,
+          outstanding: Math.max(0, toNum(loan.outstanding) || 0),
+          emi: toNum(loan.emi) || 0,
+          interestRate: rateNum,
+          dueDate: loan.dueDate.trim(),
+        }
+      : {
+          ...base,
+          manual: false,
+          interestRate: rateNum,
+          tenure: tenureNum,
+          emi: emiNum,
+          startMonth: loan.startMonth,
+          emiDay: emiDayNum,
+          paidMonths: draftPaidMonths,
+          outstanding: draftSummary.outstanding,
+          remainingEmis: draftSummary.remainingCount,
+        };
+    persist(editingId ? items.map((i) => (i.id === editingId ? entry : i)) : [entry, ...items]);
+    setLoanVisible(false);
+  };
+
+  // ------- bill form -------
+
+  const openAddBill = () => {
+    setEditingId(null);
+    setBill({ ...EMPTY_BILL, dueDate: today });
+    setBillVisible(true);
+  };
+
+  const openEditBill = (item) => {
+    setEditingId(item.id);
+    setBill({
+      name: item.name || '',
+      billType: item.billType || 'Other',
+      amount: item.amount != null ? String(item.amount) : '',
+      minDue: item.minDue ? String(item.minDue) : '',
+      dueDate: item.dueDate || today,
+      note: item.note || '',
+    });
+    setBillVisible(true);
+  };
+
+  const billValid = bill.name.trim() && toNum(bill.amount) > 0 && !!bill.dueDate;
+
+  const saveBill = () => {
+    if (!billValid) return;
     const existing = editingId ? items.find((i) => i.id === editingId) : null;
     const entry = {
-      // Keep fields this form doesn't edit (remaining EMIs, rate, updatedAt).
       ...existing,
       id: editingId || makeId(),
-      name: name.trim(),
-      type,
-      principal: principalNum,
-      outstanding: outstandingNum,
-      emi: emiNum,
-      dueDate: dueDate.trim(),
-      note: note.trim(),
-      createdAt: editingId
-        ? items.find((i) => i.id === editingId)?.createdAt || new Date().toISOString()
-        : new Date().toISOString(),
+      section,
+      name: bill.name.trim(),
+      billType: section === 'bill' ? bill.billType : undefined,
+      amount: toNum(bill.amount),
+      minDue: section === 'card' ? toNum(bill.minDue) || 0 : undefined,
+      dueDate: bill.dueDate,
+      month: bill.dueDate.slice(0, 7),
+      paid: existing?.paid || false,
+      note: bill.note.trim(),
+      createdAt: existing?.createdAt || new Date().toISOString(),
     };
-    persist(editingId ? items.map((i) => (i.id === editingId ? entry : i)) : [entry, ...items]);
-    setModalVisible(false);
+    let nextDebts = editingId ? items.map((i) => (i.id === editingId ? entry : i)) : [entry, ...items];
+    persist(nextDebts);
+    // Keep an already-paid bill's expense in step with the edit.
+    if (existing?.paid) {
+      const result = markDuePaid(
+        {
+          key: billSourceId(entry.id),
+          kind: section,
+          debtId: entry.id,
+          month: entry.month,
+          title: entry.name,
+          amount: entry.amount,
+          dueDate: entry.dueDate,
+          category: section === 'card' ? 'Credit Card' : 'Bills',
+        },
+        nextDebts,
+        expenses
+      );
+      persistExpenses(result.expenses);
+    }
+    setBillVisible(false);
+  };
+
+  // Copy a bill to next month (same name/type/amount, unpaid).
+  const repeatNextMonth = (item) => {
+    const month = addMonths(billMonth(item), 1);
+    const day = Number((item.dueDate || '').slice(8, 10)) || 1;
+    const entry = {
+      ...item,
+      id: makeId(),
+      dueDate: dueDateFor(month, day),
+      month,
+      paid: false,
+      paidAt: null,
+      createdAt: new Date().toISOString(),
+    };
+    persist([entry, ...items]);
   };
 
   const deleteItem = (item) => {
-    Alert.alert('Delete Debt', `Remove ${item.name}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => persist(items.filter((i) => i.id !== item.id)),
-      },
-    ]);
+    confirmDelete(
+      'Delete',
+      `Remove ${item.name}? Payments already added to My Expenditure stay there.`,
+      () => persist(items.filter((i) => i.id !== item.id))
+    );
   };
 
-  const totalOutstanding = items.reduce((s, i) => s + (i.outstanding || 0), 0);
-  const totalEmi = items.reduce((s, i) => s + (i.emi || 0), 0);
-  const totalPrincipal = items.reduce((s, i) => s + (i.principal || 0), 0);
-  const paidOff = totalPrincipal - totalOutstanding;
-  const paidPct = totalPrincipal > 0 ? Math.min((paidOff / totalPrincipal) * 100, 100) : 0;
+  // ------- manual loan update -------
 
-  const visible = filter === 'all' ? items : items.filter((i) => i.type === filter);
-  const formValid =
-    name.trim() &&
-    parseFloat(principal.replace(/[^\d.]/g, '')) > 0 &&
-    parseFloat(outstanding.replace(/[^\d.]/g, '')) > 0;
+  const openManual = (item) => {
+    setManualId(item.id);
+    setManualOutstanding(item.outstanding != null ? String(item.outstanding) : '');
+  };
+
+  const saveManual = () => {
+    const value = Math.max(0, toNum(manualOutstanding) || 0);
+    persist(
+      items.map((i) =>
+        i.id === manualId ? { ...i, outstanding: value, updatedAt: new Date().toISOString() } : i
+      )
+    );
+    setManualId(null);
+  };
+
+  // ------- summaries -------
+
+  const loanSummaries = Object.fromEntries(loans.map((l) => [l.id, loanSummary(l)]));
+  const totalOutstanding = loans.reduce((s, l) => s + loanSummaries[l.id].outstanding, 0);
+  const totalPrincipal = loans.reduce((s, l) => s + (Number(l.principal) || 0), 0);
+  const totalPaidOff = Math.max(0, totalPrincipal - totalOutstanding);
+  const paidPct = totalPrincipal > 0 ? Math.min((totalPaidOff / totalPrincipal) * 100, 100) : 0;
+  const monthEmiRows = loans
+    .map((l) => ({ loan: l, row: loanSummaries[l.id].rows.find((r) => r.month === thisMonth) }))
+    .filter((x) => x.row);
+  const monthEmiTotal = monthEmiRows.reduce((s, x) => s + x.row.payment, 0);
+  const monthEmiPaid = monthEmiRows
+    .filter((x) => (x.loan.paidMonths || []).includes(thisMonth))
+    .reduce((s, x) => s + x.row.payment, 0);
+
+  const sectionBills = section === 'card' ? cards : bills;
+  const pendingBills = sectionBills
+    .filter((b) => !b.paid)
+    .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
+  const paidBills = sectionBills
+    .filter((b) => b.paid)
+    .sort((a, b) => (b.dueDate || '').localeCompare(a.dueDate || ''));
+  const pendingTotal = pendingBills.reduce((s, b) => s + (Number(b.amount) || 0), 0);
+  const overdueTotal = pendingBills
+    .filter((b) => b.dueDate && b.dueDate < today)
+    .reduce((s, b) => s + (Number(b.amount) || 0), 0);
+  const paidThisMonth = sectionBills
+    .filter((b) => b.paid && billMonth(b) === thisMonth)
+    .reduce((s, b) => s + (Number(b.amount) || 0), 0);
+
+  const counts = { emi: loans.length, card: cards.filter((c) => !c.paid).length, bill: bills.filter((b) => !b.paid).length };
+
+  const inputStyle = [
+    styles.input,
+    { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text },
+  ];
+  const cardStyle = { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow };
+
+  // ------- rendering -------
+
+  const renderLoan = ({ item }) => {
+    const meta = loanMeta(item.type);
+    const s = loanSummaries[item.id];
+    const cleared = s.outstanding <= 0;
+    const nextPaidThisMonth = s.scheduled && s.next && s.next.month <= thisMonth;
+    return (
+      <View style={[styles.card, cardStyle, cleared && { borderColor: theme.primary }]}>
+        <View style={styles.cardHeader}>
+          <View style={[styles.typeIcon, { backgroundColor: meta.color + '40' }]}>
+            <Ionicons name={meta.icon} size={19} color="#455A64" />
+          </View>
+          <View style={styles.cardMeta}>
+            <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
+              {item.name}
+            </Text>
+            <Text style={[styles.cardSub, { color: theme.textSecondary }]} numberOfLines={2}>
+              {item.type}
+              {item.interestRate ? ` · ${item.interestRate}%` : ''}
+              {s.scheduled
+                ? ` · ${s.paidCount}/${s.totalCount} paid · ends ${monthLabel(s.endsMonth)}`
+                : item.dueDate
+                  ? ` · by ${item.dueDate}`
+                  : ''}
+            </Text>
+          </View>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => openEditLoan(item)} accessibilityLabel={`Edit ${item.name}`}>
+            <Ionicons name="create-outline" size={19} color={theme.primaryDark} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => deleteItem(item)} accessibilityLabel={`Delete ${item.name}`}>
+            <Ionicons name="trash-outline" size={19} color={theme.danger} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.amountsRow}>
+          <View style={styles.amountCol}>
+            <Text style={[styles.amountLabel, { color: theme.textMuted }]}>Outstanding</Text>
+            <Text style={[styles.amountValue, { color: cleared ? '#2DA44E' : '#E5383B' }]}>
+              {cleared ? 'Cleared' : money(s.outstanding)}
+            </Text>
+          </View>
+          {s.emi ? (
+            <View style={styles.amountCol}>
+              <Text style={[styles.amountLabel, { color: theme.textMuted }]}>EMI / month</Text>
+              <Text style={[styles.amountValue, { color: theme.text }]}>{money(s.emi)}</Text>
+            </View>
+          ) : null}
+          <View style={styles.amountCol}>
+            <Text style={[styles.amountLabel, { color: theme.textMuted }]}>Loan amount</Text>
+            <Text style={[styles.amountValue, { color: theme.text }]}>{money(item.principal)}</Text>
+          </View>
+        </View>
+
+        <View style={[styles.progressTrack, { backgroundColor: theme.surfaceAlt }]}>
+          <View style={[styles.progressFill, { width: `${s.paidPct}%`, backgroundColor: theme.primary }]} />
+        </View>
+        <Text style={[styles.progressLabel, { color: theme.textMuted }]}>
+          {s.paidPct.toFixed(0)}% principal paid off
+          {s.scheduled && s.interestLeft > 0 ? ` · ${money(s.interestLeft)} interest left` : ''}
+        </Text>
+
+        {s.scheduled && s.overdue.length > 1 ? (
+          <Text style={[styles.warnText, { color: theme.danger }]}>
+            {s.overdue.length} earlier EMIs not marked paid
+          </Text>
+        ) : null}
+
+        {s.scheduled && s.next ? (
+          <View style={[styles.nextRow, { borderTopColor: theme.borderNeutral }]}>
+            <View style={styles.flex}>
+              <Text style={[styles.nextLabel, { color: theme.textMuted }]}>
+                {s.next.month < thisMonth ? 'Overdue EMI' : 'Next EMI'}
+              </Text>
+              <Text
+                style={[
+                  styles.nextValue,
+                  { color: s.next.month < thisMonth ? theme.danger : theme.text },
+                ]}
+              >
+                {money(s.next.payment)} · {shortDate(s.next.dueDate)} {s.next.dueDate.slice(0, 4)}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.ghostBtn, { borderColor: theme.borderNeutral }]}
+              onPress={() => setScheduleId(item.id)}
+            >
+              <Ionicons name="list-outline" size={14} color={theme.text} />
+              <Text style={[styles.ghostBtnText, { color: theme.text }]}>Schedule</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.payBtn, { backgroundColor: nextPaidThisMonth ? theme.primary : theme.surfaceAlt }]}
+              onPress={() => payEmi(item, s.next)}
+            >
+              <Ionicons
+                name="checkmark-outline"
+                size={14}
+                color={nextPaidThisMonth ? theme.onPrimary : theme.text}
+              />
+              <Text style={[styles.payBtnText, { color: nextPaidThisMonth ? theme.onPrimary : theme.text }]}>
+                Paid
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
+        {!s.scheduled && !cleared ? (
+          <View style={[styles.nextRow, { borderTopColor: theme.borderNeutral }]}>
+            <Text style={[styles.nextLabel, styles.flex, { color: theme.textMuted }]}>
+              No EMI schedule — update the remaining amount when you repay.
+            </Text>
+            <TouchableOpacity style={[styles.payBtn, { backgroundColor: theme.primary }]} onPress={() => openManual(item)}>
+              <Ionicons name="refresh-outline" size={14} color={theme.onPrimary} />
+              <Text style={[styles.payBtnText, { color: theme.onPrimary }]}>Update</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
+        {item.note ? (
+          <Text style={[styles.note, { color: theme.textSecondary }]} numberOfLines={2}>
+            {item.note}
+          </Text>
+        ) : null}
+      </View>
+    );
+  };
+
+  const renderBill = ({ item }) => {
+    const meta = section === 'card' ? CARD_META : billMeta(item.billType);
+    const overdue = !item.paid && item.dueDate && item.dueDate < today;
+    return (
+      <View style={[styles.card, cardStyle, styles.billCard]}>
+        <View style={[styles.typeIcon, { backgroundColor: meta.color + '40' }]}>
+          <Ionicons name={meta.icon} size={19} color="#455A64" />
+        </View>
+        <TouchableOpacity style={styles.cardMeta} onPress={() => openEditBill(item)}>
+          <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
+            {item.name}
+          </Text>
+          <Text
+            style={[styles.cardSub, { color: overdue ? theme.danger : theme.textSecondary }]}
+            numberOfLines={1}
+          >
+            {item.paid ? 'Paid' : overdue ? 'Overdue' : 'Due'} {shortDate(item.dueDate)}
+            {section === 'bill' && item.billType ? ` · ${item.billType}` : ''}
+            {section === 'card' && item.minDue ? ` · min ${money(item.minDue)}` : ''}
+          </Text>
+        </TouchableOpacity>
+        <Text style={[styles.billAmount, { color: item.paid ? theme.textMuted : theme.text }]}>
+          {money(item.amount)}
+        </Text>
+        <TouchableOpacity
+          style={[styles.checkBtn, { borderColor: item.paid ? '#2DA44E' : theme.borderNeutral, backgroundColor: item.paid ? '#2DA44E' : 'transparent' }]}
+          onPress={() => payBill(item, !item.paid)}
+          accessibilityLabel={item.paid ? `Mark ${item.name} unpaid` : `Mark ${item.name} paid`}
+        >
+          <Ionicons name="checkmark" size={16} color={item.paid ? '#FFF' : theme.textMuted} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.iconBtn} onPress={() => repeatNextMonth(item)} accessibilityLabel="Copy to next month">
+          <Ionicons name="copy-outline" size={17} color={theme.primaryDark} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.iconBtn} onPress={() => deleteItem(item)} accessibilityLabel={`Delete ${item.name}`}>
+          <Ionicons name="trash-outline" size={17} color={theme.danger} />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const tabs = (
+    <View style={[styles.tabs, { backgroundColor: theme.surfaceAlt }]}>
+      {SECTIONS.map((s) => {
+        const selected = section === s.key;
+        return (
+          <TouchableOpacity
+            key={s.key}
+            style={[styles.tab, selected && { backgroundColor: theme.sheet, shadowColor: theme.shadow }, selected && styles.tabSelected]}
+            onPress={() => {
+              setSection(s.key);
+              setShowPaid(false);
+            }}
+          >
+            <Text style={[styles.tabText, { color: selected ? theme.text : theme.textSecondary }]} numberOfLines={1}>
+              {s.label}
+              {counts[s.key] ? ` (${counts[s.key]})` : ''}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+
+  const loanHeader = (
+    <View>
+      <View style={[styles.summaryCard, cardStyle]}>
+        <View style={styles.summaryRow}>
+          <View style={styles.summaryCol}>
+            <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>Total outstanding</Text>
+            <Text style={[styles.summaryValue, { color: '#E5383B' }]}>{money(totalOutstanding)}</Text>
+          </View>
+          <View style={styles.summaryCol}>
+            <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>EMIs in {monthLabel(thisMonth)}</Text>
+            <Text style={[styles.summaryValue, { color: theme.text }]}>{money(monthEmiTotal)}</Text>
+            {monthEmiTotal > 0 ? (
+              <Text style={[styles.summarySub, { color: theme.textMuted }]}>
+                {money(monthEmiPaid)} paid · {money(monthEmiTotal - monthEmiPaid)} left
+              </Text>
+            ) : null}
+          </View>
+        </View>
+        <View style={[styles.plRow, { borderTopColor: theme.borderNeutral }]}>
+          <Text style={[styles.plLabel, { color: theme.textMuted }]}>
+            Paid off {money(totalPaidOff)} of {money(totalPrincipal)}
+          </Text>
+          <Text style={[styles.plValue, { color: '#2DA44E' }]}>{paidPct.toFixed(0)}%</Text>
+        </View>
+        <View style={[styles.progressTrack, { backgroundColor: theme.surfaceAlt }]}>
+          <View style={[styles.progressFill, { width: `${paidPct}%`, backgroundColor: theme.primary }]} />
+        </View>
+      </View>
+    </View>
+  );
+
+  const billHeader = (
+    <View>
+      <View style={[styles.summaryCard, cardStyle]}>
+        <View style={styles.summaryRow}>
+          <View style={styles.summaryCol}>
+            <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>To pay</Text>
+            <Text style={[styles.summaryValue, { color: '#E5383B' }]}>{money(pendingTotal)}</Text>
+            {overdueTotal > 0 ? (
+              <Text style={[styles.summarySub, { color: theme.danger }]}>{money(overdueTotal)} overdue</Text>
+            ) : null}
+          </View>
+          <View style={styles.summaryCol}>
+            <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>Paid in {monthLabel(thisMonth)}</Text>
+            <Text style={[styles.summaryValue, { color: '#2DA44E' }]}>{money(paidThisMonth)}</Text>
+          </View>
+        </View>
+        <Text style={[styles.hint, { color: theme.textMuted }]}>
+          Tick a bill when you pay it — it&apos;s added to My Expenditure for the month it&apos;s due. Use the copy icon to add next month&apos;s bill.
+        </Text>
+      </View>
+      <Text style={[styles.listTitle, { color: theme.text }]}>Pending</Text>
+      {pendingBills.length === 0 ? (
+        <Text style={[styles.emptyInline, { color: theme.textMuted }]}>
+          Nothing pending. Tap + to add a {section === 'card' ? 'credit card bill' : 'bill'}.
+        </Text>
+      ) : null}
+    </View>
+  );
+
+  const billFooter =
+    paidBills.length > 0 ? (
+      <View>
+        <TouchableOpacity style={styles.paidToggle} onPress={() => setShowPaid(!showPaid)}>
+          <Text style={[styles.listTitle, styles.noMargin, { color: theme.text }]}>Paid ({paidBills.length})</Text>
+          <Ionicons name={showPaid ? 'chevron-up' : 'chevron-down'} size={18} color={theme.text} />
+        </TouchableOpacity>
+        {showPaid ? paidBills.map((item) => <View key={item.id}>{renderBill({ item })}</View>) : null}
+      </View>
+    ) : null;
+
+  const scheduleLoan = scheduleId ? items.find((i) => i.id === scheduleId) : null;
+  const scheduleSummary = scheduleLoan ? loanSummary(scheduleLoan) : null;
+  const schedulePaid = new Set(scheduleLoan?.paidMonths || []);
+  const unpaidEarlier = scheduleSummary
+    ? scheduleSummary.rows.filter((r) => r.month < thisMonth && !schedulePaid.has(r.month)).length
+    : 0;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
-      <Header title="My Debts" subtitle="Loans and money you owe" />
+      <Header title="My Debts" subtitle="EMIs, credit card bills and other bills" />
 
       <View style={styles.content}>
         <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} />
+        {tabs}
 
-        <View
-          style={[
-            styles.summaryCard,
-            { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow },
-          ]}
-        >
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryCol}>
-              <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>Total outstanding</Text>
-              <Text style={[styles.summaryValue, { color: '#E5383B' }]}>
-                {money(totalOutstanding)}
-              </Text>
-            </View>
-            <View style={styles.summaryCol}>
-              <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>Monthly EMI</Text>
-              <Text style={[styles.summaryValue, { color: theme.text }]}>{money(totalEmi)}</Text>
-            </View>
-          </View>
-          <View style={[styles.plRow, { borderTopColor: theme.borderNeutral }]}>
-            <Text style={[styles.plLabel, { color: theme.textMuted }]}>
-              Paid off {money(paidOff)} of {money(totalPrincipal)}
-            </Text>
-            <Text style={[styles.plValue, { color: '#2DA44E' }]}>{paidPct.toFixed(0)}%</Text>
-          </View>
-          <View style={[styles.progressTrack, { backgroundColor: theme.surfaceAlt }]}>
-            <View style={[styles.progressFill, { width: `${paidPct}%`, backgroundColor: theme.primary }]} />
-          </View>
-        </View>
-
-        <View style={styles.filterRow}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChips}>
-            <TouchableOpacity
-              style={[
-                styles.chip,
-                {
-                  backgroundColor: filter === 'all' ? theme.primary : theme.surface,
-                  borderColor: filter === 'all' ? theme.primaryDark : theme.borderNeutral,
-                },
-              ]}
-              onPress={() => setFilter('all')}
-            >
-              <Text style={[styles.chipText, { color: theme.text }]}>All</Text>
-            </TouchableOpacity>
-            {DEBT_TYPES.map((t) => (
-              <TouchableOpacity
-                key={t.key}
-                style={[
-                  styles.chip,
-                  {
-                    backgroundColor: filter === t.key ? t.color : theme.surface,
-                    borderColor: filter === t.key ? t.color : theme.borderNeutral,
-                  },
-                ]}
-                onPress={() => setFilter(t.key)}
-              >
-                <Text style={[styles.chipText, { color: theme.text }]}>{t.key}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-
-        <FlatList
-          data={visible}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
-          showsVerticalScrollIndicator={false}
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Ionicons name="checkmark-circle-outline" size={56} color={theme.textMuted} />
-              <Text style={[styles.emptyText, { color: theme.textMuted }]}>
-                Debt-free! Or add a loan or borrowed money to track it here.
-              </Text>
-            </View>
-          }
-          renderItem={({ item }) => {
-            const meta = typeMeta(item.type);
-            const itemPaid = (item.principal || 0) - (item.outstanding || 0);
-            const itemPct =
-              item.principal > 0 ? Math.min((itemPaid / item.principal) * 100, 100) : 0;
-            const cleared = (item.outstanding || 0) <= 0;
-            return (
-              <View
-                style={[
-                  styles.card,
-                  {
-                    backgroundColor: theme.surface,
-                    borderColor: cleared ? theme.primary : theme.border,
-                    shadowColor: theme.shadow,
-                  },
-                ]}
-              >
-                <View style={styles.cardHeader}>
-                  <View style={[styles.typeIcon, { backgroundColor: meta.color + '40' }]}>
-                    <Ionicons name={meta.icon} size={19} color="#455A64" />
-                  </View>
-                  <View style={styles.cardMeta}>
-                    <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
-                      {item.name}
-                    </Text>
-                    <Text style={[styles.cardSub, { color: theme.textSecondary }]}>
-                      {item.type}
-                      {item.dueDate ? ` · by ${item.dueDate}` : ''}
-                      {item.remainingEmis > 0
-                        ? ` · ${item.remainingEmis} EMI${item.remainingEmis === 1 ? '' : 's'} left · ends ${endMonthLabel(item.remainingEmis)}`
-                        : ''}
-                    </Text>
-                  </View>
-                  <TouchableOpacity style={styles.iconBtn} onPress={() => openEdit(item)}>
-                    <Ionicons name="create-outline" size={19} color={theme.primaryDark} />
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.iconBtn} onPress={() => deleteItem(item)}>
-                    <Ionicons name="trash-outline" size={19} color={theme.danger} />
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.amountsRow}>
-                  <View style={styles.amountCol}>
-                    <Text style={[styles.amountLabel, { color: theme.textMuted }]}>Outstanding</Text>
-                    <Text
-                      style={[
-                        styles.amountValue,
-                        { color: cleared ? '#2DA44E' : '#E5383B' },
-                      ]}
-                    >
-                      {cleared ? 'Cleared' : money(item.outstanding)}
-                    </Text>
-                  </View>
-                  {item.emi ? (
-                    <View style={styles.amountCol}>
-                      <Text style={[styles.amountLabel, { color: theme.textMuted }]}>EMI / month</Text>
-                      <Text style={[styles.amountValue, { color: theme.text }]}>
-                        {money(item.emi)}
-                      </Text>
-                    </View>
-                  ) : null}
-                  <View style={styles.amountCol}>
-                    <Text style={[styles.amountLabel, { color: theme.textMuted }]}>Principal</Text>
-                    <Text style={[styles.amountValue, { color: theme.text }]}>
-                      {money(item.principal)}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={[styles.progressTrack, { backgroundColor: theme.surfaceAlt }]}>
-                  <View style={[styles.progressFill, { width: `${itemPct}%`, backgroundColor: theme.primary }]} />
-                </View>
-                <View style={styles.progressRow}>
-                  <Text style={[styles.progressLabel, { color: theme.textMuted }]}>
-                    {itemPct.toFixed(0)}% paid off
-                    {item.updatedAt
-                      ? ` · updated ${new Date(item.updatedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`
-                      : ''}
-                  </Text>
-                  {!cleared ? (
-                    <TouchableOpacity
-                      style={[styles.updateBtn, { backgroundColor: theme.primary }]}
-                      onPress={() => openUpdate(item)}
-                    >
-                      <Ionicons name="refresh-outline" size={14} color={theme.onPrimary} />
-                      <Text style={[styles.updateBtnText, { color: theme.onPrimary }]}>Update</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-
-                {item.note ? (
-                  <Text style={[styles.note, { color: theme.textSecondary }]} numberOfLines={2}>
-                    {item.note}
-                  </Text>
-                ) : null}
+        {section === 'emi' ? (
+          <FlatList
+            data={loans}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.list}
+            showsVerticalScrollIndicator={false}
+            ListHeaderComponent={loanHeader}
+            renderItem={renderLoan}
+            ListEmptyComponent={
+              <View style={styles.empty}>
+                <Ionicons name="checkmark-circle-outline" size={56} color={theme.textMuted} />
+                <Text style={[styles.emptyText, { color: theme.textMuted }]}>
+                  No loans. Tap + to add one — enter the loan amount, interest rate and tenure and every EMI is planned for you.
+                </Text>
               </View>
-            );
-          }}
-        />
+            }
+          />
+        ) : (
+          <FlatList
+            data={pendingBills}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.list}
+            showsVerticalScrollIndicator={false}
+            ListHeaderComponent={billHeader}
+            ListFooterComponent={billFooter}
+            renderItem={renderBill}
+          />
+        )}
       </View>
 
       <TouchableOpacity
         style={[styles.fab, { backgroundColor: theme.secondary, shadowColor: theme.secondary }]}
-        onPress={openAdd}
+        onPress={section === 'emi' ? openAddLoan : openAddBill}
         activeOpacity={0.8}
+        accessibilityLabel="Add"
       >
         <Ionicons name="add" size={32} color="#FFF" />
       </TouchableOpacity>
 
-      <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
+      {/* Add / edit loan */}
+      <Modal visible={loanVisible} transparent animationType="fade" onRequestClose={() => setLoanVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
             <ScrollView keyboardShouldPersistTaps="handled">
-              <Text style={[styles.modalTitle, { color: theme.text }]}>
-                {editingId ? 'Edit Debt' : 'Add Debt'}
-              </Text>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>{editingId ? 'Edit Loan' : 'Add Loan'}</Text>
 
               <TextInput
-                style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-                placeholder="Lender / person (e.g. SBI, Ravi)"
+                style={inputStyle}
+                placeholder="Lender / person (e.g. SBI, Bajaj, Ravi)"
                 placeholderTextColor={theme.textMuted}
-                value={name}
-                onChangeText={setName}
+                value={loan.name}
+                onChangeText={setLoanField('name')}
               />
 
-              <Text style={[styles.fieldLabelText, { color: theme.textSecondary }]}>Type</Text>
-              <View style={styles.typeRow}>
-                {DEBT_TYPES.map((t) => {
-                  const selected = type === t.key;
+              <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Type</Text>
+              <View style={styles.chipWrap}>
+                {LOAN_TYPES.map((t) => {
+                  const selected = loan.type === t.key;
                   return (
                     <TouchableOpacity
                       key={t.key}
-                      style={[
-                        styles.chip,
-                        {
-                          backgroundColor: selected ? t.color : theme.surfaceAlt,
-                          borderColor: selected ? t.color : theme.borderNeutral,
-                        },
-                      ]}
-                      onPress={() => setType(t.key)}
+                      style={[styles.chip, { backgroundColor: selected ? t.color : theme.surfaceAlt, borderColor: selected ? t.color : theme.borderNeutral }]}
+                      onPress={() => setLoan((f) => ({ ...f, type: t.key, manual: t.key === 'Borrowed' ? true : f.manual }))}
                     >
                       <Text style={[styles.chipText, { color: theme.text }]}>{t.key}</Text>
                     </TouchableOpacity>
@@ -416,185 +770,306 @@ export default function DebtsScreen() {
                 })}
               </View>
 
-              <View style={styles.amountRow}>
-                <TextInput
-                  style={[styles.input, styles.smallInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-                  placeholder="Principal (₹)"
-                  placeholderTextColor={theme.textMuted}
-                  keyboardType="decimal-pad"
-                  value={principal}
-                  onChangeText={setPrincipal}
-                />
-                <TextInput
-                  style={[styles.input, styles.smallInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-                  placeholder="Outstanding (₹)"
-                  placeholderTextColor={theme.textMuted}
-                  keyboardType="decimal-pad"
-                  value={outstanding}
-                  onChangeText={setOutstanding}
-                />
+              <View style={[styles.segment, { backgroundColor: theme.surfaceAlt }]}>
+                {[
+                  { key: false, label: 'Monthly EMI' },
+                  { key: true, label: 'No EMI (borrowed)' },
+                ].map((opt) => (
+                  <TouchableOpacity
+                    key={String(opt.key)}
+                    style={[styles.segmentItem, loan.manual === opt.key && { backgroundColor: theme.sheet }]}
+                    onPress={() => setLoanField('manual')(opt.key)}
+                  >
+                    <Text style={[styles.tabText, { color: theme.text }]}>{opt.label}</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
+
               <View style={styles.amountRow}>
-                <TextInput
-                  style={[styles.input, styles.smallInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-                  placeholder="EMI / month (₹, optional)"
-                  placeholderTextColor={theme.textMuted}
-                  keyboardType="decimal-pad"
-                  value={emi}
-                  onChangeText={setEmi}
-                />
-                <TextInput
-                  style={[styles.input, styles.smallInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-                  placeholder="Due / end date (optional)"
-                  placeholderTextColor={theme.textMuted}
-                  value={dueDate}
-                  onChangeText={setDueDate}
-                />
+                <LabeledInput label="Loan amount (₹)" theme={theme} value={loan.principal} onChangeText={setLoanField('principal')} placeholder="e.g. 500000" />
+                <LabeledInput label="Interest (% / year)" theme={theme} value={loan.interestRate} onChangeText={setLoanField('interestRate')} placeholder={loan.manual ? 'optional' : 'e.g. 10.5'} />
               </View>
+
+              {loan.manual ? (
+                <>
+                  <View style={styles.amountRow}>
+                    <LabeledInput label="Remaining (₹)" theme={theme} value={loan.outstanding} onChangeText={setLoanField('outstanding')} placeholder="still to repay" />
+                    <LabeledInput label="Repay by (optional)" theme={theme} value={loan.dueDate} onChangeText={setLoanField('dueDate')} placeholder="e.g. Dec 2026" keyboardType="default" />
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={styles.amountRow}>
+                    <LabeledInput label="Tenure (months)" theme={theme} value={loan.tenure} onChangeText={setLoanField('tenure')} placeholder="e.g. 60" keyboardType="number-pad" />
+                    <LabeledInput
+                      label="EMI (₹ / month)"
+                      theme={theme}
+                      value={loan.emi}
+                      onChangeText={setLoanField('emi')}
+                      placeholder={autoEmi ? `${autoEmi} (auto)` : 'auto'}
+                    />
+                  </View>
+                  <Text style={[styles.hint, styles.hintTight, { color: theme.textMuted }]}>
+                    Leave EMI blank to calculate it. If your bank&apos;s EMI is slightly different, type it in.
+                  </Text>
+
+                  <View style={styles.amountRow}>
+                    <View style={styles.flex}>
+                      <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>First EMI month</Text>
+                      <View style={[styles.stepper, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral }]}>
+                        <TouchableOpacity onPress={() => setLoanField('startMonth')(addMonths(loan.startMonth, -1))} accessibilityLabel="Previous month">
+                          <Ionicons name="chevron-back" size={20} color={theme.text} />
+                        </TouchableOpacity>
+                        <Text style={[styles.stepperText, { color: theme.text }]}>{monthLabel(loan.startMonth)}</Text>
+                        <TouchableOpacity onPress={() => setLoanField('startMonth')(addMonths(loan.startMonth, 1))} accessibilityLabel="Next month">
+                          <Ionicons name="chevron-forward" size={20} color={theme.text} />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                    <LabeledInput label="EMI date (day)" theme={theme} value={loan.emiDay} onChangeText={setLoanField('emiDay')} placeholder="5" keyboardType="number-pad" />
+                  </View>
+
+                  {!editingId && loan.startMonth < thisMonth ? (
+                    <TouchableOpacity style={styles.checkRow} onPress={() => setLoanField('paidBefore')(!loan.paidBefore)}>
+                      <Ionicons name={loan.paidBefore ? 'checkbox' : 'square-outline'} size={20} color={theme.primary} />
+                      <Text style={[styles.checkText, { color: theme.text }]}>
+                        EMIs before {monthLabel(thisMonth)} are already paid
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+
+                  {draftSummary && draftRows.length ? (
+                    <View style={[styles.calcBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral }]}>
+                      <CalcRow label="EMI" value={money(draftSummary.emi)} theme={theme} />
+                      <CalcRow label="Outstanding principal now" value={money(draftSummary.outstanding)} theme={theme} strong />
+                      <CalcRow label="EMIs left" value={`${draftSummary.remainingCount} of ${draftSummary.totalCount}`} theme={theme} />
+                      <CalcRow label="Interest left to pay" value={money(draftSummary.interestLeft)} theme={theme} />
+                      <CalcRow label="Total interest on loan" value={money(draftSummary.totalInterest)} theme={theme} />
+                      <CalcRow label="Last EMI" value={monthLabel(draftSummary.endsMonth, true)} theme={theme} />
+                    </View>
+                  ) : null}
+                </>
+              )}
+
               <TextInput
-                style={[styles.input, styles.noteInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-                placeholder="Note (optional)"
+                style={[inputStyle, styles.noteInput]}
+                placeholder="Note (optional, e.g. loan account no. last 4)"
                 placeholderTextColor={theme.textMuted}
-                value={note}
-                onChangeText={setNote}
+                value={loan.note}
+                onChangeText={setLoanField('note')}
                 multiline
               />
 
-              <View style={styles.modalActions}>
-                <TouchableOpacity
-                  style={[styles.cancelBtn, { backgroundColor: theme.surfaceAlt }]}
-                  onPress={() => setModalVisible(false)}
-                >
-                  <Text style={[styles.cancelText, { color: theme.textSecondary }]}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.saveBtn, { backgroundColor: theme.primary }, !formValid && styles.btnDisabled]}
-                  onPress={saveItem}
-                  disabled={!formValid}
-                >
-                  <Text style={[styles.saveText, { color: theme.onPrimary }]}>
-                    {editingId ? 'Update' : 'Save'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
+              <ModalActions
+                theme={theme}
+                onCancel={() => setLoanVisible(false)}
+                onSave={saveLoan}
+                valid={!!loanValid}
+                saveLabel={editingId ? 'Update' : 'Save'}
+              />
             </ScrollView>
           </View>
         </View>
       </Modal>
-      <Modal visible={!!updating} transparent animationType="fade" onRequestClose={() => setUpdating(null)}>
+
+      {/* Add / edit credit card or other bill */}
+      <Modal visible={billVisible} transparent animationType="fade" onRequestClose={() => setBillVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
-            {updating ? (
-              <ScrollView keyboardShouldPersistTaps="handled">
-                <Text style={[styles.modalTitle, styles.updateTitle, { color: theme.text }]}>
-                  Update {updating.name}
-                </Text>
-                <Text style={[styles.updateSub, { color: theme.textMuted }]}>
-                  Principal {money(updating.principal)} · {updating.type}
-                </Text>
-
-                <Text style={[styles.fieldLabelText, { color: theme.textSecondary }]}>EMI amount (₹ / month)</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <Text style={[styles.modalTitle, { color: theme.text }]}>
+                {editingId ? 'Edit' : 'Add'} {section === 'card' ? 'Credit Card Bill' : 'Bill'}
+              </Text>
+              <TextInput
+                style={inputStyle}
+                placeholder={section === 'card' ? 'Card (e.g. HDFC Millennia)' : 'Bill name (e.g. TNEB, Airtel)'}
+                placeholderTextColor={theme.textMuted}
+                value={bill.name}
+                onChangeText={setBillField('name')}
+              />
+              {section === 'bill' ? (
+                <>
+                  <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Type</Text>
+                  <View style={styles.chipWrap}>
+                    {BILL_TYPES.map((t) => {
+                      const selected = bill.billType === t.key;
+                      return (
+                        <TouchableOpacity
+                          key={t.key}
+                          style={[styles.chip, { backgroundColor: selected ? t.color : theme.surfaceAlt, borderColor: selected ? t.color : theme.borderNeutral }]}
+                          onPress={() => setBillField('billType')(t.key)}
+                        >
+                          <Text style={[styles.chipText, { color: theme.text }]}>{t.key}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </>
+              ) : null}
+              <View style={styles.amountRow}>
+                <LabeledInput
+                  label={section === 'card' ? 'Total due (₹)' : 'Amount (₹)'}
+                  theme={theme}
+                  value={bill.amount}
+                  onChangeText={setBillField('amount')}
                   placeholder="e.g. 12500"
-                  placeholderTextColor={theme.textMuted}
-                  keyboardType="decimal-pad"
-                  value={uEmi}
-                  onChangeText={setUEmi}
                 />
-
-                <Text style={[styles.fieldLabelText, { color: theme.textSecondary }]}>Remaining EMIs</Text>
-                <View style={styles.amountRow}>
-                  <TextInput
-                    style={[styles.input, styles.smallInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-                    placeholder="e.g. 24"
-                    placeholderTextColor={theme.textMuted}
-                    keyboardType="number-pad"
-                    value={uRemaining}
-                    onChangeText={setURemaining}
-                  />
-                  <TouchableOpacity
-                    style={[styles.payBtn, { borderColor: theme.primaryDark }, !(uRemainingNum > 0) && styles.btnDisabled]}
-                    onPress={payOneEmi}
-                    disabled={!(uRemainingNum > 0)}
-                  >
-                    <Ionicons name="checkmark-done-outline" size={16} color={theme.primaryDark} />
-                    <Text style={[styles.payBtnText, { color: theme.primaryDark }]}>Paid 1 EMI</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <Text style={[styles.fieldLabelText, { color: theme.textSecondary }]}>Interest rate (% per year, optional)</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-                  placeholder="e.g. 10.5 — leave blank if unknown"
-                  placeholderTextColor={theme.textMuted}
-                  keyboardType="decimal-pad"
-                  value={uRate}
-                  onChangeText={setURate}
-                />
-
-                {!usesEmiMaths ? (
-                  <>
-                    <Text style={[styles.fieldLabelText, { color: theme.textSecondary }]}>
-                      No EMI? Enter the remaining amount (₹)
-                    </Text>
-                    <TextInput
-                      style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-                      placeholder="Remaining amount"
-                      placeholderTextColor={theme.textMuted}
-                      keyboardType="decimal-pad"
-                      value={uOutstanding}
-                      onChangeText={setUOutstanding}
-                    />
-                  </>
+                {section === 'card' ? (
+                  <LabeledInput label="Minimum due (optional)" theme={theme} value={bill.minDue} onChangeText={setBillField('minDue')} placeholder="₹" />
                 ) : null}
+              </View>
+              <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>
+                Due date · {bill.dueDate ? `${shortDate(bill.dueDate)} ${bill.dueDate.slice(0, 4)}` : 'pick one'}
+              </Text>
+              <DatePicker value={bill.dueDate} onChange={setBillField('dueDate')} />
+              <TextInput
+                style={[inputStyle, styles.noteInput, styles.spaced]}
+                placeholder="Note (optional)"
+                placeholderTextColor={theme.textMuted}
+                value={bill.note}
+                onChangeText={setBillField('note')}
+                multiline
+              />
+              <ModalActions
+                theme={theme}
+                onCancel={() => setBillVisible(false)}
+                onSave={saveBill}
+                valid={!!billValid}
+                saveLabel={editingId ? 'Update' : 'Save'}
+              />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
-                <View style={[styles.calcBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral }]}>
-                  <CalcRow label="Outstanding principal" value={money(preview.outstanding)} theme={theme} strong />
-                  {usesEmiMaths ? (
-                    <>
-                      <CalcRow label="Total EMIs left to pay" value={money(preview.totalPayable)} theme={theme} />
-                      {uRateNum > 0 ? (
-                        <CalcRow label="Interest left" value={money(preview.interestLeft)} theme={theme} />
-                      ) : null}
-                    </>
-                  ) : null}
-                  <CalcRow
-                    label="Principal paid off"
-                    value={`${money(preview.paidOff)} · ${preview.paidPct.toFixed(0)}%`}
-                    theme={theme}
-                  />
-                  {usesEmiMaths ? (
-                    <CalcRow label="Loan ends" value={preview.endsOn || 'Cleared 🎉'} theme={theme} />
-                  ) : null}
-                  {usesEmiMaths && !(uRateNum > 0) ? (
-                    <Text style={[styles.calcHint, { color: theme.textMuted }]}>
-                      Add the interest rate to split EMIs into principal and interest.
+      {/* EMI schedule */}
+      <Modal visible={!!scheduleLoan} transparent animationType="fade" onRequestClose={() => setScheduleId(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modal, styles.tallModal, { backgroundColor: theme.sheet }]}>
+            {scheduleLoan && scheduleSummary ? (
+              <>
+                <Text style={[styles.modalTitle, styles.titleTight, { color: theme.text }]}>{scheduleLoan.name}</Text>
+                <Text style={[styles.modalSub, { color: theme.textMuted }]}>
+                  {money(scheduleSummary.outstanding)} outstanding · {scheduleSummary.remainingCount} EMIs left · {money(scheduleSummary.interestLeft)} interest left
+                </Text>
+                {unpaidEarlier > 0 ? (
+                  <TouchableOpacity
+                    style={[styles.ghostBtn, styles.earlierBtn, { borderColor: theme.primary }]}
+                    onPress={() => markEarlierPaid(scheduleLoan)}
+                  >
+                    <Ionicons name="checkmark-done-outline" size={15} color={theme.primary} />
+                    <Text style={[styles.ghostBtnText, { color: theme.primary }]}>
+                      Mark {unpaidEarlier} EMIs before {monthLabel(thisMonth)} as paid (not added to expenses)
                     </Text>
-                  ) : null}
-                </View>
-
-                <View style={styles.modalActions}>
-                  <TouchableOpacity
-                    style={[styles.cancelBtn, { backgroundColor: theme.surfaceAlt }]}
-                    onPress={() => setUpdating(null)}
-                  >
-                    <Text style={[styles.cancelText, { color: theme.textSecondary }]}>Cancel</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.saveBtn, { backgroundColor: theme.primary }, !updateValid && styles.btnDisabled]}
-                    onPress={saveUpdate}
-                    disabled={!updateValid}
-                  >
-                    <Text style={[styles.saveText, { color: theme.onPrimary }]}>Save</Text>
-                  </TouchableOpacity>
+                ) : null}
+                <View style={[styles.schedHead, { borderBottomColor: theme.borderNeutral }]}>
+                  <Text style={[styles.schedCell, styles.schedMonth, { color: theme.textMuted }]}>Month</Text>
+                  <Text style={[styles.schedCell, { color: theme.textMuted }]}>Principal</Text>
+                  <Text style={[styles.schedCell, { color: theme.textMuted }]}>Interest</Text>
+                  <Text style={[styles.schedCell, { color: theme.textMuted }]}>Balance</Text>
+                  <View style={styles.schedCheck} />
                 </View>
-              </ScrollView>
+                <FlatList
+                  style={styles.schedList}
+                  data={scheduleSummary.rows}
+                  keyExtractor={(row) => row.month}
+                  initialScrollIndex={Math.max(0, (scheduleSummary.next?.index || 1) - 2)}
+                  getItemLayout={(_, index) => ({ length: SCHED_ROW_HEIGHT, offset: SCHED_ROW_HEIGHT * index, index })}
+                  renderItem={({ item: row }) => {
+                    const paid = schedulePaid.has(row.month);
+                    const current = row.month === thisMonth;
+                    return (
+                      <View
+                        style={[
+                          styles.schedRow,
+                          { borderBottomColor: theme.borderNeutral },
+                          current && { backgroundColor: theme.primary + '1A' },
+                        ]}
+                      >
+                        <View style={[styles.schedCell, styles.schedMonth]}>
+                          <Text style={[styles.schedText, { color: theme.text }]}>{monthLabel(row.month)}</Text>
+                          <Text style={[styles.schedSmall, { color: theme.textMuted }]}>
+                            #{row.index} · {money(row.payment)}
+                          </Text>
+                        </View>
+                        <Text style={[styles.schedCell, styles.schedText, { color: theme.text }]}>{money(row.principal)}</Text>
+                        <Text style={[styles.schedCell, styles.schedText, { color: theme.textSecondary }]}>{money(row.interest)}</Text>
+                        <Text style={[styles.schedCell, styles.schedText, { color: theme.text }]}>{money(row.balance)}</Text>
+                        <TouchableOpacity
+                          style={[styles.schedCheck, styles.checkBtn, { borderColor: paid ? '#2DA44E' : theme.borderNeutral, backgroundColor: paid ? '#2DA44E' : 'transparent' }]}
+                          onPress={() => payEmi(scheduleLoan, row, !paid)}
+                          accessibilityLabel={`${paid ? 'Unmark' : 'Mark'} ${monthLabel(row.month)} EMI paid`}
+                        >
+                          <Ionicons name="checkmark" size={15} color={paid ? '#FFF' : theme.textMuted} />
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  }}
+                />
+                <TouchableOpacity
+                  style={[styles.cancelBtn, styles.closeBtn, { backgroundColor: theme.surfaceAlt }]}
+                  onPress={() => setScheduleId(null)}
+                >
+                  <Text style={[styles.cancelText, { color: theme.textSecondary }]}>Close</Text>
+                </TouchableOpacity>
+              </>
             ) : null}
           </View>
         </View>
       </Modal>
+
+      {/* Manual loan: update remaining amount */}
+      <Modal visible={!!manualId} transparent animationType="fade" onRequestClose={() => setManualId(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Remaining amount</Text>
+            <TextInput
+              style={inputStyle}
+              placeholder="₹ still to repay"
+              placeholderTextColor={theme.textMuted}
+              keyboardType="decimal-pad"
+              value={manualOutstanding}
+              onChangeText={setManualOutstanding}
+            />
+            <ModalActions theme={theme} onCancel={() => setManualId(null)} onSave={saveManual} valid saveLabel="Save" />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
+  );
+}
+
+const SCHED_ROW_HEIGHT = 48;
+
+function LabeledInput({ label, theme, keyboardType = 'decimal-pad', ...props }) {
+  return (
+    <View style={styles.flex}>
+      <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>{label}</Text>
+      <TextInput
+        style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+        placeholderTextColor={theme.textMuted}
+        keyboardType={keyboardType}
+        {...props}
+      />
+    </View>
+  );
+}
+
+function ModalActions({ theme, onCancel, onSave, valid, saveLabel }) {
+  return (
+    <View style={styles.modalActions}>
+      <TouchableOpacity style={[styles.cancelBtn, { backgroundColor: theme.surfaceAlt }]} onPress={onCancel}>
+        <Text style={[styles.cancelText, { color: theme.textSecondary }]}>Cancel</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.saveBtn, { backgroundColor: theme.primary }, !valid && styles.btnDisabled]}
+        onPress={onSave}
+        disabled={!valid}
+      >
+        <Text style={[styles.saveText, { color: theme.onPrimary }]}>{saveLabel}</Text>
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -611,6 +1086,11 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
   list: { paddingBottom: 90 },
+  flex: { flex: 1, minWidth: 0 },
+  tabs: { flexDirection: 'row', borderRadius: 12, padding: 3, marginBottom: 14 },
+  tab: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center' },
+  tabSelected: { shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.12, shadowRadius: 3, elevation: 2 },
+  tabText: { fontSize: 13, fontWeight: '600' },
   summaryCard: {
     borderRadius: 18,
     padding: 18,
@@ -621,10 +1101,11 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  summaryRow: { flexDirection: 'row' },
+  summaryRow: { flexDirection: 'row', gap: 12 },
   summaryCol: { flex: 1 },
   summaryLabel: { fontSize: 12, fontWeight: '600' },
   summaryValue: { fontSize: 22, fontWeight: 'bold', marginTop: 4 },
+  summarySub: { fontSize: 11, marginTop: 2 },
   plRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -638,12 +1119,17 @@ const styles = StyleSheet.create({
   plValue: { fontSize: 16, fontWeight: '800' },
   progressTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
   progressFill: { height: 6, borderRadius: 3 },
-  filterRow: { marginBottom: 14 },
-  filterChips: { flexDirection: 'row', gap: 8, paddingRight: 8 },
+  hint: { fontSize: 11, marginTop: 12 },
+  hintTight: { marginTop: -4, marginBottom: 12 },
+  listTitle: { fontSize: 16, fontWeight: '700', marginBottom: 10 },
+  noMargin: { marginBottom: 0 },
+  emptyInline: { fontSize: 13, marginBottom: 14 },
+  paidToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, marginBottom: 10 },
   chip: { paddingVertical: 7, paddingHorizontal: 14, borderRadius: 18, borderWidth: 1 },
   chipText: { fontSize: 13, fontWeight: '600' },
-  empty: { alignItems: 'center', marginTop: 80 },
-  emptyText: { marginTop: 12, fontSize: 14, textAlign: 'center', paddingHorizontal: 40 },
+  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
+  empty: { alignItems: 'center', marginTop: 40 },
+  emptyText: { marginTop: 12, fontSize: 14, textAlign: 'center', paddingHorizontal: 30 },
   card: {
     borderRadius: 16,
     padding: 14,
@@ -654,16 +1140,10 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  billCard: { flexDirection: 'row', alignItems: 'center' },
   cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  typeIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  cardMeta: { flex: 1 },
+  typeIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  cardMeta: { flex: 1, minWidth: 0 },
   cardTitle: { fontSize: 15, fontWeight: '700' },
   cardSub: { fontSize: 12, marginTop: 2 },
   iconBtn: { padding: 6 },
@@ -671,36 +1151,18 @@ const styles = StyleSheet.create({
   amountCol: { flex: 1 },
   amountLabel: { fontSize: 11, fontWeight: '600' },
   amountValue: { fontSize: 15, fontWeight: '700', marginTop: 2 },
-  progressLabel: { flex: 1, fontSize: 11 },
-  progressRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 8 },
-  updateBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
-  },
-  updateBtnText: { fontSize: 12, fontWeight: '700' },
-  updateTitle: { marginBottom: 2 },
-  updateSub: { fontSize: 13, marginBottom: 16 },
-  payBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    borderWidth: 1.5,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    marginBottom: 12,
-  },
-  payBtnText: { fontSize: 13, fontWeight: '700' },
-  calcBox: { borderWidth: 1, borderRadius: 14, padding: 14, gap: 8, marginBottom: 6 },
-  calcRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
-  calcLabel: { fontSize: 13 },
-  calcValue: { fontSize: 13, fontWeight: '700' },
-  calcStrong: { fontSize: 16, color: '#E5383B' },
-  calcHint: { fontSize: 11, marginTop: 2 },
+  progressLabel: { fontSize: 11, marginTop: 6 },
+  warnText: { fontSize: 11, fontWeight: '600', marginTop: 4 },
+  nextRow: { flexDirection: 'row', alignItems: 'center', gap: 8, borderTopWidth: 1, marginTop: 10, paddingTop: 10 },
+  nextLabel: { fontSize: 11, fontWeight: '600' },
+  nextValue: { fontSize: 14, fontWeight: '700', marginTop: 2 },
+  payBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 14 },
+  payBtnText: { fontSize: 12, fontWeight: '700' },
+  ghostBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1 },
+  ghostBtnText: { fontSize: 12, fontWeight: '600', flexShrink: 1 },
+  earlierBtn: { marginBottom: 10, alignSelf: 'flex-start' },
+  billAmount: { fontSize: 15, fontWeight: '700', marginHorizontal: 6 },
+  checkBtn: { width: 28, height: 28, borderRadius: 14, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   note: { fontSize: 12, marginTop: 8 },
   fab: {
     position: 'absolute',
@@ -717,25 +1179,50 @@ const styles = StyleSheet.create({
     elevation: 6,
     zIndex: 100,
   },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 },
-  modal: { borderRadius: 20, padding: 20, maxHeight: '85%' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
+  modal: { borderRadius: 20, padding: 20, maxHeight: '88%' },
+  tallModal: { height: '85%' },
   modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 16 },
-  input: {
+  titleTight: { marginBottom: 2 },
+  modalSub: { fontSize: 12, marginBottom: 12 },
+  input: { borderRadius: 12, borderWidth: 1, padding: 13, fontSize: 16, marginBottom: 12 },
+  fieldLabel: { fontSize: 12, fontWeight: '600', marginBottom: 6, letterSpacing: 0.3 },
+  segment: { flexDirection: 'row', borderRadius: 12, padding: 3, marginBottom: 14 },
+  segmentItem: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center' },
+  amountRow: { flexDirection: 'row', gap: 12 },
+  stepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     borderRadius: 12,
     borderWidth: 1,
-    padding: 14,
-    fontSize: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
     marginBottom: 12,
   },
-  fieldLabelText: { fontSize: 12, fontWeight: '600', marginBottom: 8, letterSpacing: 0.5 },
-  typeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
-  amountRow: { flexDirection: 'row', gap: 12 },
-  smallInput: { flex: 1, minWidth: 0 },
-  noteInput: { minHeight: 70, textAlignVertical: 'top' },
+  stepperText: { fontSize: 15, fontWeight: '600' },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  checkText: { fontSize: 13, flex: 1 },
+  spaced: { marginTop: 12 },
+  noteInput: { minHeight: 60, textAlignVertical: 'top' },
+  calcBox: { borderWidth: 1, borderRadius: 14, padding: 14, gap: 8, marginBottom: 12 },
+  calcRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+  calcLabel: { fontSize: 13 },
+  calcValue: { fontSize: 13, fontWeight: '700' },
+  calcStrong: { fontSize: 15, color: '#E5383B' },
   modalActions: { flexDirection: 'row', gap: 12, marginTop: 8 },
   cancelBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center' },
+  closeBtn: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto', marginTop: 12 },
   cancelText: { fontSize: 15, fontWeight: '600' },
   saveBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center' },
   saveText: { fontSize: 15, fontWeight: '600' },
   btnDisabled: { opacity: 0.4 },
+  schedHead: { flexDirection: 'row', alignItems: 'center', paddingBottom: 6, borderBottomWidth: 1 },
+  schedList: { flex: 1 },
+  schedRow: { flexDirection: 'row', alignItems: 'center', height: SCHED_ROW_HEIGHT, borderBottomWidth: StyleSheet.hairlineWidth },
+  schedCell: { flex: 1, fontSize: 11, textAlign: 'right' },
+  schedMonth: { flex: 1.3, textAlign: 'left' },
+  schedText: { fontSize: 12, fontWeight: '600' },
+  schedSmall: { fontSize: 10 },
+  schedCheck: { width: 28, marginLeft: 8 },
 });
