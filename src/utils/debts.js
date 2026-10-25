@@ -291,3 +291,43 @@ export function dueFromSourceId(sourceId, debts) {
   if (kind === 'emi') return { key: sourceId, kind: 'emi', debtId: id, month };
   return { key: sourceId, kind: sectionOf(item), debtId: id, month: billMonth(item) };
 }
+
+// ------- reminders -------
+
+const dateKeyOf = (date) => `${monthKeyOf(date)}-${pad(date.getDate())}`;
+
+/**
+ * Unpaid EMIs and bills due today or later, soonest first: the next
+ * `emisPerLoan` unpaid EMIs of each scheduled loan and every unpaid credit
+ * card / other bill. Manual loans have no reliable due date, so they're left out.
+ */
+export function upcomingDues(debts, today = dateKeyOf(new Date()), emisPerLoan = 2) {
+  const dues = [];
+  debts.forEach((item) => {
+    const section = sectionOf(item);
+    if (section === 'emi') {
+      const paid = new Set(item.paidMonths || []);
+      buildSchedule(item)
+        .filter((row) => !paid.has(row.month) && row.dueDate >= today)
+        .slice(0, emisPerLoan)
+        .forEach((row) =>
+          dues.push({
+            key: emiSourceId(item.id, row.month),
+            kind: 'emi',
+            title: `${item.name} EMI`,
+            amount: row.payment,
+            dueDate: row.dueDate,
+          })
+        );
+    } else if (!item.paid && item.dueDate && item.dueDate >= today) {
+      dues.push({
+        key: billSourceId(item.id),
+        kind: section,
+        title: section === 'card' ? `${item.name} card bill` : item.name,
+        amount: Number(item.amount) || 0,
+        dueDate: item.dueDate,
+      });
+    }
+  });
+  return dues.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+}

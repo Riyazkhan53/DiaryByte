@@ -20,8 +20,9 @@ const CHANNEL_ID = 'autopays';
 export const ACK_ACTION_ID = 'autopay-ack-cycle';
 const REMIND_AT_HOUR = 9; // 9 AM local time
 const CYCLES_AHEAD = 3;
-// iOS keeps at most 64 pending local notifications per app.
-const MAX_SCHEDULED = 60;
+// iOS keeps at most 64 pending local notifications per app, shared with
+// EMI/bill reminders (debtReminders.js).
+const MAX_SCHEDULED = 32;
 
 const isNative = Platform.OS !== 'web';
 

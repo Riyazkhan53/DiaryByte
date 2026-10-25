@@ -101,6 +101,9 @@ const COLLECTIONS = {
       'month',
       'paid',
       'paidAt',
+      // credit card bill linked to a card saved in "cards" (no full number)
+      'cardId',
+      'cardLast4',
     ],
   },
   autopays: {
