@@ -19,6 +19,10 @@ import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 import { confirmDelete } from '../../utils/confirm';
 import { todayKey } from '../../utils/autopay';
 import {
+  requestWebNotificationPermission,
+  webNotificationPermission,
+} from '../../services/autopayReminders';
+import {
   addMonths,
   billMonth,
   billSourceId,
@@ -108,6 +112,7 @@ export default function DebtsScreen() {
   const today = todayKey();
 
   const [section, setSection] = useState('emi');
+  const [webPermission, setWebPermission] = useState(webNotificationPermission);
 
   // Loan form
   const [loanVisible, setLoanVisible] = useState(false);
@@ -698,6 +703,17 @@ export default function DebtsScreen() {
 
       <View style={styles.content}>
         <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} />
+        {webPermission === 'default' && (
+          <TouchableOpacity
+            style={[styles.alertBtn, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral }]}
+            onPress={async () => setWebPermission(await requestWebNotificationPermission())}
+          >
+            <Ionicons name="notifications-outline" size={18} color={theme.secondaryDark} />
+            <Text style={[styles.alertBtnText, { color: theme.secondaryDark }]}>
+              Enable browser alerts for EMIs and bills
+            </Text>
+          </TouchableOpacity>
+        )}
         {tabs}
 
         {section === 'emi' ? (
@@ -1088,6 +1104,17 @@ const styles = StyleSheet.create({
   list: { paddingBottom: 90 },
   flex: { flex: 1, minWidth: 0 },
   tabs: { flexDirection: 'row', borderRadius: 12, padding: 3, marginBottom: 14 },
+  alertBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  alertBtnText: { fontSize: 14, fontWeight: '600' },
   tab: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center' },
   tabSelected: { shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.12, shadowRadius: 3, elevation: 2 },
   tabText: { fontSize: 13, fontWeight: '600' },

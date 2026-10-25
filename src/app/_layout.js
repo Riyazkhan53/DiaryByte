@@ -4,6 +4,7 @@ import { ThemeProvider, useTheme } from '../hooks/useTheme';
 import ServerGate from '../components/ServerGate';
 import GlassBackground from '../components/GlassBackground';
 import AutopayReminderService from '../components/AutopayReminderService';
+import DebtReminderService from '../components/DebtReminderService';
 import ShareIntentHandler from '../components/ShareIntentHandler';
 
 const renderScreen = ({ children }) => <GlassBackground>{children}</GlassBackground>;
@@ -21,6 +22,7 @@ function GlassRoot() {
     <NavigationThemeProvider value={navigationTheme}>
       <GlassBackground>
         <AutopayReminderService />
+        <DebtReminderService />
         <ServerGate>
           <Stack
             // Each screen gets its own backdrop so slide transitions don't
