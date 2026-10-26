@@ -88,10 +88,9 @@ function mergeWithRemote(local, remote, deleted) {
 /**
  * Merge this device's list with the server's, then push the result.
  *
- * The server replaces a whole collection on every push, so pushing only
- * what this device has would wipe items added from other devices (or that
- * this device never pulled). Merging first means a push only ever removes
- * items that were deleted here.
+ * The server only removes the ids listed as deleted, so this merge isn't
+ * what keeps data safe; it brings items saved from other devices onto this
+ * one, so the screen shows everything.
  */
 async function pushMerged(collection, storageKey) {
   const remote = await fetchCollection(collection);
@@ -110,7 +109,7 @@ async function pushMerged(collection, storageKey) {
     };
   });
 
-  await pushCollection(collection, merged);
+  await pushCollection(collection, merged, deleted);
 
   // Only clear what this push covered; edits made meanwhile stay queued.
   await inLocalQueue(storageKey, async () => {

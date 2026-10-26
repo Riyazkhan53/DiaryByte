@@ -179,4 +179,42 @@ function sanitize(name, raw) {
   return clean;
 }
 
-module.exports = { COLLECTIONS, getCollectionNames, getModel, sanitize };
+// Items deleted from any collection are kept here for 30 days so they can
+// be restored. MongoDB removes them automatically after that.
+const TRASH_DAYS = 30;
+let trashModel = null;
+
+function getTrashModel() {
+  if (!trashModel) {
+    const schema = new mongoose.Schema(
+      {
+        section: { type: String, required: true, index: true },
+        itemId: { type: String, required: true },
+        item: { type: mongoose.Schema.Types.Mixed, required: true },
+        deletedAt: { type: Date, default: Date.now, expires: TRASH_DAYS * 24 * 60 * 60 },
+      },
+      { collection: 'trash' }
+    );
+    trashModel = mongoose.model('trash', schema);
+  }
+  return trashModel;
+}
+
+// Drop Mongo's own fields so an item looks exactly as the app stored it.
+function toItem(doc) {
+  const item = {};
+  Object.keys(doc).forEach((key) => {
+    if (key !== '_id' && key !== '__v') item[key] = doc[key];
+  });
+  return item;
+}
+
+module.exports = {
+  COLLECTIONS,
+  TRASH_DAYS,
+  getCollectionNames,
+  getModel,
+  getTrashModel,
+  sanitize,
+  toItem,
+};

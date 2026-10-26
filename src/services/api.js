@@ -57,12 +57,31 @@ export function fetchCollection(collection) {
   return request(`/api/${collection}`).then((data) => data.items || []);
 }
 
-export function pushCollection(collection, items) {
+// Adds/updates `items` on the server. Only ids in `deleted` are removed;
+// the server moves them to Recently deleted.
+export function pushCollection(collection, items, deleted = []) {
   if (!COLLECTIONS.includes(collection)) {
     throw new Error(`Unknown collection: ${collection}`);
   }
   return request(`/api/${collection}`, {
     method: 'PUT',
-    body: JSON.stringify({ items }),
+    body: JSON.stringify({ items, deleted }),
+  });
+}
+
+export function fetchTrash(collection) {
+  if (!COLLECTIONS.includes(collection)) {
+    throw new Error(`Unknown collection: ${collection}`);
+  }
+  return request(`/api/trash/${collection}`);
+}
+
+export function restoreFromTrash(collection, trashIds) {
+  if (!COLLECTIONS.includes(collection)) {
+    throw new Error(`Unknown collection: ${collection}`);
+  }
+  return request(`/api/trash/${collection}/restore`, {
+    method: 'POST',
+    body: JSON.stringify({ trashIds }),
   });
 }
