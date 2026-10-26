@@ -150,6 +150,26 @@ const COLLECTIONS = {
   months: {
     fields: ['id', 'month', 'incomes', 'adjustments', 'createdAt'],
   },
+  // Total Spend: what was spent in a month and what it was paid from.
+  // source: card | cred | icici | canara | jupiter | cash | other
+  spends: {
+    fields: [
+      'id',
+      'title',
+      'amount',
+      'month',
+      'date',
+      'source',
+      'cardId',
+      'cardLabel',
+      'sourceNote',
+      'category',
+      'addToExpenses',
+      'note',
+      'createdAt',
+      'updatedAt',
+    ],
+  },
 };
 
 const modelCache = {};

@@ -18,6 +18,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 import { confirmDelete } from '../../utils/confirm';
 import { todayKey } from '../../utils/autopay';
+import { savedCardLabel } from '../../utils/cards';
 import {
   requestWebNotificationPermission,
   webNotificationPermission,
@@ -44,16 +45,6 @@ import {
 const STORAGE_KEY = '@diarybyte_debts';
 const EXPENSES_KEY = '@diarybyte_expenditure';
 const CARDS_KEY = '@diarybyte_cards';
-
-// Short label for a card saved in Banking & Cards, e.g. "HDFC Visa ••4242".
-// Only this label and the last 4 digits are copied onto a bill, never the
-// full number or CVV.
-const savedCardLabel = (card) => {
-  const last4 = (card.number || '').slice(-4);
-  const brand = card.brand && card.brand !== 'Card' ? card.brand : '';
-  const base = [card.bankName, brand].filter(Boolean).join(' ') || card.name || 'Card';
-  return last4 ? `${base} ••${last4}` : base;
-};
 
 const SECTIONS = [
   { key: 'emi', label: 'My EMIs', icon: 'calendar-outline' },
