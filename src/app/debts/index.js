@@ -18,6 +18,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 import { confirmDelete } from '../../utils/confirm';
 import { todayKey } from '../../utils/autopay';
+import { savedCardLabel } from '../../utils/cards';
 import {
   requestWebNotificationPermission,
   webNotificationPermission,
@@ -31,10 +32,12 @@ import {
   currentMonthKey,
   dueDateFor,
   emiSourceId,
+  isRecurringBill,
   loanSummary,
   markDuePaid,
   markDueUnpaid,
   monthLabel,
+  recurringBillDues,
   sectionOf,
   shortDate,
 } from '../../utils/debts';
@@ -42,16 +45,6 @@ import {
 const STORAGE_KEY = '@diarybyte_debts';
 const EXPENSES_KEY = '@diarybyte_expenditure';
 const CARDS_KEY = '@diarybyte_cards';
-
-// Short label for a card saved in Banking & Cards, e.g. "HDFC Visa ••4242".
-// Only this label and the last 4 digits are copied onto a bill, never the
-// full number or CVV.
-const savedCardLabel = (card) => {
-  const last4 = (card.number || '').slice(-4);
-  const brand = card.brand && card.brand !== 'Card' ? card.brand : '';
-  const base = [card.bankName, brand].filter(Boolean).join(' ') || card.name || 'Card';
-  return last4 ? `${base} ••${last4}` : base;
-};
 
 const SECTIONS = [
   { key: 'emi', label: 'My EMIs', icon: 'calendar-outline' },
@@ -113,7 +106,31 @@ const EMPTY_LOAN = {
   note: '',
 };
 
-const EMPTY_BILL = { name: '', billType: 'Electricity', amount: '', minDue: '', dueDate: '', note: '', cardId: null, cardLast4: '' };
+const EMPTY_BILL = {
+  name: '',
+  billType: 'Electricity',
+  amount: '',
+  minDue: '',
+  dueDate: '',
+  note: '',
+  cardId: null,
+  cardLast4: '',
+  recurring: false,
+  variable: false,
+};
+
+// A one-off bill as the due it represents (monthly bills come from recurringBillDues).
+const oneOffDue = (item) => ({
+  key: billSourceId(item.id),
+  kind: sectionOf(item),
+  debtId: item.id,
+  month: billMonth(item),
+  title: item.name,
+  amount: Number(item.amount) || 0,
+  dueDate: item.dueDate,
+  paid: !!item.paid,
+  category: sectionOf(item) === 'card' ? 'Credit Card' : 'Bills',
+});
 
 export default function DebtsScreen() {
   const { theme } = useTheme();
@@ -137,6 +154,10 @@ export default function DebtsScreen() {
   const [billVisible, setBillVisible] = useState(false);
   const [bill, setBill] = useState(EMPTY_BILL);
   const setBillField = (key) => (value) => setBill((f) => ({ ...f, [key]: value }));
+
+  // "This month's amount" sheet for monthly bills whose amount changes
+  const [amountDue, setAmountDue] = useState(null);
+  const [amountDraft, setAmountDraft] = useState('');
 
   // Schedule sheet and manual "update remaining" sheet
   const [scheduleId, setScheduleId] = useState(null);
@@ -172,20 +193,22 @@ export default function DebtsScreen() {
       paid
     );
 
-  const payBill = (item, paid = true) =>
-    applyPayment(
-      {
-        key: billSourceId(item.id),
-        kind: sectionOf(item),
-        debtId: item.id,
-        month: billMonth(item),
-        title: item.name,
-        amount: Number(item.amount) || 0,
-        dueDate: item.dueDate,
-        category: sectionOf(item) === 'card' ? 'Credit Card' : 'Bills',
-      },
-      paid
-    );
+  const toggleBillPaid = ({ item, due }) => {
+    // Monthly bills whose amount changes ask for this month's figure first.
+    if (!due.paid && due.recurring && item.variable) {
+      setAmountDue(due);
+      setAmountDraft(String(due.amount || ''));
+      return;
+    }
+    applyPayment(due, !due.paid);
+  };
+
+  const saveAmountPaid = () => {
+    const amount = toNum(amountDraft);
+    if (!(amount > 0)) return;
+    applyPayment({ ...amountDue, amount }, true);
+    setAmountDue(null);
+  };
 
   // EMIs from before you started tracking: mark paid without adding expenses.
   const markEarlierPaid = (item) => {
@@ -314,21 +337,54 @@ export default function DebtsScreen() {
       billType: item.billType || 'Other',
       amount: item.amount != null ? String(item.amount) : '',
       minDue: item.minDue ? String(item.minDue) : '',
-      dueDate: item.dueDate || today,
+      dueDate: isRecurringBill(item) ? dueDateFor(item.startMonth, item.dueDay) : item.dueDate || today,
       note: item.note || '',
       cardId: item.cardId || null,
       cardLast4: item.cardLast4 || '',
+      recurring: isRecurringBill(item),
+      variable: !!item.variable,
     });
     setBillVisible(true);
   };
 
   const billValid = bill.name.trim() && toNum(bill.amount) > 0 && !!bill.dueDate;
+  const isMonthlyForm = section === 'bill' && bill.recurring;
+  const editingBill = editingId ? items.find((i) => i.id === editingId) : null;
 
   const saveBill = () => {
     if (!billValid) return;
     const existing = editingId ? items.find((i) => i.id === editingId) : null;
+    if (section === 'bill' && bill.recurring) {
+      const entry = {
+        ...existing,
+        id: editingId || makeId(),
+        section,
+        name: bill.name.trim(),
+        billType: bill.billType,
+        amount: toNum(bill.amount),
+        recurring: true,
+        variable: bill.variable,
+        startMonth: bill.dueDate.slice(0, 7),
+        dueDay: Number(bill.dueDate.slice(8, 10)) || 1,
+        paidMonths: existing?.paidMonths || [],
+        amounts: existing?.amounts || {},
+        // One-off fields don't apply to a monthly bill.
+        dueDate: undefined,
+        month: undefined,
+        paid: undefined,
+        paidAt: undefined,
+        note: bill.note.trim(),
+        createdAt: existing?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      persist(editingId ? items.map((i) => (i.id === editingId ? entry : i)) : [entry, ...items]);
+      setBillVisible(false);
+      return;
+    }
     const entry = {
       ...existing,
+      recurring: undefined,
+      variable: undefined,
       id: editingId || makeId(),
       section,
       name: bill.name.trim(),
@@ -385,9 +441,23 @@ export default function DebtsScreen() {
   const deleteItem = (item) => {
     confirmDelete(
       'Delete',
-      `Remove ${item.name}? Payments already added to My Expenditure stay there.`,
+      isRecurringBill(item)
+        ? `Remove ${item.name} for every month? Payments already added to My Expenditure stay there. To keep its history, edit it and tap "Stop after this month" instead.`
+        : `Remove ${item.name}? Payments already added to My Expenditure stay there.`,
       () => persist(items.filter((i) => i.id !== item.id))
     );
+  };
+
+  // Stop a monthly bill after this month (e.g. moving out), or start it again.
+  const setBillEnded = (ended) => {
+    persist(
+      items.map((i) =>
+        i.id === editingId
+          ? { ...i, endMonth: ended ? thisMonth : undefined, updatedAt: new Date().toISOString() }
+          : i
+      )
+    );
+    setBillVisible(false);
   };
 
   // ------- manual loan update -------
@@ -422,22 +492,33 @@ export default function DebtsScreen() {
     .filter((x) => (x.loan.paidMonths || []).includes(thisMonth))
     .reduce((s, x) => s + x.row.payment, 0);
 
-  const sectionBills = section === 'card' ? cards : bills;
-  const pendingBills = sectionBills
-    .filter((b) => !b.paid)
-    .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
-  const paidBills = sectionBills
-    .filter((b) => b.paid)
-    .sort((a, b) => (b.dueDate || '').localeCompare(a.dueDate || ''));
-  const pendingTotal = pendingBills.reduce((s, b) => s + (Number(b.amount) || 0), 0);
+  // Each row is one payment: a one-off bill, or one month of a monthly bill.
+  const billRows = (list) =>
+    list.flatMap((item) => {
+      if (!isRecurringBill(item)) return [{ rowKey: item.id, item, due: oneOffDue(item) }];
+      const { pending, paid } = recurringBillDues(item, thisMonth);
+      return [...pending, ...paid].map((due) => ({ rowKey: due.key, item, due }));
+    });
+  const sectionRows = billRows(section === 'card' ? cards : bills);
+  const pendingBills = sectionRows
+    .filter((r) => !r.due.paid)
+    .sort((a, b) => (a.due.dueDate || '').localeCompare(b.due.dueDate || ''));
+  const paidBills = sectionRows
+    .filter((r) => r.due.paid)
+    .sort((a, b) => (b.due.dueDate || '').localeCompare(a.due.dueDate || ''));
+  const pendingTotal = pendingBills.reduce((s, r) => s + r.due.amount, 0);
   const overdueTotal = pendingBills
-    .filter((b) => b.dueDate && b.dueDate < today)
-    .reduce((s, b) => s + (Number(b.amount) || 0), 0);
-  const paidThisMonth = sectionBills
-    .filter((b) => b.paid && billMonth(b) === thisMonth)
-    .reduce((s, b) => s + (Number(b.amount) || 0), 0);
+    .filter((r) => r.due.dueDate && r.due.dueDate < today)
+    .reduce((s, r) => s + r.due.amount, 0);
+  const paidThisMonth = paidBills
+    .filter((r) => r.due.month === thisMonth)
+    .reduce((s, r) => s + r.due.amount, 0);
 
-  const counts = { emi: loans.length, card: cards.filter((c) => !c.paid).length, bill: bills.filter((b) => !b.paid).length };
+  const counts = {
+    emi: loans.length,
+    card: billRows(cards).filter((r) => !r.due.paid).length,
+    bill: billRows(bills).filter((r) => !r.due.paid).length,
+  };
 
   const inputStyle = [
     styles.input,
@@ -572,9 +653,11 @@ export default function DebtsScreen() {
     );
   };
 
-  const renderBill = ({ item }) => {
+  const renderBill = ({ item: row }) => {
+    const { item, due } = row;
+    const recurring = !!due.recurring;
     const meta = section === 'card' ? CARD_META : billMeta(item.billType);
-    const overdue = !item.paid && item.dueDate && item.dueDate < today;
+    const overdue = !due.paid && due.dueDate && due.dueDate < today;
     return (
       <View style={[styles.card, cardStyle, styles.billCard]}>
         <View style={[styles.typeIcon, { backgroundColor: meta.color + '40' }]}>
@@ -588,24 +671,31 @@ export default function DebtsScreen() {
             style={[styles.cardSub, { color: overdue ? theme.danger : theme.textSecondary }]}
             numberOfLines={1}
           >
-            {item.paid ? 'Paid' : overdue ? 'Overdue' : 'Due'} {shortDate(item.dueDate)}
+            {due.paid ? 'Paid' : overdue ? 'Overdue' : 'Due'} {shortDate(due.dueDate)}
             {section === 'bill' && item.billType ? ` · ${item.billType}` : ''}
             {section === 'card' && item.minDue ? ` · min ${money(item.minDue)}` : ''}
           </Text>
         </TouchableOpacity>
-        <Text style={[styles.billAmount, { color: item.paid ? theme.textMuted : theme.text }]}>
-          {money(item.amount)}
+        <Text style={[styles.billAmount, { color: due.paid ? theme.textMuted : theme.text }]}>
+          {recurring && item.variable && !due.paid ? '~' : ''}
+          {money(due.amount)}
         </Text>
         <TouchableOpacity
-          style={[styles.checkBtn, { borderColor: item.paid ? '#2DA44E' : theme.borderNeutral, backgroundColor: item.paid ? '#2DA44E' : 'transparent' }]}
-          onPress={() => payBill(item, !item.paid)}
-          accessibilityLabel={item.paid ? `Mark ${item.name} unpaid` : `Mark ${item.name} paid`}
+          style={[styles.checkBtn, { borderColor: due.paid ? '#2DA44E' : theme.borderNeutral, backgroundColor: due.paid ? '#2DA44E' : 'transparent' }]}
+          onPress={() => toggleBillPaid(row)}
+          accessibilityLabel={due.paid ? `Mark ${item.name} unpaid` : `Mark ${item.name} paid`}
         >
-          <Ionicons name="checkmark" size={16} color={item.paid ? '#FFF' : theme.textMuted} />
+          <Ionicons name="checkmark" size={16} color={due.paid ? '#FFF' : theme.textMuted} />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.iconBtn} onPress={() => repeatNextMonth(item)} accessibilityLabel="Copy to next month">
-          <Ionicons name="copy-outline" size={17} color={theme.primaryDark} />
-        </TouchableOpacity>
+        {recurring ? (
+          <View style={styles.iconBtn} accessibilityLabel="Repeats every month">
+            <Ionicons name="repeat-outline" size={17} color={theme.textMuted} />
+          </View>
+        ) : (
+          <TouchableOpacity style={styles.iconBtn} onPress={() => repeatNextMonth(item)} accessibilityLabel="Copy to next month">
+            <Ionicons name="copy-outline" size={17} color={theme.primaryDark} />
+          </TouchableOpacity>
+        )}
         <TouchableOpacity style={styles.iconBtn} onPress={() => deleteItem(item)} accessibilityLabel={`Delete ${item.name}`}>
           <Ionicons name="trash-outline" size={17} color={theme.danger} />
         </TouchableOpacity>
@@ -684,7 +774,9 @@ export default function DebtsScreen() {
           </View>
         </View>
         <Text style={[styles.hint, { color: theme.textMuted }]}>
-          Tick a bill when you pay it — it&apos;s added to My Expenditure for the month it&apos;s due. Use the copy icon to add next month&apos;s bill.
+          {section === 'bill'
+            ? 'Tick a bill when you pay it — it\u2019s added to My Expenditure for the month it\u2019s due. Make rent, current bill and the like monthly, and they come back every month like an EMI.'
+            : 'Tick a bill when you pay it — it\u2019s added to My Expenditure for the month it\u2019s due. Use the copy icon to add next month\u2019s bill.'}
         </Text>
       </View>
       <Text style={[styles.listTitle, { color: theme.text }]}>Pending</Text>
@@ -703,7 +795,7 @@ export default function DebtsScreen() {
           <Text style={[styles.listTitle, styles.noMargin, { color: theme.text }]}>Paid ({paidBills.length})</Text>
           <Ionicons name={showPaid ? 'chevron-up' : 'chevron-down'} size={18} color={theme.text} />
         </TouchableOpacity>
-        {showPaid ? paidBills.map((item) => <View key={item.id}>{renderBill({ item })}</View>) : null}
+        {showPaid ? paidBills.map((row) => <View key={row.rowKey}>{renderBill({ item: row })}</View>) : null}
       </View>
     ) : null;
 
@@ -753,7 +845,7 @@ export default function DebtsScreen() {
         ) : (
           <FlatList
             data={pendingBills}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(row) => row.rowKey}
             contentContainerStyle={styles.list}
             showsVerticalScrollIndicator={false}
             ListHeaderComponent={billHeader}
@@ -955,6 +1047,36 @@ export default function DebtsScreen() {
               ) : null}
               {section === 'bill' ? (
                 <>
+                  <View style={[styles.segment, { backgroundColor: theme.surfaceAlt }]}>
+                    {[
+                      { key: false, label: 'One time' },
+                      { key: true, label: 'Every month' },
+                    ].map((opt) => (
+                      <TouchableOpacity
+                        key={String(opt.key)}
+                        style={[styles.segmentItem, bill.recurring === opt.key && { backgroundColor: theme.sheet }]}
+                        onPress={() => setBillField('recurring')(opt.key)}
+                      >
+                        <Text style={[styles.tabText, { color: theme.text }]}>{opt.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  {bill.recurring ? (
+                    <View style={[styles.segment, { backgroundColor: theme.surfaceAlt }]}>
+                      {[
+                        { key: false, label: 'Same amount' },
+                        { key: true, label: 'Amount changes' },
+                      ].map((opt) => (
+                        <TouchableOpacity
+                          key={String(opt.key)}
+                          style={[styles.segmentItem, bill.variable === opt.key && { backgroundColor: theme.sheet }]}
+                          onPress={() => setBillField('variable')(opt.key)}
+                        >
+                          <Text style={[styles.tabText, { color: theme.text }]}>{opt.label}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  ) : null}
                   <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Type</Text>
                   <View style={styles.chipWrap}>
                     {BILL_TYPES.map((t) => {
@@ -974,7 +1096,15 @@ export default function DebtsScreen() {
               ) : null}
               <View style={styles.amountRow}>
                 <LabeledInput
-                  label={section === 'card' ? 'Total due (₹)' : 'Amount (₹)'}
+                  label={
+                    section === 'card'
+                      ? 'Total due (₹)'
+                      : bill.recurring && bill.variable
+                        ? 'Usual amount (₹)'
+                        : bill.recurring
+                          ? 'Monthly amount (₹)'
+                          : 'Amount (₹)'
+                  }
                   theme={theme}
                   value={bill.amount}
                   onChangeText={setBillField('amount')}
@@ -985,9 +1115,18 @@ export default function DebtsScreen() {
                 ) : null}
               </View>
               <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>
-                Due date · {bill.dueDate ? `${shortDate(bill.dueDate)} ${bill.dueDate.slice(0, 4)}` : 'pick one'}
+                {isMonthlyForm ? 'First due date' : 'Due date'} ·{' '}
+                {bill.dueDate ? `${shortDate(bill.dueDate)} ${bill.dueDate.slice(0, 4)}` : 'pick one'}
               </Text>
               <DatePicker value={bill.dueDate} onChange={setBillField('dueDate')} />
+              {isMonthlyForm && bill.dueDate ? (
+                <Text style={[styles.formHint, { color: theme.textMuted }]}>
+                  Due on day {Number(bill.dueDate.slice(8, 10))} of every month from{' '}
+                  {monthLabel(bill.dueDate.slice(0, 7), true)}
+                  {Number(bill.dueDate.slice(8, 10)) > 28 ? ' (last day in shorter months)' : ''}.
+                  {bill.variable ? ' You enter the actual amount each month when you tick it paid.' : ''}
+                </Text>
+              ) : null}
               <TextInput
                 style={[inputStyle, styles.noteInput, styles.spaced]}
                 placeholder="Note (optional)"
@@ -996,6 +1135,23 @@ export default function DebtsScreen() {
                 onChangeText={setBillField('note')}
                 multiline
               />
+              {isMonthlyForm && editingBill && isRecurringBill(editingBill) ? (
+                <TouchableOpacity
+                  style={[styles.stopBtn, { borderColor: theme.borderNeutral }]}
+                  onPress={() => setBillEnded(!editingBill.endMonth)}
+                >
+                  <Ionicons
+                    name={editingBill.endMonth ? 'play-outline' : 'stop-circle-outline'}
+                    size={18}
+                    color={editingBill.endMonth ? theme.primary : theme.danger}
+                  />
+                  <Text style={[styles.stopText, { color: editingBill.endMonth ? theme.primary : theme.danger }]}>
+                    {editingBill.endMonth
+                      ? `Stopped after ${monthLabel(editingBill.endMonth)} · Resume`
+                      : `Stop after ${monthLabel(thisMonth)}`}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
               <ModalActions
                 theme={theme}
                 onCancel={() => setBillVisible(false)}
@@ -1081,6 +1237,32 @@ export default function DebtsScreen() {
                 </TouchableOpacity>
               </>
             ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Monthly bill with a changing amount: this month's figure */}
+      <Modal visible={!!amountDue} transparent animationType="fade" onRequestClose={() => setAmountDue(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>
+              {amountDue ? `${amountDue.title} · ${monthLabel(amountDue.month)}` : ''}
+            </Text>
+            <LabeledInput
+              label="Amount paid this month (₹)"
+              theme={theme}
+              value={amountDraft}
+              onChangeText={setAmountDraft}
+              placeholder="e.g. 1450"
+              autoFocus
+            />
+            <ModalActions
+              theme={theme}
+              onCancel={() => setAmountDue(null)}
+              onSave={saveAmountPaid}
+              valid={toNum(amountDraft) > 0}
+              saveLabel="Mark paid"
+            />
           </View>
         </View>
       </Modal>
@@ -1267,6 +1449,18 @@ const styles = StyleSheet.create({
   input: { borderRadius: 12, borderWidth: 1, padding: 13, fontSize: 16, marginBottom: 12 },
   fieldLabel: { fontSize: 12, fontWeight: '600', marginBottom: 6, letterSpacing: 0.3 },
   segment: { flexDirection: 'row', borderRadius: 12, padding: 3, marginBottom: 14 },
+  formHint: { fontSize: 12, marginTop: 8, lineHeight: 17 },
+  stopBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  stopText: { fontSize: 14, fontWeight: '600' },
   segmentItem: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center' },
   amountRow: { flexDirection: 'row', gap: 12 },
   stepper: {

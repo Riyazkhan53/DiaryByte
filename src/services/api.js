@@ -16,6 +16,7 @@ const COLLECTIONS = [
   'tickets',
   'dates',
   'months',
+  'spends',
 ];
 
 async function request(path, options = {}) {

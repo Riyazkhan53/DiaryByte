@@ -101,6 +101,13 @@ const COLLECTIONS = {
       'month',
       'paid',
       'paidAt',
+      // monthly bills: due on dueDay every month from startMonth (to endMonth);
+      // amounts holds each month's actual figure when it varies
+      'recurring',
+      'variable',
+      'dueDay',
+      'endMonth',
+      'amounts',
       // credit card bill linked to a card saved in "cards" (no full number)
       'cardId',
       'cardLast4',
@@ -142,6 +149,26 @@ const COLLECTIONS = {
   // and how any shortfall was covered (borrowed / savings / extra income).
   months: {
     fields: ['id', 'month', 'incomes', 'adjustments', 'createdAt'],
+  },
+  // Total Spend: what was spent in a month and what it was paid from.
+  // source: card | cred | icici | canara | jupiter | cash | other
+  spends: {
+    fields: [
+      'id',
+      'title',
+      'amount',
+      'month',
+      'date',
+      'source',
+      'cardId',
+      'cardLabel',
+      'sourceNote',
+      'category',
+      'addToExpenses',
+      'note',
+      'createdAt',
+      'updatedAt',
+    ],
   },
 };
 

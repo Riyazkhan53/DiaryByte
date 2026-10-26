@@ -13,6 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import SyncRow from '../../components/SyncRow';
+import TotalSpend from '../../components/TotalSpend';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 import { confirmDelete } from '../../utils/confirm';
@@ -25,10 +26,19 @@ import {
   shortDate,
 } from '../../utils/debts';
 import { todayKey } from '../../utils/autopay';
+import { isCreditCard } from '../../utils/cards';
+import { isSpendExpense } from '../../utils/spends';
 
 const STORAGE_KEY = '@diarybyte_expenditure';
 const MONTHS_STORAGE_KEY = '@diarybyte_months';
 const DEBTS_STORAGE_KEY = '@diarybyte_debts';
+const SPENDS_STORAGE_KEY = '@diarybyte_spends';
+const CARDS_STORAGE_KEY = '@diarybyte_cards';
+
+const TABS = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'spend', label: 'Total Spend' },
+];
 
 const CATEGORIES = [
   { key: 'Food', icon: 'restaurant-outline', color: '#FF6F61' },
@@ -112,6 +122,10 @@ export default function ExpenditureScreen() {
     MONTHS_STORAGE_KEY
   );
   const { items: debts, persist: persistDebts } = useSyncedCollection('debts', DEBTS_STORAGE_KEY);
+  const { items: spends, persist: persistSpends } = useSyncedCollection('spends', SPENDS_STORAGE_KEY);
+  const { items: savedCards } = useSyncedCollection('cards', CARDS_STORAGE_KEY);
+  const creditCards = savedCards.filter(isCreditCard);
+  const [tab, setTab] = useState('overview');
   const currentMonth = monthKeyOf(new Date());
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [filter, setFilter] = useState('all');
@@ -136,6 +150,10 @@ export default function ExpenditureScreen() {
   const [adjustNote, setAdjustNote] = useState('');
   const [adjustAddDebt, setAdjustAddDebt] = useState(true);
 
+  // "This month's amount" for monthly bills whose amount changes
+  const [amountDue, setAmountDue] = useState(null);
+  const [amountDraft, setAmountDraft] = useState('');
+
   // Month picker
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerYear, setPickerYear] = useState(new Date().getFullYear());
@@ -150,6 +168,7 @@ export default function ExpenditureScreen() {
       selectedMonth,
       ...months.map((m) => m.month),
       ...items.map(expenseMonth),
+      ...spends.map((s) => s.month).filter(Boolean),
     ])
   ).sort((a, b) => b.localeCompare(a));
 
@@ -192,11 +211,23 @@ export default function ExpenditureScreen() {
 
   const deleteItem = (item) => {
     const due = dueFromSourceId(item.sourceId, debts);
+    const fromSpend = isSpendExpense(item);
     confirmDelete(
       'Delete Expense',
-      due ? 'Remove this payment? It will be marked unpaid in My Debts too.' : 'Remove this expense?',
+      due
+        ? 'Remove this payment? It will be marked unpaid in My Debts too.'
+        : fromSpend
+          ? 'Remove this expense? The spend stays in Total Spend, just not counted in expenses.'
+          : 'Remove this expense?',
       () => {
-        if (due) {
+        if (fromSpend) {
+          persistSpends(
+            spends.map((s) =>
+              `spend:${s.id}` === item.sourceId ? { ...s, addToExpenses: false, updatedAt: new Date().toISOString() } : s
+            )
+          );
+          persist(items.filter((i) => i.id !== item.id));
+        } else if (due) {
           const result = markDueUnpaid(due, debts, items);
           persistDebts(result.debts);
           persist(result.expenses);
@@ -213,10 +244,27 @@ export default function ExpenditureScreen() {
   const pendingDues = dues.filter((d) => !d.paid);
   const pendingDuesTotal = pendingDues.reduce((sum, d) => sum + d.amount, 0);
 
-  const toggleDue = (due) => {
-    const result = due.paid ? markDueUnpaid(due, debts, items) : markDuePaid(due, debts, items);
+  const applyDue = (due, paid) => {
+    const result = paid ? markDuePaid(due, debts, items) : markDueUnpaid(due, debts, items);
     persistDebts(result.debts);
     persist(result.expenses);
+  };
+
+  const toggleDue = (due) => {
+    const variable = due.recurring && debts.find((d) => d.id === due.debtId)?.variable;
+    if (!due.paid && variable) {
+      setAmountDue(due);
+      setAmountDraft(String(due.amount || ''));
+      return;
+    }
+    applyDue(due, !due.paid);
+  };
+
+  const saveAmountPaid = () => {
+    const value = parseAmount(amountDraft);
+    if (!(value > 0)) return;
+    applyDue({ ...amountDue, amount: value }, true);
+    setAmountDue(null);
   };
 
   // ------- covering a shortfall -------
@@ -379,9 +427,68 @@ export default function ExpenditureScreen() {
     { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow },
   ];
 
+  const tabs = (
+    <View style={[styles.tabs, { backgroundColor: theme.surfaceAlt }]}>
+      {TABS.map((t) => {
+        const selected = tab === t.key;
+        return (
+          <TouchableOpacity
+            key={t.key}
+            style={[styles.tab, selected && [styles.tabSelected, { backgroundColor: theme.sheet, shadowColor: theme.shadow }]]}
+            onPress={() => setTab(t.key)}
+          >
+            <Text style={[styles.tabText, { color: selected ? theme.text : theme.textSecondary }]}>{t.label}</Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+
+  const monthChips = (
+  <ScrollView
+    horizontal
+    showsHorizontalScrollIndicator={false}
+    contentContainerStyle={styles.monthChips}
+    style={styles.monthRow}
+  >
+    <TouchableOpacity
+      style={[styles.chip, styles.addMonthChip, { borderColor: theme.secondary }]}
+      onPress={openMonthPicker}
+      accessibilityLabel="Add month"
+    >
+      <Ionicons name="add" size={16} color={theme.secondaryDark} />
+      <Text style={[styles.chipText, { color: theme.secondaryDark }]}>Month</Text>
+    </TouchableOpacity>
+    {monthKeys.map((key) => {
+      const selected = key === selectedMonth;
+      return (
+        <TouchableOpacity
+          key={key}
+          style={[
+            styles.chip,
+            {
+              backgroundColor: selected ? theme.secondary : theme.surface,
+              borderColor: selected ? theme.secondary : theme.borderNeutral,
+            },
+          ]}
+          onPress={() => {
+            setSelectedMonth(key);
+            setFilter('all');
+          }}
+        >
+          <Text style={[styles.chipText, { color: selected ? '#FFFFFF' : theme.text }]}>
+            {monthLabel(key)}
+          </Text>
+        </TouchableOpacity>
+      );
+    })}
+  </ScrollView>
+  );
+
   const listHeader = (
     <View>
       <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} />
+      {tabs}
 
       {selectedMonth === currentMonth && lastMonthGap > 0 ? (
         <TouchableOpacity
@@ -399,44 +506,7 @@ export default function ExpenditureScreen() {
         </TouchableOpacity>
       ) : null}
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.monthChips}
-        style={styles.monthRow}
-      >
-        <TouchableOpacity
-          style={[styles.chip, styles.addMonthChip, { borderColor: theme.secondary }]}
-          onPress={openMonthPicker}
-          accessibilityLabel="Add month"
-        >
-          <Ionicons name="add" size={16} color={theme.secondaryDark} />
-          <Text style={[styles.chipText, { color: theme.secondaryDark }]}>Month</Text>
-        </TouchableOpacity>
-        {monthKeys.map((key) => {
-          const selected = key === selectedMonth;
-          return (
-            <TouchableOpacity
-              key={key}
-              style={[
-                styles.chip,
-                {
-                  backgroundColor: selected ? theme.secondary : theme.surface,
-                  borderColor: selected ? theme.secondary : theme.borderNeutral,
-                },
-              ]}
-              onPress={() => {
-                setSelectedMonth(key);
-                setFilter('all');
-              }}
-            >
-              <Text style={[styles.chipText, { color: selected ? '#FFFFFF' : theme.text }]}>
-                {monthLabel(key)}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+      {monthChips}
 
       <View style={cardStyle}>
         <Text style={[styles.cardTitle, { color: theme.text }]}>{monthLabel(selectedMonth, true)}</Text>
@@ -709,63 +779,89 @@ export default function ExpenditureScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
       <Header title="My Expenditure" subtitle="Income and spending, month by month" />
 
-      <FlatList
-        style={styles.content}
-        data={visible}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-        showsVerticalScrollIndicator={false}
-        ListHeaderComponent={listHeader}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Ionicons name="wallet-outline" size={48} color={theme.textMuted} />
-            <Text style={[styles.emptyText, { color: theme.textMuted }]}>
-              No expenses in {monthLabel(selectedMonth, true)}. Tap + to record one.
-            </Text>
-          </View>
-        }
-        renderItem={({ item }) => {
-          const meta = categoryMeta(item.category);
-          return (
-            <View
-              style={[
-                styles.row,
-                { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow },
-              ]}
-            >
-              <View style={[styles.catIcon, { backgroundColor: meta.color + '40' }]}>
-                <Ionicons name={meta.icon} size={19} color="#455A64" />
-              </View>
-              <View style={styles.rowBody}>
-                <Text style={[styles.rowTitle, { color: theme.text }]} numberOfLines={1}>
-                  {item.title}
-                </Text>
-                <Text style={[styles.rowSub, { color: theme.textSecondary }]}>
-                  {item.category} · {formatDate(item.date || item.createdAt)}
-                  {item.sourceId ? ' · from My Debts' : ''}
-                </Text>
-              </View>
-              <Text style={[styles.rowAmount, { color: theme.text }]}>{formatAmount(item.amount)}</Text>
-              <TouchableOpacity
-                style={styles.deleteBtn}
-                onPress={() => deleteItem(item)}
-                accessibilityLabel={`Delete ${item.title}`}
-              >
-                <Ionicons name="trash-outline" size={19} color={theme.danger} />
-              </TouchableOpacity>
+      {tab === 'spend' ? (
+        <TotalSpend
+          header={
+            <View>
+              <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} />
+              {tabs}
+              {monthChips}
             </View>
-          );
-        }}
-      />
+          }
+          selectedMonth={selectedMonth}
+          spends={spends}
+          persistSpends={persistSpends}
+          expenses={items}
+          persistExpenses={persist}
+          creditCards={creditCards}
+          categories={CATEGORIES}
+          categoryMeta={categoryMeta}
+          formatAmount={formatAmount}
+          monthLabel={monthLabel}
+          dateForMonth={dateForMonth}
+          styles={styles}
+        />
+      ) : (
+        <>
+          <FlatList
+            style={styles.content}
+            data={visible}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.list}
+            showsVerticalScrollIndicator={false}
+            ListHeaderComponent={listHeader}
+            ListEmptyComponent={
+              <View style={styles.empty}>
+                <Ionicons name="wallet-outline" size={48} color={theme.textMuted} />
+                <Text style={[styles.emptyText, { color: theme.textMuted }]}>
+                  No expenses in {monthLabel(selectedMonth, true)}. Tap + to record one.
+                </Text>
+              </View>
+            }
+            renderItem={({ item }) => {
+              const meta = categoryMeta(item.category);
+              return (
+                <View
+                  style={[
+                    styles.row,
+                    { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow },
+                  ]}
+                >
+                  <View style={[styles.catIcon, { backgroundColor: meta.color + '40' }]}>
+                    <Ionicons name={meta.icon} size={19} color="#455A64" />
+                  </View>
+                  <View style={styles.rowBody}>
+                    <Text style={[styles.rowTitle, { color: theme.text }]} numberOfLines={1}>
+                      {item.title}
+                    </Text>
+                    <Text style={[styles.rowSub, { color: theme.textSecondary }]}>
+                      {item.category} · {formatDate(item.date || item.createdAt)}
+                      {isSpendExpense(item) ? ' · from Total Spend' : item.sourceId ? ' · from My Debts' : ''}
+                    </Text>
+                  </View>
+                  <Text style={[styles.rowAmount, { color: theme.text }]}>{formatAmount(item.amount)}</Text>
+                  <TouchableOpacity
+                    style={styles.deleteBtn}
+                    onPress={() => deleteItem(item)}
+                    accessibilityLabel={`Delete ${item.title}`}
+                  >
+                    <Ionicons name="trash-outline" size={19} color={theme.danger} />
+                  </TouchableOpacity>
+                </View>
+              );
+            }}
+          />
 
-      <TouchableOpacity
-        style={[styles.fab, { backgroundColor: theme.secondary, shadowColor: theme.secondary }]}
-        onPress={openAdd}
-        activeOpacity={0.8}
-        accessibilityLabel="Add expense"
-      >
-        <Ionicons name="add" size={32} color="#FFF" />
-      </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.fab, { backgroundColor: theme.secondary, shadowColor: theme.secondary }]}
+            onPress={openAdd}
+            activeOpacity={0.8}
+            accessibilityLabel="Add expense"
+          >
+            <Ionicons name="add" size={32} color="#FFF" />
+          </TouchableOpacity>
+        </>
+      )}
 
       {/* Add expense */}
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
@@ -986,6 +1082,46 @@ export default function ExpenditureScreen() {
         </View>
       </Modal>
 
+      {/* Monthly bill with a changing amount: this month's figure */}
+      <Modal visible={!!amountDue} transparent animationType="fade" onRequestClose={() => setAmountDue(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{amountDue?.title}</Text>
+            <Text style={[styles.modalSub, { color: theme.textSecondary }]}>
+              Amount paid for {amountDue ? monthLabel(amountDue.month, true) : ''}
+            </Text>
+            <TextInput
+              style={inputStyle}
+              placeholder="Amount (₹)"
+              placeholderTextColor={theme.textMuted}
+              value={amountDraft}
+              onChangeText={setAmountDraft}
+              keyboardType="decimal-pad"
+              autoFocus
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.cancelBtn, { backgroundColor: theme.surfaceAlt }]}
+                onPress={() => setAmountDue(null)}
+              >
+                <Text style={[styles.cancelText, { color: theme.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.saveBtn,
+                  { backgroundColor: theme.primary },
+                  !(parseAmount(amountDraft) > 0) && styles.btnDisabled,
+                ]}
+                onPress={saveAmountPaid}
+                disabled={!(parseAmount(amountDraft) > 0)}
+              >
+                <Text style={[styles.saveText, { color: theme.onPrimary }]}>Mark paid</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Add month */}
       <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
         <View style={styles.modalOverlay}>
@@ -1064,6 +1200,10 @@ const styles = StyleSheet.create({
   content: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
   list: { paddingBottom: 90 },
   monthRow: { marginBottom: 12, flexGrow: 0 },
+  tabs: { flexDirection: 'row', borderRadius: 12, padding: 3, marginBottom: 12 },
+  tab: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center' },
+  tabSelected: { shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.12, shadowRadius: 3, elevation: 2 },
+  tabText: { fontSize: 13, fontWeight: '600' },
   monthChips: { flexDirection: 'row', gap: 8, paddingRight: 8 },
   addMonthChip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderStyle: 'dashed' },
   summaryCard: {
