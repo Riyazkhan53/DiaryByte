@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -8,14 +8,22 @@ import {
   FlatList,
   SafeAreaView,
   Modal,
-  Alert,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import SyncRow from '../../components/SyncRow';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
+import { confirmDelete } from '../../utils/confirm';
+import { todayKey } from '../../utils/autopay';
+import {
+  applyFundPrices,
+  fetchFundPrices,
+  latestNav,
+  searchFunds,
+} from '../../services/mutualFunds';
 
 const STORAGE_KEY = '@diarybyte_investments';
 
@@ -46,9 +54,25 @@ const money = (n) =>
 const categoryMeta = (key) =>
   CATEGORIES.find((c) => c.key === key) || CATEGORIES[0];
 
+const toNum = (text) => parseFloat(String(text ?? '').replace(/[^\d.]/g, ''));
+
+const round2 = (n) => Math.round(n * 100) / 100;
+
+const shortDate = (key) => {
+  if (!key) return '';
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+};
+
+// Fund linked to a scheme: valued as units × latest NAV.
+const isLinkedFund = (item) => item.category === 'Mutual Funds' && !!item.schemeCode && item.units > 0;
+
+// Gold locker with grams: valued as grams × the gold rate you set.
+const isWeighedGold = (item) => item.category === 'Digital Gold' && item.grams > 0 && item.rate > 0;
+
 export default function InvestmentsScreen() {
   const { theme } = useTheme();
-  const { items, synced, persist, pulling, pullInfo, pullNow } = useSyncedCollection(
+  const { items, loaded, synced, persist, pulling, pullInfo, pullNow } = useSyncedCollection(
     'investments',
     STORAGE_KEY
   );
@@ -62,6 +86,125 @@ export default function InvestmentsScreen() {
   const [note, setNote] = useState('');
   const [filter, setFilter] = useState('all');
 
+  // Mutual fund linked to a scheme (units × NAV)
+  const [schemeCode, setSchemeCode] = useState(null);
+  const [nav, setNav] = useState(null);
+  const [navDate, setNavDate] = useState(null);
+  const [units, setUnits] = useState('');
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [lookupError, setLookupError] = useState(null);
+
+  // Digital gold (grams × rate)
+  const [grams, setGrams] = useState('');
+  const [rate, setRate] = useState('');
+  const [rateVisible, setRateVisible] = useState(false);
+  const [rateDraft, setRateDraft] = useState('');
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  const goldItems = items.filter((i) => i.category === 'Digital Gold');
+  const latestGold = [...goldItems]
+    .filter((i) => i.rate > 0)
+    .sort((a, b) => (b.rateDate || '').localeCompare(a.rateDate || ''))[0];
+  const goldRate = latestGold?.rate || null;
+
+  // ------- live fund prices -------
+
+  // Latest items, so a price refresh that finishes later applies to them
+  // rather than to whatever was on screen when it started.
+  const itemsRef = useRef(items);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  const applyPrices = useCallback(
+    (prices) => {
+      const { items: next, updated } = applyFundPrices(itemsRef.current, prices);
+      if (updated) persist(next);
+    },
+    [persist]
+  );
+
+  // Re-price linked funds whenever the screen opens.
+  useEffect(() => {
+    if (!loaded) return;
+    fetchFundPrices(itemsRef.current).then(applyPrices).catch(() => {});
+  }, [loaded, applyPrices]);
+
+  const refreshPrices = async () => {
+    setRefreshing(true);
+    try {
+      applyPrices(await fetchFundPrices(itemsRef.current));
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const linkedFunds = items.filter(isLinkedFund);
+  const pricesAsOf = linkedFunds.map((i) => i.navDate).filter(Boolean).sort().pop();
+
+  // ------- fund search (form) -------
+
+  const runSearch = async () => {
+    if (query.trim().length < 3) return;
+    setSearching(true);
+    setLookupError(null);
+    try {
+      const found = await searchFunds(query);
+      setResults(found);
+      if (!found.length) setLookupError('No funds found. Try a shorter name, e.g. "parag flexi".');
+    } catch (_error) {
+      setLookupError("Couldn't reach the fund price service. Check your connection, or enter the value yourself.");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const pickFund = async (fund) => {
+    setSchemeCode(fund.schemeCode);
+    setName(fund.schemeName);
+    setResults([]);
+    setQuery('');
+    setNav(null);
+    setNavDate(null);
+    setLookupError(null);
+    try {
+      const price = await latestNav(fund.schemeCode);
+      setNav(price.nav);
+      setNavDate(price.navDate);
+    } catch (_error) {
+      setLookupError("Couldn't get this fund's latest NAV right now. It will update next time you open Investments.");
+    }
+  };
+
+  const unlinkFund = () => {
+    setSchemeCode(null);
+    setNav(null);
+    setNavDate(null);
+  };
+
+  // ------- gold rate -------
+
+  const openRate = () => {
+    setRateDraft(goldRate ? String(goldRate) : '');
+    setRateVisible(true);
+  };
+
+  const saveRate = () => {
+    const value = toNum(rateDraft);
+    if (!(value > 0)) return;
+    persist(
+      items.map((i) =>
+        i.category === 'Digital Gold' && i.grams > 0
+          ? { ...i, rate: value, rateDate: todayKey(), current: round2(i.grams * value) }
+          : i
+      )
+    );
+    setRateVisible(false);
+  };
+
   const openAdd = () => {
     setEditingId(null);
     setCategory('Mutual Funds');
@@ -70,6 +213,15 @@ export default function InvestmentsScreen() {
     setCurrent('');
     setDetail('');
     setNote('');
+    setSchemeCode(null);
+    setNav(null);
+    setNavDate(null);
+    setUnits('');
+    setQuery('');
+    setResults([]);
+    setLookupError(null);
+    setGrams('');
+    setRate(goldRate ? String(goldRate) : '');
     setModalVisible(true);
   };
 
@@ -81,13 +233,37 @@ export default function InvestmentsScreen() {
     setCurrent(item.current != null ? String(item.current) : '');
     setDetail(item.detail || '');
     setNote(item.note || '');
+    setSchemeCode(item.schemeCode || null);
+    setNav(item.nav || null);
+    setNavDate(item.navDate || null);
+    setUnits(item.units ? String(item.units) : '');
+    setQuery('');
+    setResults([]);
+    setLookupError(null);
+    setGrams(item.grams ? String(item.grams) : '');
+    setRate(item.rate ? String(item.rate) : goldRate ? String(goldRate) : '');
     setModalVisible(true);
   };
 
+  const fundLinked = category === 'Mutual Funds' && !!schemeCode;
+  const unitsNum = toNum(units);
+  const gramsNum = toNum(grams);
+  const rateNum = toNum(rate);
+  // Value worked out for the holding, or null when it's entered by hand.
+  const autoCurrent =
+    fundLinked && unitsNum > 0 && nav > 0
+      ? round2(unitsNum * nav)
+      : category === 'Digital Gold' && gramsNum > 0 && rateNum > 0
+        ? round2(gramsNum * rateNum)
+        : null;
+  const manualCurrent = !(fundLinked || (category === 'Digital Gold' && gramsNum > 0));
+
   const saveItem = () => {
-    const investedNum = parseFloat(invested.replace(/[^\d.]/g, ''));
-    const currentNum = parseFloat(current.replace(/[^\d.]/g, ''));
-    if (!name.trim() || !investedNum || !currentNum) return;
+    const investedNum = toNum(invested);
+    const currentNum = autoCurrent ?? (manualCurrent ? toNum(current) : NaN);
+    if (!name.trim() || !investedNum || !(currentNum > 0)) return;
+    const existing = editingId ? items.find((i) => i.id === editingId) : null;
+    const gold = category === 'Digital Gold' && gramsNum > 0;
     const entry = {
       id: editingId || makeId(),
       category,
@@ -96,23 +272,24 @@ export default function InvestmentsScreen() {
       current: currentNum,
       detail: detail.trim(),
       note: note.trim(),
-      createdAt: editingId
-        ? items.find((i) => i.id === editingId)?.createdAt || new Date().toISOString()
-        : new Date().toISOString(),
+      schemeCode: fundLinked ? schemeCode : undefined,
+      units: fundLinked ? unitsNum : undefined,
+      nav: fundLinked ? nav : undefined,
+      navDate: fundLinked ? navDate : undefined,
+      grams: gold ? gramsNum : undefined,
+      rate: gold ? rateNum : undefined,
+      rateDate: gold ? (rateNum === existing?.rate ? existing?.rateDate : todayKey()) : undefined,
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
     persist(editingId ? items.map((i) => (i.id === editingId ? entry : i)) : [entry, ...items]);
     setModalVisible(false);
   };
 
   const deleteItem = (item) => {
-    Alert.alert('Delete Investment', `Remove ${item.name}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => persist(items.filter((i) => i.id !== item.id)),
-      },
-    ]);
+    confirmDelete('Delete Investment', `Remove ${item.name}?`, () =>
+      persist(items.filter((i) => i.id !== item.id))
+    );
   };
 
   const totalInvested = items.reduce((s, i) => s + (i.invested || 0), 0);
@@ -127,8 +304,10 @@ export default function InvestmentsScreen() {
 
   const formValid =
     name.trim() &&
-    parseFloat(invested.replace(/[^\d.]/g, '')) > 0 &&
-    parseFloat(current.replace(/[^\d.]/g, '')) > 0;
+    toNum(invested) > 0 &&
+    (autoCurrent > 0 || (manualCurrent && toNum(current) > 0)) &&
+    (!fundLinked || unitsNum > 0) &&
+    (category !== 'Digital Gold' || !(gramsNum > 0) || rateNum > 0);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
@@ -163,6 +342,38 @@ export default function InvestmentsScreen() {
               {plPct.toFixed(1)}%)
             </Text>
           </View>
+          {linkedFunds.length > 0 ? (
+            <View style={styles.liveRow}>
+              <Ionicons name="pulse-outline" size={15} color={theme.textMuted} />
+              <Text style={[styles.liveText, { color: theme.textMuted }]}>
+                Mutual funds at latest NAV{pricesAsOf ? ` · ${shortDate(pricesAsOf)}` : ''}
+              </Text>
+              <TouchableOpacity
+                onPress={refreshPrices}
+                disabled={refreshing}
+                style={styles.liveBtn}
+                accessibilityLabel="Refresh fund prices"
+              >
+                {refreshing ? (
+                  <ActivityIndicator size="small" color={theme.primary} />
+                ) : (
+                  <Ionicons name="refresh" size={17} color={theme.primary} />
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : null}
+          {goldItems.some((i) => i.grams > 0) ? (
+            <View style={styles.liveRow}>
+              <Ionicons name="diamond-outline" size={15} color={theme.textMuted} />
+              <Text style={[styles.liveText, { color: theme.textMuted }]}>
+                Gold {goldRate ? `${money(goldRate)}/g` : 'rate not set'}
+                {latestGold?.rateDate ? ` · ${shortDate(latestGold.rateDate)}` : ''}
+              </Text>
+              <TouchableOpacity onPress={openRate} style={styles.liveBtn} accessibilityLabel="Update gold rate">
+                <Text style={[styles.liveLink, { color: theme.primary }]}>Update</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.filterRow}>
@@ -241,9 +452,12 @@ export default function InvestmentsScreen() {
                     <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
                       {item.name}
                     </Text>
-                    <Text style={[styles.cardSub, { color: theme.textSecondary }]}>
-                      {item.category}
-                      {item.detail ? ` · ${item.detail}` : ''}
+                    <Text style={[styles.cardSub, { color: theme.textSecondary }]} numberOfLines={1}>
+                      {isLinkedFund(item)
+                        ? `${item.units} units${item.nav ? ` · NAV ₹${item.nav}` : ''}${item.navDate ? ` (${shortDate(item.navDate)})` : ''}`
+                        : isWeighedGold(item)
+                          ? `${item.grams} g · ${money(item.rate)}/g`
+                          : `${item.category}${item.detail ? ` · ${item.detail}` : ''}`}
                     </Text>
                   </View>
                   <TouchableOpacity style={styles.iconBtn} onPress={() => openEdit(item)}>
@@ -327,21 +541,116 @@ export default function InvestmentsScreen() {
                 })}
               </View>
 
-              <TextInput
-                style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-                placeholder={
-                  category === 'Mutual Funds'
-                    ? 'Fund name (e.g. Axis Bluechip)'
-                    : category === 'Stocks'
+              {category === 'Mutual Funds' && fundLinked ? (
+                <View style={[styles.linkedFund, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral }]}>
+                  <View style={styles.flex}>
+                    <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={2}>
+                      {name}
+                    </Text>
+                    <Text style={[styles.cardSub, { color: theme.textSecondary }]}>
+                      {nav ? `NAV ₹${nav}${navDate ? ` · ${shortDate(navDate)}` : ''}` : 'Getting latest NAV…'}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={unlinkFund} style={styles.liveBtn}>
+                    <Text style={[styles.liveLink, { color: theme.primary }]}>Change</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : category === 'Mutual Funds' ? (
+                <>
+                  <View style={styles.searchRow}>
+                    <TextInput
+                      style={[styles.input, styles.flex, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                      placeholder="Search fund (e.g. parag flexi)"
+                      placeholderTextColor={theme.textMuted}
+                      value={query}
+                      onChangeText={setQuery}
+                      onSubmitEditing={runSearch}
+                      returnKeyType="search"
+                    />
+                    <TouchableOpacity
+                      style={[styles.searchBtn, { backgroundColor: theme.primary }, query.trim().length < 3 && styles.btnDisabled]}
+                      onPress={runSearch}
+                      disabled={query.trim().length < 3 || searching}
+                      accessibilityLabel="Search funds"
+                    >
+                      {searching ? (
+                        <ActivityIndicator size="small" color={theme.onPrimary} />
+                      ) : (
+                        <Ionicons name="search" size={20} color={theme.onPrimary} />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                  {results.map((fund) => (
+                    <TouchableOpacity
+                      key={fund.schemeCode}
+                      style={[styles.result, { borderColor: theme.borderNeutral }]}
+                      onPress={() => pickFund(fund)}
+                    >
+                      <Text style={[styles.resultText, { color: theme.text }]}>{fund.schemeName}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  <Text style={[styles.formHint, { color: theme.textMuted }]}>
+                    Pick your fund to value it automatically at the latest NAV. Choose the exact plan
+                    (Direct/Regular, Growth/IDCW) shown on your statement. Or type a name below and
+                    enter the value yourself.
+                  </Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                    placeholder="Fund name (if not linking)"
+                    placeholderTextColor={theme.textMuted}
+                    value={name}
+                    onChangeText={setName}
+                  />
+                </>
+              ) : (
+                <TextInput
+                  style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                  placeholder={
+                    category === 'Stocks'
                       ? 'Stock name (e.g. TCS)'
                       : category === 'Digital Gold'
-                        ? 'Platform (e.g. Paytm Gold)'
+                        ? 'Locker (e.g. PhonePe Gold, GPay Gold)'
                         : 'Bank / FD name'
-                }
-                placeholderTextColor={theme.textMuted}
-                value={name}
-                onChangeText={setName}
-              />
+                  }
+                  placeholderTextColor={theme.textMuted}
+                  value={name}
+                  onChangeText={setName}
+                />
+              )}
+              {lookupError ? <Text style={[styles.formHint, { color: theme.danger }]}>{lookupError}</Text> : null}
+
+              {fundLinked ? (
+                <TextInput
+                  style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                  placeholder="Units held (from your statement, e.g. 152.347)"
+                  placeholderTextColor={theme.textMuted}
+                  keyboardType="decimal-pad"
+                  value={units}
+                  onChangeText={setUnits}
+                />
+              ) : null}
+
+              {category === 'Digital Gold' ? (
+                <View style={styles.amountRow}>
+                  <TextInput
+                    style={[styles.input, styles.smallInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                    placeholder="Grams (e.g. 2.5)"
+                    placeholderTextColor={theme.textMuted}
+                    keyboardType="decimal-pad"
+                    value={grams}
+                    onChangeText={setGrams}
+                  />
+                  <TextInput
+                    style={[styles.input, styles.smallInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                    placeholder="Gold rate (₹/g)"
+                    placeholderTextColor={theme.textMuted}
+                    keyboardType="decimal-pad"
+                    value={rate}
+                    onChangeText={setRate}
+                  />
+                </View>
+              ) : null}
+
               <View style={styles.amountRow}>
                 <TextInput
                   style={[styles.input, styles.smallInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
@@ -351,22 +660,51 @@ export default function InvestmentsScreen() {
                   value={invested}
                   onChangeText={setInvested}
                 />
-                <TextInput
-                  style={[styles.input, styles.smallInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-                  placeholder={CURRENT_LABELS[category] || 'Current value (₹)'}
-                  placeholderTextColor={theme.textMuted}
-                  keyboardType="decimal-pad"
-                  value={current}
-                  onChangeText={setCurrent}
-                />
+                {manualCurrent ? (
+                  <TextInput
+                    style={[styles.input, styles.smallInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                    placeholder={CURRENT_LABELS[category] || 'Current value (₹)'}
+                    placeholderTextColor={theme.textMuted}
+                    keyboardType="decimal-pad"
+                    value={current}
+                    onChangeText={setCurrent}
+                  />
+                ) : null}
               </View>
-              <TextInput
-                style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-                placeholder={DETAIL_PLACEHOLDERS[category] || 'Detail (optional)'}
-                placeholderTextColor={theme.textMuted}
-                value={detail}
-                onChangeText={setDetail}
-              />
+              {!manualCurrent ? (
+                <View style={[styles.autoValue, { borderColor: theme.borderNeutral }]}>
+                  <Text style={[styles.amountLabel, { color: theme.textMuted }]}>Current value</Text>
+                  <Text style={[styles.amountValue, { color: theme.text }]}>
+                    {autoCurrent ? money(autoCurrent) : '—'}
+                  </Text>
+                  <Text style={[styles.cardSub, { color: theme.textMuted }]}>
+                    {fundLinked
+                      ? unitsNum > 0 && nav
+                        ? `${unitsNum} units × NAV ₹${nav}`
+                        : 'Enter your units to see the value'
+                      : rateNum > 0
+                        ? `${gramsNum} g × ${money(rateNum)}/g`
+                        : 'Enter the gold rate to see the value'}
+                  </Text>
+                </View>
+              ) : null}
+              {category !== 'Mutual Funds' && category !== 'Digital Gold' ? (
+                <TextInput
+                  style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                  placeholder={DETAIL_PLACEHOLDERS[category] || 'Detail (optional)'}
+                  placeholderTextColor={theme.textMuted}
+                  value={detail}
+                  onChangeText={setDetail}
+                />
+              ) : category === 'Mutual Funds' ? (
+                <TextInput
+                  style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                  placeholder={DETAIL_PLACEHOLDERS[category]}
+                  placeholderTextColor={theme.textMuted}
+                  value={detail}
+                  onChangeText={setDetail}
+                />
+              ) : null}
               <TextInput
                 style={[styles.input, styles.noteInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
                 placeholder="Note (optional)"
@@ -398,6 +736,43 @@ export default function InvestmentsScreen() {
                 </TouchableOpacity>
               </View>
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Today's gold rate, applied to every gold locker */}
+      <Modal visible={rateVisible} transparent animationType="fade" onRequestClose={() => setRateVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Gold rate</Text>
+            <TextInput
+              style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+              placeholder="₹ per gram (e.g. 7450)"
+              placeholderTextColor={theme.textMuted}
+              keyboardType="decimal-pad"
+              value={rateDraft}
+              onChangeText={setRateDraft}
+              autoFocus
+            />
+            <Text style={[styles.formHint, { color: theme.textMuted }]}>
+              Use the sell rate shown in your gold app (what you&apos;d get today). It updates every
+              gold locker at once.
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.cancelBtn, { backgroundColor: theme.surfaceAlt }]}
+                onPress={() => setRateVisible(false)}
+              >
+                <Text style={[styles.cancelText, { color: theme.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.saveBtn, { backgroundColor: theme.primary }, !(toNum(rateDraft) > 0) && styles.btnDisabled]}
+                onPress={saveRate}
+                disabled={!(toNum(rateDraft) > 0)}
+              >
+                <Text style={[styles.saveText, { color: theme.onPrimary }]}>Update all</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -498,7 +873,7 @@ const styles = StyleSheet.create({
   fieldLabelText: { fontSize: 12, fontWeight: '600', marginBottom: 8, letterSpacing: 0.5 },
   catRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
   amountRow: { flexDirection: 'row', gap: 12 },
-  smallInput: { flex: 1 },
+  smallInput: { flex: 1, minWidth: 0 },
   noteInput: { minHeight: 70, textAlignVertical: 'top' },
   modalActions: { flexDirection: 'row', gap: 12, marginTop: 8 },
   cancelBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center' },
@@ -506,4 +881,24 @@ const styles = StyleSheet.create({
   saveBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center' },
   saveText: { fontSize: 15, fontWeight: '600' },
   btnDisabled: { opacity: 0.4 },
+  flex: { flex: 1, minWidth: 0 },
+  liveRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
+  liveText: { flex: 1, fontSize: 12, fontWeight: '600' },
+  liveBtn: { paddingHorizontal: 6, paddingVertical: 2, minWidth: 28, alignItems: 'center' },
+  liveLink: { fontSize: 13, fontWeight: '700' },
+  searchRow: { flexDirection: 'row', gap: 8 },
+  searchBtn: { width: 50, height: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  result: { borderWidth: 1, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 6 },
+  resultText: { fontSize: 13 },
+  formHint: { fontSize: 12, marginTop: -4, marginBottom: 12, lineHeight: 17 },
+  linkedFund: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 12,
+  },
+  autoValue: { borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 12 },
 });
