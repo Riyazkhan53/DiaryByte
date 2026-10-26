@@ -11,7 +11,7 @@ import { useTheme } from '../hooks/useTheme';
 
 /**
  * Sync status row with a per-section "pull from server" button.
- * Pulls only this section's collection, overwriting the local copy.
+ * Pulls only this section's collection; unsynced local changes are merged, not lost.
  */
 export default function SyncRow({ synced, pulling, pullInfo, onPull }) {
   const { theme } = useTheme();

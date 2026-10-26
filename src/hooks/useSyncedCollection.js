@@ -40,13 +40,16 @@ export function useSyncedCollection(collection, storageKey) {
 
   const persist = useCallback(
     (updated) => {
+      // Saving before the local copy has loaded would treat every stored
+      // item as deleted.
+      if (!loaded) return;
       setItems(updated);
       notifyLocal(storageKey, updated, onExternalChange);
       saveAndPush(collection, storageKey, updated).then(({ pushed }) => {
         setSynced(pushed);
       });
     },
-    [collection, storageKey, onExternalChange]
+    [collection, storageKey, onExternalChange, loaded]
   );
 
   // Pull only this section's data from the server, overwriting local copy.

@@ -10,7 +10,7 @@ export async function loadEntries() {
   return loadLocalWithRetry(COLLECTION, STORAGE_KEY);
 }
 
-// Pull only diary entries from the server, overwriting the local copy.
+// Pull only diary entries from the server (unsynced local changes are kept).
 export async function pullEntries() {
   return pullFromServer(COLLECTION, STORAGE_KEY);
 }

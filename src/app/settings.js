@@ -78,7 +78,11 @@ export default function SettingsScreen() {
           onPress: async () => {
             try {
               await AsyncStorage.multiRemove(
-                SYNCED_COLLECTIONS.flatMap(({ storageKey }) => [storageKey, `${storageKey}_pending`])
+                SYNCED_COLLECTIONS.flatMap(({ storageKey }) => [
+                  storageKey,
+                  `${storageKey}_pending`,
+                  `${storageKey}_deleted`,
+                ])
               );
               Alert.alert('Done', 'All data has been cleared.');
             } catch (error) {
@@ -225,7 +229,7 @@ export default function SettingsScreen() {
             </Text>
           </TouchableOpacity>
           <Text style={[styles.hint, { color: theme.textMuted }]}>
-            Pulls the latest data for every section and overwrites local copies.
+            Pulls the latest data for every section. Changes not yet synced are kept and merged.
           </Text>
           <TouchableOpacity style={styles.dangerRow} onPress={clearAllData} activeOpacity={0.7}>
             <Ionicons name="trash-outline" size={22} color={theme.danger} />
