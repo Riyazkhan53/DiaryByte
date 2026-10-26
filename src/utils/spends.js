@@ -1,17 +1,20 @@
 // Total Spend: every rupee spent in a month and what it was paid from.
 //
+// A spend can be marked `avoidable` (could have skipped it); those add up
+// to what the month could have saved.
+//
 // A spend can also be counted in the month's expenses ("Add to expenses").
 // That expense is linked back with `sourceId: 'spend:<id>'`, so editing the
 // spend updates it and unticking or deleting the spend removes it.
 
 export const SPEND_SOURCES = [
   { key: 'card', label: 'Credit card', icon: 'card-outline', color: '#FF9500' },
-  { key: 'cred', label: 'CRED wallet', icon: 'wallet-outline', color: '#1C1C1E' },
+  { key: 'cred', label: 'CRED wallet', icon: 'wallet-outline', color: '#8E8E93' },
   { key: 'icici', label: 'ICICI account', icon: 'business-outline', color: '#F37021' },
   { key: 'canara', label: 'Canara account', icon: 'business-outline', color: '#0091D5' },
   { key: 'jupiter', label: 'Jupiter account', icon: 'planet-outline', color: '#FF6F61' },
   { key: 'cash', label: 'Cash in hand', icon: 'cash-outline', color: '#34C759' },
-  { key: 'other', label: 'Other', icon: 'ellipsis-horizontal-outline', color: '#8E8E93' },
+  { key: 'other', label: 'Other', icon: 'ellipsis-horizontal-outline', color: '#A2845E' },
 ];
 
 export const spendSourceMeta = (key) =>
@@ -53,7 +56,10 @@ export function syncSpendExpense(expenses, spend, spendId = spend?.id) {
   return existing ? expenses.map((e) => (e.sourceId === sourceId ? expense : e)) : [expense, ...expenses];
 }
 
-/** Month total and per-source breakdown (each credit card listed on its own). */
+/**
+ * Month total, how much was avoidable, how much is counted in expenses and
+ * the per-source breakdown (each credit card listed on its own).
+ */
 export function spendBreakdown(spends) {
   const groups = new Map();
   spends.forEach((s) => {
@@ -70,8 +76,14 @@ export function spendBreakdown(spends) {
     groups.set(key, group);
   });
   const total = spends.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
-  const counted = spends
-    .filter((s) => s.addToExpenses)
-    .reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
-  return { total, counted, groups: [...groups.values()].sort((a, b) => b.amount - a.amount) };
+  const sumOf = (list) => list.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+  const counted = sumOf(spends.filter((s) => s.addToExpenses));
+  const avoidableSpends = spends.filter((s) => s.avoidable);
+  return {
+    total,
+    counted,
+    avoidable: sumOf(avoidableSpends),
+    avoidableCount: avoidableSpends.length,
+    groups: [...groups.values()].sort((a, b) => b.amount - a.amount),
+  };
 }

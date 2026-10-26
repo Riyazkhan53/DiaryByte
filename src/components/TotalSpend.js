@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../hooks/useTheme';
 import { confirmDelete } from '../utils/confirm';
 import { savedCardLabel } from '../utils/cards';
+import { addMonths } from '../utils/debts';
 import {
   SPEND_SOURCES,
   spendBreakdown,
@@ -13,6 +14,9 @@ import {
 } from '../utils/spends';
 
 const makeId = () => `${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`;
+
+// Colour for "can be saved" amounts and the avoidable mark.
+const SAVE_COLOR = '#2DA44E';
 
 const parseAmount = (text) => parseFloat(String(text).replace(/[^\d.]/g, ''));
 
@@ -25,6 +29,7 @@ const EMPTY_FORM = {
   sourceNote: '',
   addToExpenses: false,
   category: 'Other',
+  avoidable: false,
 };
 
 /**
@@ -59,7 +64,20 @@ export default function TotalSpend({
   const monthSpends = spends
     .filter((s) => s.month === selectedMonth)
     .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
-  const { total, counted, groups } = spendBreakdown(monthSpends);
+  const { total, counted, avoidable, avoidableCount, groups } = spendBreakdown(monthSpends);
+  const avoidableSpends = monthSpends
+    .filter((s) => s.avoidable)
+    .sort((a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0));
+  const previousMonth = addMonths(selectedMonth, -1);
+  const previous = spendBreakdown(spends.filter((s) => s.month === previousMonth));
+
+  // Quick toggle from the list, without opening the form.
+  const toggleAvoidable = (spend) =>
+    persistSpends(
+      spends.map((s) =>
+        s.id === spend.id ? { ...s, avoidable: !s.avoidable, updatedAt: new Date().toISOString() } : s
+      )
+    );
 
   const openAdd = () => {
     setEditingId(null);
@@ -78,6 +96,7 @@ export default function TotalSpend({
       sourceNote: spend.sourceNote || '',
       addToExpenses: !!spend.addToExpenses,
       category: spend.category || 'Other',
+      avoidable: !!spend.avoidable,
     });
     setVisible(true);
   };
@@ -108,6 +127,7 @@ export default function TotalSpend({
       sourceNote: form.source === 'other' ? form.sourceNote.trim() : undefined,
       addToExpenses: form.addToExpenses,
       category: form.category,
+      avoidable: form.avoidable,
       createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -180,6 +200,45 @@ export default function TotalSpend({
           </View>
         ) : null}
       </View>
+
+      {total > 0 ? (
+        <View style={cardStyle}>
+          <View style={styles.saveHead}>
+            <Ionicons name="leaf-outline" size={18} color={SAVE_COLOR} />
+            <Text style={[shared.cardTitle, shared.noMargin, { color: theme.text }]}>Can be saved</Text>
+          </View>
+          <Text style={[shared.balanceValue, { color: SAVE_COLOR }]}>{formatAmount(avoidable)}</Text>
+          <Text style={[shared.summaryLabel, styles.countedLine, { color: theme.textMuted }]}>
+            {avoidableCount
+              ? `${Math.round((avoidable / total) * 100)}% of ${monthLabel(selectedMonth)} spend · ${avoidableCount} avoidable ${avoidableCount === 1 ? 'spend' : 'spends'}`
+              : 'Tap the ⊖ on a spend you could have skipped to add it here.'}
+          </Text>
+          {previous.total > 0 ? (
+            <Text style={[shared.summaryLabel, styles.countedLine, { color: theme.textMuted }]}>
+              {monthLabel(previousMonth)}: {formatAmount(previous.avoidable)} avoidable
+              {previous.avoidable > 0 && avoidable !== previous.avoidable
+                ? avoidable < previous.avoidable
+                  ? ` · ${formatAmount(previous.avoidable - avoidable)} less this month`
+                  : ` · ${formatAmount(avoidable - previous.avoidable)} more this month`
+                : ''}
+            </Text>
+          ) : null}
+          {avoidableSpends.length ? (
+            <View style={[styles.breakdown, { borderTopColor: theme.borderNeutral }]}>
+              {avoidableSpends.map((s) => (
+                <TouchableOpacity key={s.id} style={styles.saveRow} onPress={() => openEdit(s)}>
+                  <Text style={[styles.groupLabel, { color: theme.text }]} numberOfLines={1}>
+                    {s.title}
+                    <Text style={{ color: theme.textMuted }}> · {spendSourceLabel(s)}</Text>
+                  </Text>
+                  <Text style={[styles.groupAmount, { color: SAVE_COLOR }]}>{formatAmount(s.amount)}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
       <Text style={[shared.listTitle, { color: theme.text }]}>Spends</Text>
     </View>
   );
@@ -221,11 +280,25 @@ export default function TotalSpend({
                   {item.title}
                 </Text>
                 <Text style={[shared.rowSub, { color: theme.textSecondary }]} numberOfLines={1}>
+                  {item.avoidable ? <Text style={{ color: SAVE_COLOR }}>Avoidable · </Text> : null}
                   {spendSourceLabel(item)}
                   {item.addToExpenses ? ` · in expenses (${item.category || 'Other'})` : ''}
                 </Text>
               </View>
               <Text style={[shared.rowAmount, { color: theme.text }]}>{formatAmount(item.amount)}</Text>
+              <TouchableOpacity
+                style={shared.deleteBtn}
+                onPress={() => toggleAvoidable(item)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: !!item.avoidable }}
+                accessibilityLabel={`${item.title} could have been avoided`}
+              >
+                <Ionicons
+                  name={item.avoidable ? 'remove-circle' : 'remove-circle-outline'}
+                  size={21}
+                  color={item.avoidable ? SAVE_COLOR : theme.textMuted}
+                />
+              </TouchableOpacity>
               <TouchableOpacity
                 style={shared.deleteBtn}
                 onPress={() => remove(item)}
@@ -356,6 +429,19 @@ export default function TotalSpend({
 
               <TouchableOpacity
                 style={[shared.checkRow, styles.addRow]}
+                onPress={() => setField('avoidable')(!form.avoidable)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: form.avoidable }}
+              >
+                <Ionicons
+                  name={form.avoidable ? 'checkbox' : 'square-outline'}
+                  size={22}
+                  color={SAVE_COLOR}
+                />
+                <Text style={[shared.checkText, { color: theme.text }]}>Could have been avoided</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[shared.checkRow, styles.addRow]}
                 onPress={() => setField('addToExpenses')(!form.addToExpenses)}
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: form.addToExpenses }}
@@ -437,4 +523,6 @@ const styles = StyleSheet.create({
   tallModal: { maxHeight: '88%' },
   addRow: { marginTop: 12 },
   hint: { fontSize: 12, marginTop: 4, marginBottom: 8, lineHeight: 17 },
+  saveHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  saveRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
 });
