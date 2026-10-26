@@ -70,6 +70,16 @@ const COLLECTIONS = {
       'detail',
       'note',
       'createdAt',
+      'updatedAt',
+      // mutual funds linked to a scheme: current = units × latest NAV
+      'schemeCode',
+      'units',
+      'nav',
+      'navDate',
+      // digital gold: current = grams × rate (₹/g, set by the user)
+      'grams',
+      'rate',
+      'rateDate',
     ],
   },
   debts: {
