@@ -1,5 +1,12 @@
 const mongoose = require('mongoose');
-const { getCollectionNames, getModel, sanitize } = require('./models');
+const {
+  TRASH_DAYS,
+  getCollectionNames,
+  getModel,
+  getTrashModel,
+  sanitize,
+  toItem,
+} = require('./models');
 
 async function connectDatabase() {
   let uri = process.env.MONGODB_URI;
@@ -52,23 +59,17 @@ function createApp() {
     try {
       const Model = getModel(collection);
       const docs = await Model.find().sort({ _id: -1 }).lean();
-      const items = docs.map((doc) => {
-        const item = {};
-        Object.keys(doc).forEach((key) => {
-          if (key !== '_id' && key !== '__v') {
-            item[key] = doc[key];
-          }
-        });
-        return item;
-      });
-      res.json({ items });
+      res.json({ items: docs.map(toItem) });
     } catch (error) {
       console.error(`[api] GET /api/${collection} failed`, error);
       res.status(500).json({ error: `Failed to load ${collection}` });
     }
   });
 
-  // Replace an entire collection — keeps sync simple and idempotent
+  // Save a collection: add or update every item sent, and delete only the
+  // ids listed in `deleted`. Items the app didn't send are left alone, so a
+  // device that is missing data (or an older app version that sends no
+  // `deleted` list) can never wipe anything. Deleted items go to the trash.
   app.put('/api/:collection', async (req, res) => {
     const { collection } = req.params;
     if (!getCollectionNames().includes(collection)) {
@@ -81,16 +82,92 @@ function createApp() {
       }
       const cleaned = incoming
         .map((item) => sanitize(collection, item))
-        .filter((item) => item.id);
+        .filter((item) => typeof item.id === 'string' && item.id);
+      const sent = new Set(cleaned.map((item) => item.id));
+      const deleted = (Array.isArray(req.body.deleted) ? req.body.deleted : []).filter(
+        (id) => typeof id === 'string' && !sent.has(id)
+      );
       const Model = getModel(collection);
-      await Model.deleteMany({});
+
       if (cleaned.length > 0) {
-        await Model.insertMany(cleaned, { ordered: false });
+        await Model.bulkWrite(
+          cleaned.map((item) => ({
+            replaceOne: { filter: { id: item.id }, replacement: item, upsert: true },
+          })),
+          { ordered: false }
+        );
       }
-      res.json({ ok: true, count: cleaned.length });
+      if (deleted.length > 0) {
+        const docs = await Model.find({ id: { $in: deleted } }).lean();
+        if (docs.length > 0) {
+          await getTrashModel().insertMany(
+            docs.map((doc) => ({ section: collection, itemId: doc.id, item: toItem(doc) }))
+          );
+          await Model.deleteMany({ id: { $in: docs.map((doc) => doc.id) } });
+        }
+      }
+      res.json({ ok: true, count: await Model.countDocuments() });
     } catch (error) {
       console.error(`[api] PUT /api/${collection} failed`, error);
       res.status(500).json({ error: `Failed to save ${collection}` });
+    }
+  });
+
+  // Recently deleted items for one collection, newest first.
+  app.get('/api/trash/:collection', async (req, res) => {
+    const { collection } = req.params;
+    if (!getCollectionNames().includes(collection)) {
+      return res.status(404).json({ error: 'Unknown collection' });
+    }
+    try {
+      const docs = await getTrashModel()
+        .find({ section: collection })
+        .sort({ deletedAt: -1 })
+        .limit(500)
+        .lean();
+      res.json({
+        days: TRASH_DAYS,
+        items: docs.map((doc) => ({
+          trashId: String(doc._id),
+          deletedAt: doc.deletedAt,
+          item: doc.item,
+        })),
+      });
+    } catch (error) {
+      console.error(`[api] GET /api/trash/${collection} failed`, error);
+      res.status(500).json({ error: 'Failed to load recently deleted items' });
+    }
+  });
+
+  // Put trashed items back. An item that already exists again is left as is.
+  app.post('/api/trash/:collection/restore', async (req, res) => {
+    const { collection } = req.params;
+    if (!getCollectionNames().includes(collection)) {
+      return res.status(404).json({ error: 'Unknown collection' });
+    }
+    try {
+      const trashIds = (Array.isArray(req.body && req.body.trashIds) ? req.body.trashIds : []).filter(
+        (id) => mongoose.isValidObjectId(id)
+      );
+      const Trash = getTrashModel();
+      const docs = await Trash.find({ _id: { $in: trashIds }, section: collection }).lean();
+      if (docs.length > 0) {
+        await getModel(collection).bulkWrite(
+          docs.map((doc) => ({
+            updateOne: {
+              filter: { id: doc.itemId },
+              update: { $setOnInsert: sanitize(collection, doc.item) },
+              upsert: true,
+            },
+          })),
+          { ordered: false }
+        );
+        await Trash.deleteMany({ _id: { $in: docs.map((doc) => doc._id) } });
+      }
+      res.json({ ok: true, restored: docs.length });
+    } catch (error) {
+      console.error(`[api] POST /api/trash/${collection}/restore failed`, error);
+      res.status(500).json({ error: 'Failed to restore items' });
     }
   });
 
@@ -105,14 +182,18 @@ function createApp() {
 
 const PORT = process.env.PORT || 3000;
 
-connectDatabase()
-  .then(() => {
-    const app = createApp();
-    app.listen(PORT, () => {
-      console.log(`[api] DiaryByte API listening on port ${PORT}`);
+if (require.main === module) {
+  connectDatabase()
+    .then(() => {
+      const app = createApp();
+      app.listen(PORT, () => {
+        console.log(`[api] DiaryByte API listening on port ${PORT}`);
+      });
+    })
+    .catch((error) => {
+      console.error('[api] Failed to start', error);
+      process.exit(1);
     });
-  })
-  .catch((error) => {
-    console.error('[api] Failed to start', error);
-    process.exit(1);
-  });
+}
+
+module.exports = { createApp };

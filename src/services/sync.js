@@ -40,6 +40,8 @@ export function notifyLocal(storageKey, items, source) {
 }
 
 const pendingKey = (storageKey) => `${storageKey}_pending`;
+// Ids deleted on this device that the server hasn't been told about yet.
+const deletedKey = (storageKey) => `${storageKey}_deleted`;
 
 // ------- local reads/writes -------
 
@@ -52,31 +54,107 @@ export async function writeLocal(storageKey, items) {
   await AsyncStorage.setItem(storageKey, JSON.stringify(items));
 }
 
+async function readDeleted(storageKey) {
+  try {
+    return JSON.parse((await AsyncStorage.getItem(deletedKey(storageKey))) || '[]');
+  } catch (_error) {
+    return [];
+  }
+}
+
+// Local read-modify-writes for one collection run one at a time, so a slow
+// push can never overwrite an edit made while it was in flight.
+const localQueues = new Map();
+
+function inLocalQueue(storageKey, task) {
+  const run = (localQueues.get(storageKey) || Promise.resolve()).catch(() => {}).then(task);
+  localQueues.set(storageKey, run);
+  return run;
+}
+
+/**
+ * Add server items this device doesn't have, except ones it deleted.
+ * Items on both sides keep this device's version.
+ */
+function mergeWithRemote(local, remote, deleted) {
+  const have = new Set(local.map((item) => item.id));
+  const gone = new Set(deleted);
+  const extra = remote.filter((item) => item && item.id && !have.has(item.id) && !gone.has(item.id));
+  return extra.length ? [...local, ...extra] : local;
+}
+
 // ------- real-time push (local → server) -------
 
 /**
- * Persist items locally, then push the full list to the server in real time.
- * If the push fails, the change is queued as pending and retried on the
- * next app load or the next successful save.
+ * Merge this device's list with the server's, then push the result.
+ *
+ * The server only removes the ids listed as deleted, so this merge isn't
+ * what keeps data safe; it brings items saved from other devices onto this
+ * one, so the screen shows everything.
+ */
+async function pushMerged(collection, storageKey) {
+  const remote = await fetchCollection(collection);
+  const { merged, deleted, pending } = await inLocalQueue(storageKey, async () => {
+    const local = await readLocal(storageKey);
+    const deletedIds = await readDeleted(storageKey);
+    const result = mergeWithRemote(local, remote, deletedIds);
+    if (result !== local) {
+      await writeLocal(storageKey, result);
+      notifyLocal(storageKey, result);
+    }
+    return {
+      merged: result,
+      deleted: deletedIds,
+      pending: await AsyncStorage.getItem(pendingKey(storageKey)),
+    };
+  });
+
+  await pushCollection(collection, merged, deleted);
+
+  // Only clear what this push covered; edits made meanwhile stay queued.
+  await inLocalQueue(storageKey, async () => {
+    const pushedDeletes = new Set(deleted);
+    const stillDeleted = (await readDeleted(storageKey)).filter((id) => !pushedDeletes.has(id));
+    if (stillDeleted.length) {
+      await AsyncStorage.setItem(deletedKey(storageKey), JSON.stringify(stillDeleted));
+    } else {
+      await AsyncStorage.removeItem(deletedKey(storageKey));
+    }
+    if ((await AsyncStorage.getItem(pendingKey(storageKey))) === pending) {
+      await AsyncStorage.removeItem(pendingKey(storageKey));
+    }
+  });
+  return merged;
+}
+
+/**
+ * Persist items locally (remembering anything deleted), then merge with the
+ * server and push in real time. If the push fails, the change stays queued
+ * as pending and is retried on the next app load or the next save.
  */
 export async function saveAndPush(collection, storageKey, items) {
   try {
-    await writeLocal(storageKey, items);
+    await inLocalQueue(storageKey, async () => {
+      const previous = await readLocal(storageKey);
+      const kept = new Set(items.map((item) => item.id));
+      const removed = previous.map((item) => item.id).filter((id) => id && !kept.has(id));
+      if (removed.length) {
+        const deleted = new Set([...(await readDeleted(storageKey)), ...removed]);
+        await AsyncStorage.setItem(deletedKey(storageKey), JSON.stringify([...deleted]));
+      }
+      await writeLocal(storageKey, items);
+      // A fresh value each save, so an older push can't clear a newer edit.
+      await AsyncStorage.setItem(pendingKey(storageKey), String(Date.now()));
+    });
   } catch (error) {
     console.error(`Failed to save ${collection} locally`, error);
   }
 
   try {
-    await pushCollection(collection, items);
-    await AsyncStorage.removeItem(pendingKey(storageKey));
+    await pushMerged(collection, storageKey);
     return { pushed: true };
   } catch (error) {
     console.error(`Failed to push ${collection}`, error);
-    try {
-      await AsyncStorage.setItem(pendingKey(storageKey), '1');
-    } catch (queueError) {
-      console.error('Failed to mark pending sync', queueError);
-    }
     return { pushed: false, error };
   }
 }
@@ -88,11 +166,8 @@ export async function saveAndPush(collection, storageKey, items) {
 export async function loadLocalWithRetry(collection, storageKey) {
   const local = await readLocal(storageKey);
   try {
-    const pending = await AsyncStorage.getItem(pendingKey(storageKey));
-    if (pending === '1') {
-      pushCollection(collection, local)
-        .then(() => AsyncStorage.removeItem(pendingKey(storageKey)))
-        .catch(() => {});
+    if (await AsyncStorage.getItem(pendingKey(storageKey))) {
+      pushMerged(collection, storageKey).catch(() => {});
     }
   } catch (_error) {
     // best-effort retry only
@@ -103,14 +178,21 @@ export async function loadLocalWithRetry(collection, storageKey) {
 // ------- manual pull (server → local) -------
 
 /**
- * Pull the latest data for one collection from the server and overwrite
- * local storage with it.
+ * Pull the latest data for one collection from the server. With no unsynced
+ * changes here, the server's copy replaces the local one; otherwise the two
+ * are merged and pushed, so a pull never throws away unsynced work.
  */
 export async function pullFromServer(collection, storageKey) {
+  if (await AsyncStorage.getItem(pendingKey(storageKey))) {
+    return pushMerged(collection, storageKey);
+  }
   const remote = await fetchCollection(collection);
-  await writeLocal(storageKey, remote);
-  await AsyncStorage.removeItem(pendingKey(storageKey));
-  return remote;
+  await inLocalQueue(storageKey, async () => {
+    // An edit may have landed while fetching; let the next push merge it.
+    if (await AsyncStorage.getItem(pendingKey(storageKey))) return;
+    await writeLocal(storageKey, remote);
+  });
+  return readLocal(storageKey);
 }
 
 /**

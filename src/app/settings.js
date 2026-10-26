@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { router } from 'expo-router';
 import Header from '../components/Header';
 import { useTheme } from '../hooks/useTheme';
 import { pullAllFromServer, SYNCED_COLLECTIONS } from '../services/sync';
@@ -78,7 +79,11 @@ export default function SettingsScreen() {
           onPress: async () => {
             try {
               await AsyncStorage.multiRemove(
-                SYNCED_COLLECTIONS.flatMap(({ storageKey }) => [storageKey, `${storageKey}_pending`])
+                SYNCED_COLLECTIONS.flatMap(({ storageKey }) => [
+                  storageKey,
+                  `${storageKey}_pending`,
+                  `${storageKey}_deleted`,
+                ])
               );
               Alert.alert('Done', 'All data has been cleared.');
             } catch (error) {
@@ -225,8 +230,17 @@ export default function SettingsScreen() {
             </Text>
           </TouchableOpacity>
           <Text style={[styles.hint, { color: theme.textMuted }]}>
-            Pulls the latest data for every section and overwrites local copies.
+            Pulls the latest data for every section. Changes not yet synced are kept and merged.
           </Text>
+          <TouchableOpacity
+            style={styles.dangerRow}
+            onPress={() => router.push('/recently-deleted')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="arrow-undo-outline" size={22} color={theme.primary} />
+            <Text style={[styles.settingLabel, { color: theme.text }]}>Recently Deleted</Text>
+            <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.dangerRow} onPress={clearAllData} activeOpacity={0.7}>
             <Ionicons name="trash-outline" size={22} color={theme.danger} />
             <Text style={[styles.dangerText, { color: theme.danger }]}>Reset All Data</Text>
