@@ -136,6 +136,10 @@ export default function ExpenditureScreen() {
   const [adjustNote, setAdjustNote] = useState('');
   const [adjustAddDebt, setAdjustAddDebt] = useState(true);
 
+  // "This month's amount" for monthly bills whose amount changes
+  const [amountDue, setAmountDue] = useState(null);
+  const [amountDraft, setAmountDraft] = useState('');
+
   // Month picker
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerYear, setPickerYear] = useState(new Date().getFullYear());
@@ -213,10 +217,27 @@ export default function ExpenditureScreen() {
   const pendingDues = dues.filter((d) => !d.paid);
   const pendingDuesTotal = pendingDues.reduce((sum, d) => sum + d.amount, 0);
 
-  const toggleDue = (due) => {
-    const result = due.paid ? markDueUnpaid(due, debts, items) : markDuePaid(due, debts, items);
+  const applyDue = (due, paid) => {
+    const result = paid ? markDuePaid(due, debts, items) : markDueUnpaid(due, debts, items);
     persistDebts(result.debts);
     persist(result.expenses);
+  };
+
+  const toggleDue = (due) => {
+    const variable = due.recurring && debts.find((d) => d.id === due.debtId)?.variable;
+    if (!due.paid && variable) {
+      setAmountDue(due);
+      setAmountDraft(String(due.amount || ''));
+      return;
+    }
+    applyDue(due, !due.paid);
+  };
+
+  const saveAmountPaid = () => {
+    const value = parseAmount(amountDraft);
+    if (!(value > 0)) return;
+    applyDue({ ...amountDue, amount: value }, true);
+    setAmountDue(null);
   };
 
   // ------- covering a shortfall -------
@@ -980,6 +1001,46 @@ export default function ExpenditureScreen() {
                 disabled={!(parseAmount(adjustAmount) > 0)}
               >
                 <Text style={[styles.saveText, { color: theme.onPrimary }]}>Add</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Monthly bill with a changing amount: this month's figure */}
+      <Modal visible={!!amountDue} transparent animationType="fade" onRequestClose={() => setAmountDue(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{amountDue?.title}</Text>
+            <Text style={[styles.modalSub, { color: theme.textSecondary }]}>
+              Amount paid for {amountDue ? monthLabel(amountDue.month, true) : ''}
+            </Text>
+            <TextInput
+              style={inputStyle}
+              placeholder="Amount (₹)"
+              placeholderTextColor={theme.textMuted}
+              value={amountDraft}
+              onChangeText={setAmountDraft}
+              keyboardType="decimal-pad"
+              autoFocus
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.cancelBtn, { backgroundColor: theme.surfaceAlt }]}
+                onPress={() => setAmountDue(null)}
+              >
+                <Text style={[styles.cancelText, { color: theme.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.saveBtn,
+                  { backgroundColor: theme.primary },
+                  !(parseAmount(amountDraft) > 0) && styles.btnDisabled,
+                ]}
+                onPress={saveAmountPaid}
+                disabled={!(parseAmount(amountDraft) > 0)}
+              >
+                <Text style={[styles.saveText, { color: theme.onPrimary }]}>Mark paid</Text>
               </TouchableOpacity>
             </View>
           </View>

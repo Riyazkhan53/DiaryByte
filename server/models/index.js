@@ -101,6 +101,13 @@ const COLLECTIONS = {
       'month',
       'paid',
       'paidAt',
+      // monthly bills: due on dueDay every month from startMonth (to endMonth);
+      // amounts holds each month's actual figure when it varies
+      'recurring',
+      'variable',
+      'dueDay',
+      'endMonth',
+      'amounts',
       // credit card bill linked to a card saved in "cards" (no full number)
       'cardId',
       'cardLast4',

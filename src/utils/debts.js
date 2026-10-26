@@ -7,7 +7,11 @@
 //            schedule (e.g. money borrowed from a friend) are "manual": the
 //            remaining amount is entered by hand.
 //   'card' — credit card bills, added by hand each month.
-//   'bill' — other bills (electricity, rent, mobile...), added by hand.
+//   'bill' — other bills (electricity, rent, mobile...). Either one-off, or
+//            monthly (`recurring`): due on `dueDay` every month from
+//            `startMonth` (until `endMonth`, if set), paid month by month
+//            like an EMI via `paidMonths`. For bills whose amount changes
+//            (`variable`), each month's actual amount goes in `amounts`.
 //
 // Marking an EMI or a bill paid adds an expense to My Expenditure (in the
 // month the EMI/bill is due), linked back with `sourceId` so un-marking it
@@ -187,6 +191,67 @@ export const billSourceId = (billId) => `bill:${billId}`;
 
 export const billMonth = (bill) => (bill.dueDate ? bill.dueDate.slice(0, 7) : bill.month);
 
+// ------- monthly (recurring) bills -------
+
+export const isRecurringBill = (item) =>
+  sectionOf(item) === 'bill' && !!item.recurring && !!item.startMonth;
+
+export const recurringSourceId = (billId, month) => `rbill:${billId}:${month}`;
+
+/** A month's amount for a recurring bill: what was entered for it, else the usual amount. */
+export function recurringAmount(bill, month) {
+  const entered = bill.amounts?.[month];
+  return entered != null ? Number(entered) || 0 : Number(bill.amount) || 0;
+}
+
+/** The recurring bill's due for `month`, or null if it doesn't run that month. */
+export function recurringDue(bill, month) {
+  if (month < bill.startMonth || (bill.endMonth && month > bill.endMonth)) return null;
+  return {
+    key: recurringSourceId(bill.id, month),
+    kind: 'bill',
+    recurring: true,
+    debtId: bill.id,
+    month,
+    title: bill.name,
+    subtitle: `${bill.billType || 'Bill'} · monthly`,
+    amount: recurringAmount(bill, month),
+    dueDate: dueDateFor(month, bill.dueDay),
+    paid: (bill.paidMonths || []).includes(month),
+    category: 'Bills',
+  };
+}
+
+/**
+ * What to list for a recurring bill: every unpaid month up to `thisMonth`
+ * (or, when those are all paid, the next month it's due) and the paid months
+ * from the last `paidLimit` months, newest first.
+ */
+export function recurringBillDues(bill, thisMonth, paidLimit = 6) {
+  const pending = [];
+  const paid = [];
+  for (let month = bill.startMonth; month <= thisMonth; month = addMonths(month, 1)) {
+    const due = recurringDue(bill, month);
+    if (!due) break;
+    if (!due.paid) pending.push(due);
+    else if (monthsBetween(month, thisMonth) < paidLimit) paid.unshift(due);
+  }
+  if (!pending.length) {
+    // Next unpaid month ahead (a few months may already be paid in advance).
+    let month = bill.startMonth > thisMonth ? bill.startMonth : addMonths(thisMonth, 1);
+    for (let i = 0; i < 24; i += 1, month = addMonths(month, 1)) {
+      const due = recurringDue(bill, month);
+      if (!due) break;
+      if (!due.paid) {
+        pending.push(due);
+        break;
+      }
+      paid.unshift(due);
+    }
+  }
+  return { pending, paid };
+}
+
 /**
  * Everything due in `month`: each scheduled loan's EMI for that month and
  * every credit card / other bill due that month.
@@ -210,6 +275,9 @@ export function duesForMonth(debts, month) {
         paid: (item.paidMonths || []).includes(month),
         category: 'EMI',
       });
+    } else if (isRecurringBill(item)) {
+      const due = recurringDue(item, month);
+      if (due) dues.push(due);
     } else if (billMonth(item) === month) {
       dues.push({
         key: billSourceId(item.id),
@@ -244,9 +312,16 @@ function expenseDate(month, dueDate) {
 export function markDuePaid(due, debts, expenses) {
   const nextDebts = debts.map((item) => {
     if (item.id !== due.debtId) return item;
-    if (due.kind === 'emi') {
+    if (due.kind === 'emi' || due.recurring) {
       const paidMonths = Array.from(new Set([...(item.paidMonths || []), due.month])).sort();
       const updated = { ...item, paidMonths, updatedAt: new Date().toISOString() };
+      if (due.recurring) {
+        // Remember what was actually paid when it differs from the usual amount.
+        const amounts = { ...(item.amounts || {}) };
+        if (Number(due.amount) !== Number(item.amount)) amounts[due.month] = Number(due.amount) || 0;
+        else delete amounts[due.month];
+        return { ...updated, amounts };
+      }
       return { ...updated, outstanding: loanSummary(updated).outstanding };
     }
     return { ...item, paid: true, paidAt: new Date().toISOString() };
@@ -269,12 +344,13 @@ export function markDuePaid(due, debts, expenses) {
 export function markDueUnpaid(due, debts, expenses) {
   const nextDebts = debts.map((item) => {
     if (item.id !== due.debtId) return item;
-    if (due.kind === 'emi') {
+    if (due.kind === 'emi' || due.recurring) {
       const updated = {
         ...item,
         paidMonths: (item.paidMonths || []).filter((m) => m !== due.month),
         updatedAt: new Date().toISOString(),
       };
+      if (due.recurring) return updated;
       return { ...updated, outstanding: loanSummary(updated).outstanding };
     }
     return { ...item, paid: false, paidAt: null };
@@ -289,6 +365,7 @@ export function dueFromSourceId(sourceId, debts) {
   const item = debts.find((d) => d.id === id);
   if (!item) return null;
   if (kind === 'emi') return { key: sourceId, kind: 'emi', debtId: id, month };
+  if (kind === 'rbill') return { key: sourceId, kind: 'bill', recurring: true, debtId: id, month };
   return { key: sourceId, kind: sectionOf(item), debtId: id, month: billMonth(item) };
 }
 
@@ -298,8 +375,8 @@ const dateKeyOf = (date) => `${monthKeyOf(date)}-${pad(date.getDate())}`;
 
 /**
  * Unpaid EMIs and bills due today or later, soonest first: the next
- * `emisPerLoan` unpaid EMIs of each scheduled loan and every unpaid credit
- * card / other bill. Manual loans have no reliable due date, so they're left out.
+ * `emisPerLoan` unpaid EMIs of each scheduled loan (and months of each
+ * monthly bill) and every unpaid one-off credit card / other bill. Manual loans have no reliable due date, so they're left out.
  */
 export function upcomingDues(debts, today = dateKeyOf(new Date()), emisPerLoan = 2) {
   const dues = [];
@@ -319,6 +396,17 @@ export function upcomingDues(debts, today = dateKeyOf(new Date()), emisPerLoan =
             dueDate: row.dueDate,
           })
         );
+    } else if (isRecurringBill(item)) {
+      let found = 0;
+      let month = today.slice(0, 7);
+      if (month < item.startMonth) month = item.startMonth;
+      for (let i = 0; i < 24 && found < emisPerLoan; i += 1, month = addMonths(month, 1)) {
+        const due = recurringDue(item, month);
+        if (!due) break;
+        if (due.paid || due.dueDate < today) continue;
+        dues.push({ key: due.key, kind: 'bill', title: item.name, amount: due.amount, dueDate: due.dueDate });
+        found += 1;
+      }
     } else if (!item.paid && item.dueDate && item.dueDate >= today) {
       dues.push({
         key: billSourceId(item.id),
