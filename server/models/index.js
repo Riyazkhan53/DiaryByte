@@ -175,6 +175,8 @@ const COLLECTIONS = {
       'sourceNote',
       'category',
       'addToExpenses',
+      // could have been avoided; adds to the month's "Can be saved"
+      'avoidable',
       'note',
       'createdAt',
       'updatedAt',
