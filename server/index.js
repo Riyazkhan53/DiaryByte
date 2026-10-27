@@ -7,6 +7,7 @@ const {
   sanitize,
   toItem,
 } = require('./models');
+const { getQuotes, searchSymbols } = require('./quotes');
 
 async function connectDatabase() {
   let uri = process.env.MONGODB_URI;
@@ -82,6 +83,32 @@ function createApp() {
       // A slightly old rate beats none.
       if (goldCache) return res.json({ ...goldCache.rate, stale: true });
       res.status(502).json({ error: 'Gold rate unavailable' });
+    }
+  });
+
+  // Stock prices (Indian and US) and today's USD→INR rate.
+  // GET /api/quotes?symbols=TCS.NS,AAPL
+  app.get('/api/quotes', async (req, res) => {
+    const symbols = String(req.query.symbols || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    try {
+      res.json(await getQuotes(symbols));
+    } catch (error) {
+      console.error('[api] GET /api/quotes failed', error.message);
+      res.status(502).json({ error: 'Stock prices unavailable' });
+    }
+  });
+
+  // Find a stock by name or symbol. GET /api/stock-search?q=infosys&market=IN|US
+  app.get('/api/stock-search', async (req, res) => {
+    const market = req.query.market === 'US' ? 'US' : 'IN';
+    try {
+      res.json({ results: await searchSymbols(req.query.q, market) });
+    } catch (error) {
+      console.error('[api] GET /api/stock-search failed', error.message);
+      res.status(502).json({ error: 'Stock search unavailable' });
     }
   });
 

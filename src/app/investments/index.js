@@ -25,6 +25,16 @@ import {
   searchFunds,
 } from '../../services/mutualFunds';
 import { applyGoldRate, fetchGoldRate } from '../../services/goldRate';
+import {
+  MARKETS,
+  applyStockPrices,
+  fetchStockPrices,
+  isLinkedStock,
+  marketOf,
+  searchStocks,
+  stockValueInr,
+} from '../../services/stocks';
+import { fetchStockQuotes } from '../../services/api';
 import { addMonths, dueDateFor, monthLabel } from '../../utils/debts';
 import {
   SIP_CATEGORIES,
@@ -126,6 +136,15 @@ export default function InvestmentsScreen() {
 
   const [refreshing, setRefreshing] = useState(false);
   const [goldInfo, setGoldInfo] = useState(null);
+  const [stockMarket, setStockMarket] = useState('all');
+
+  // Stock linked to a symbol (quantity × live price)
+  const [market, setMarket] = useState('IN');
+  const [symbol, setSymbol] = useState(null);
+  const [exchange, setExchange] = useState(null);
+  const [quantity, setQuantity] = useState('');
+  const [sharePrice, setSharePrice] = useState(null);
+  const [fxRate, setFxRate] = useState(null);
 
   // SIP (form) and the SIP plan sheet
   const [sipOn, setSipOn] = useState(false);
@@ -166,26 +185,41 @@ export default function InvestmentsScreen() {
     [persist]
   );
 
-  // Re-price linked funds and gold lockers whenever the screen opens.
+  const applyStocks = useCallback(
+    (prices) => {
+      const { items: next, updated } = applyStockPrices(itemsRef.current, prices, todayKey());
+      if (updated) persist(next);
+    },
+    [persist]
+  );
+
+  // Re-price linked funds, gold lockers and stocks whenever the screen opens.
   useEffect(() => {
     if (!loaded) return;
     fetchFundPrices(itemsRef.current).then(applyPrices).catch(() => {});
     fetchGoldRate().then(applyGold).catch(() => {});
-  }, [loaded, applyPrices, applyGold]);
+    fetchStockPrices(itemsRef.current).then(applyStocks).catch(() => {});
+  }, [loaded, applyPrices, applyGold, applyStocks]);
 
   const refreshPrices = async () => {
     setRefreshing(true);
     try {
-      const [prices, gold] = await Promise.all([
+      const [prices, gold, stocks] = await Promise.all([
         fetchFundPrices(itemsRef.current),
         fetchGoldRate().catch(() => null),
+        fetchStockPrices(itemsRef.current).catch(() => null),
       ]);
       applyPrices(prices);
       if (gold) applyGold(gold);
+      if (stocks) applyStocks(stocks);
     } finally {
       setRefreshing(false);
     }
   };
+
+  const linkedStocks = items.filter(isLinkedStock);
+  const stocksAsOf = linkedStocks.map((i) => i.priceDate).filter(Boolean).sort().pop();
+  const usdInrNow = linkedStocks.find((i) => marketOf(i) === 'US' && i.usdInr > 0)?.usdInr;
 
   const linkedFunds = items.filter(isLinkedFund);
   const pricesAsOf = linkedFunds.map((i) => i.navDate).filter(Boolean).sort().pop();
@@ -193,6 +227,7 @@ export default function InvestmentsScreen() {
   // ------- fund search (form) -------
 
   const runSearch = async () => {
+    if (category === 'Stocks') return runStockSearch();
     if (query.trim().length < 3) return;
     setSearching(true);
     setLookupError(null);
@@ -222,6 +257,52 @@ export default function InvestmentsScreen() {
     } catch (_error) {
       setLookupError("Couldn't get this fund's latest NAV right now. It will update next time you open Investments.");
     }
+  };
+
+  const runStockSearch = async () => {
+    if (query.trim().length < 2) return;
+    setSearching(true);
+    setLookupError(null);
+    try {
+      const found = await searchStocks(query, market);
+      setResults(found.map((r) => ({ ...r, key: r.symbol })));
+      if (!found.length) {
+        setLookupError(
+          market === 'IN'
+            ? 'No NSE/BSE stocks found. Try the company or symbol, e.g. "infosys" or "INFY".'
+            : 'No US stocks found. Try the company or ticker, e.g. "apple" or "AAPL".'
+        );
+      }
+    } catch (_error) {
+      setLookupError("Stock search needs your server, which isn't reachable right now. You can enter the value yourself.");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const pickStock = async (stock) => {
+    setSymbol(stock.symbol);
+    setExchange(stock.exchange || null);
+    setName(stock.name);
+    setResults([]);
+    setQuery('');
+    setSharePrice(null);
+    setLookupError(null);
+    try {
+      const body = await fetchStockQuotes([stock.symbol]);
+      const quote = body?.quotes?.[stock.symbol];
+      if (!quote) throw new Error('no price');
+      setSharePrice(quote.price);
+      if (body.usdInr) setFxRate(body.usdInr);
+    } catch (_error) {
+      setLookupError("Couldn't get this stock's price right now. It will update next time you open Investments.");
+    }
+  };
+
+  const unlinkStock = () => {
+    setSymbol(null);
+    setExchange(null);
+    setSharePrice(null);
   };
 
   const unlinkFund = () => {
@@ -270,6 +351,12 @@ export default function InvestmentsScreen() {
     setSipOn(false);
     setSipAmount('');
     setSipDay('5');
+    setMarket(stockMarket === 'US' ? 'US' : 'IN');
+    setSymbol(null);
+    setExchange(null);
+    setQuantity('');
+    setSharePrice(null);
+    setFxRate(usdInrNow || null);
     setModalVisible(true);
   };
 
@@ -293,10 +380,18 @@ export default function InvestmentsScreen() {
     setSipOn(hasSip(item));
     setSipAmount(item.sip?.amount ? String(item.sip.amount) : '');
     setSipDay(item.sip?.day ? String(item.sip.day) : '5');
+    setMarket(marketOf(item));
+    setSymbol(item.symbol || null);
+    setExchange(item.exchange || null);
+    setQuantity(item.quantity ? String(item.quantity) : '');
+    setSharePrice(item.price || null);
+    setFxRate(item.usdInr || usdInrNow || null);
     setModalVisible(true);
   };
 
   const fundLinked = category === 'Mutual Funds' && !!schemeCode;
+  const stockLinked = category === 'Stocks' && !!symbol;
+  const quantityNum = toNum(quantity);
   const sipAllowed = SIP_CATEGORIES.includes(category);
   const unitsNum = toNum(units);
   const gramsNum = toNum(grams);
@@ -307,8 +402,10 @@ export default function InvestmentsScreen() {
       ? round2(unitsNum * nav)
       : category === 'Digital Gold' && gramsNum > 0 && rateNum > 0
         ? round2(gramsNum * rateNum)
-        : null;
-  const manualCurrent = !(fundLinked || (category === 'Digital Gold' && gramsNum > 0));
+        : stockLinked
+          ? stockValueInr(quantityNum, sharePrice, market, fxRate)
+          : null;
+  const manualCurrent = !(fundLinked || stockLinked || (category === 'Digital Gold' && gramsNum > 0));
 
   const saveItem = () => {
     const investedNum = toNum(invested);
@@ -345,6 +442,14 @@ export default function InvestmentsScreen() {
       rate: gold ? rateNum : undefined,
       rateDate: gold ? (rateNum === existing?.rate ? existing?.rateDate : todayKey()) : undefined,
       rateSource: gold ? (rateNum === existing?.rate ? existing?.rateSource : 'manual') : undefined,
+      market: category === 'Stocks' ? market : undefined,
+      symbol: stockLinked ? symbol : undefined,
+      exchange: stockLinked ? exchange || undefined : undefined,
+      quantity: stockLinked ? quantityNum : undefined,
+      price: stockLinked ? sharePrice : undefined,
+      priceCurrency: stockLinked ? (market === 'US' ? 'USD' : 'INR') : undefined,
+      priceDate: stockLinked ? (sharePrice === existing?.price ? existing?.priceDate : todayKey()) : undefined,
+      usdInr: stockLinked && market === 'US' ? fxRate : undefined,
       sip,
       createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -421,7 +526,17 @@ export default function InvestmentsScreen() {
   const plPct = totalInvested > 0 ? (pl / totalInvested) * 100 : 0;
   const plColor = pl >= 0 ? '#2DA44E' : '#E5383B';
 
-  const visible = filter === 'all' ? items : items.filter((i) => i.category === filter);
+  const visible =
+    filter === 'all'
+      ? items
+      : items.filter(
+          (i) =>
+            i.category === filter &&
+            (filter !== 'Stocks' || stockMarket === 'all' || marketOf(i) === stockMarket)
+        );
+  const stocks = items.filter((i) => i.category === 'Stocks');
+  const marketTotal = (key) =>
+    stocks.filter((i) => marketOf(i) === key).reduce((s, i) => s + (i.current || 0), 0);
   const visibleInvested = visible.reduce((s, i) => s + (i.invested || 0), 0);
   const visibleCurrent = visible.reduce((s, i) => s + (i.current || 0), 0);
 
@@ -430,6 +545,7 @@ export default function InvestmentsScreen() {
     toNum(invested) > 0 &&
     (autoCurrent > 0 || (manualCurrent && toNum(current) > 0)) &&
     (!fundLinked || unitsNum > 0) &&
+    (!stockLinked || quantityNum > 0) &&
     (category !== 'Digital Gold' || !(gramsNum > 0) || rateNum > 0) &&
     (!sipAllowed || !sipOn || toNum(sipAmount) > 0);
 
@@ -466,17 +582,19 @@ export default function InvestmentsScreen() {
               {plPct.toFixed(1)}%)
             </Text>
           </View>
-          {linkedFunds.length > 0 ? (
+          {linkedFunds.length > 0 || linkedStocks.length > 0 ? (
             <View style={styles.liveRow}>
               <Ionicons name="pulse-outline" size={15} color={theme.textMuted} />
               <Text style={[styles.liveText, { color: theme.textMuted }]}>
-                Mutual funds at latest NAV{pricesAsOf ? ` · ${shortDate(pricesAsOf)}` : ''}
+                {linkedFunds.length > 0
+                  ? `Mutual funds at latest NAV${pricesAsOf ? ` · ${shortDate(pricesAsOf)}` : ''}`
+                  : 'Live prices'}
               </Text>
               <TouchableOpacity
                 onPress={refreshPrices}
                 disabled={refreshing}
                 style={styles.liveBtn}
-                accessibilityLabel="Refresh fund prices"
+                accessibilityLabel="Refresh prices"
               >
                 {refreshing ? (
                   <ActivityIndicator size="small" color={theme.primary} />
@@ -484,6 +602,15 @@ export default function InvestmentsScreen() {
                   <Ionicons name="refresh" size={17} color={theme.primary} />
                 )}
               </TouchableOpacity>
+            </View>
+          ) : null}
+          {linkedStocks.length > 0 ? (
+            <View style={styles.liveRow}>
+              <Ionicons name="trending-up-outline" size={15} color={theme.textMuted} />
+              <Text style={[styles.liveText, { color: theme.textMuted }]}>
+                Stocks at latest price{stocksAsOf ? ` · ${shortDate(stocksAsOf)}` : ''}
+                {usdInrNow ? ` · $1 = ${money(usdInrNow)}` : ''}
+              </Text>
             </View>
           ) : null}
           {goldItems.some((i) => i.grams > 0) ? (
@@ -528,7 +655,10 @@ export default function InvestmentsScreen() {
                     borderColor: filter === c.key ? c.color : theme.borderNeutral,
                   },
                 ]}
-                onPress={() => setFilter(c.key)}
+                onPress={() => {
+                  setFilter(c.key);
+                  setStockMarket('all');
+                }}
               >
                 <Text style={[styles.chipText, { color: theme.text }]}>{c.key}</Text>
               </TouchableOpacity>
@@ -536,9 +666,30 @@ export default function InvestmentsScreen() {
           </ScrollView>
         </View>
 
+        {filter === 'Stocks' ? (
+          <View style={[styles.segment, { backgroundColor: theme.surfaceAlt }]}>
+            {[{ key: 'all', label: 'All stocks' }, ...MARKETS.map((m) => ({ key: m.key, label: `${m.flag} ${m.label} · ${money(marketTotal(m.key))}` }))].map((opt) => (
+              <TouchableOpacity
+                key={opt.key}
+                style={[styles.segmentItem, stockMarket === opt.key && { backgroundColor: theme.sheet }]}
+                onPress={() => setStockMarket(opt.key)}
+              >
+                <Text style={[styles.segmentText, { color: theme.text }]} numberOfLines={1}>
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : null}
+
         {visible.length > 0 ? (
           <Text style={[styles.visibleTotal, { color: theme.textMuted }]}>
-            {filter === 'all' ? 'All holdings' : filter} · invested {money(visibleInvested)} → now{' '}
+            {filter === 'all'
+              ? 'All holdings'
+              : filter === 'Stocks' && stockMarket !== 'all'
+                ? `${MARKETS.find((m) => m.key === stockMarket).label} stocks`
+                : filter}{' '}
+            · invested {money(visibleInvested)} → now{' '}
             {money(visibleCurrent)}
           </Text>
         ) : null}
@@ -585,7 +736,11 @@ export default function InvestmentsScreen() {
                         ? `${item.units} units${item.nav ? ` · NAV ₹${item.nav}` : ''}${item.navDate ? ` (${shortDate(item.navDate)})` : ''}`
                         : isWeighedGold(item)
                           ? `${item.grams} g · ${money(item.rate)}/g`
-                          : `${item.category}${item.detail ? ` · ${item.detail}` : ''}`}
+                          : isLinkedStock(item)
+                            ? `${MARKETS.find((m) => m.key === marketOf(item)).flag} ${item.symbol} · ${item.quantity} shares @ ${marketOf(item) === 'US' ? `$${item.price}` : money(item.price)}`
+                            : item.category === 'Stocks'
+                              ? `${MARKETS.find((m) => m.key === marketOf(item)).flag} ${item.detail || (marketOf(item) === 'US' ? 'US stock' : 'Indian stock')}`
+                              : `${item.category}${item.detail ? ` · ${item.detail}` : ''}`}
                     </Text>
                   </View>
                   <TouchableOpacity style={styles.iconBtn} onPress={() => openEdit(item)}>
@@ -681,7 +836,12 @@ export default function InvestmentsScreen() {
                           borderColor: selected ? c.color : theme.borderNeutral,
                         },
                       ]}
-                      onPress={() => setCategory(c.key)}
+                      onPress={() => {
+                        setCategory(c.key);
+                        setResults([]);
+                        setQuery('');
+                        setLookupError(null);
+                      }}
                     >
                       <Text style={[styles.chipText, { color: theme.text }]}>{c.key}</Text>
                     </TouchableOpacity>
@@ -750,13 +910,106 @@ export default function InvestmentsScreen() {
                     onChangeText={setName}
                   />
                 </>
+              ) : category === 'Stocks' ? (
+                <>
+                  <View style={[styles.segment, { backgroundColor: theme.surfaceAlt }]}>
+                    {MARKETS.map((m) => (
+                      <TouchableOpacity
+                        key={m.key}
+                        style={[styles.segmentItem, market === m.key && { backgroundColor: theme.sheet }]}
+                        onPress={() => {
+                          if (m.key === market) return;
+                          setMarket(m.key);
+                          unlinkStock();
+                          setResults([]);
+                          setLookupError(null);
+                        }}
+                      >
+                        <Text style={[styles.segmentText, { color: theme.text }]}>
+                          {m.flag} {m.label === 'India' ? 'Indian stocks' : 'US stocks'}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  {stockLinked ? (
+                    <View style={[styles.linkedFund, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral }]}>
+                      <View style={styles.flex}>
+                        <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={2}>
+                          {name}
+                        </Text>
+                        <Text style={[styles.cardSub, { color: theme.textSecondary }]}>
+                          {symbol}
+                          {exchange ? ` · ${exchange}` : ''}
+                          {sharePrice
+                            ? ` · ${market === 'US' ? `$${sharePrice}` : money(sharePrice)}`
+                            : ' · getting price…'}
+                          {market === 'US' && fxRate ? ` · $1 = ${money(fxRate)}` : ''}
+                        </Text>
+                      </View>
+                      <TouchableOpacity onPress={unlinkStock} style={styles.liveBtn}>
+                        <Text style={[styles.liveLink, { color: theme.primary }]}>Change</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <>
+                      <View style={styles.searchRow}>
+                        <TextInput
+                          style={[styles.input, styles.flex, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                          placeholder={market === 'US' ? 'Search (e.g. apple, AAPL)' : 'Search (e.g. infosys, TCS)'}
+                          placeholderTextColor={theme.textMuted}
+                          value={query}
+                          onChangeText={setQuery}
+                          onSubmitEditing={runSearch}
+                          returnKeyType="search"
+                        />
+                        <TouchableOpacity
+                          style={[styles.searchBtn, { backgroundColor: theme.primary }, query.trim().length < 2 && styles.btnDisabled]}
+                          onPress={runSearch}
+                          disabled={query.trim().length < 2 || searching}
+                          accessibilityLabel="Search stocks"
+                        >
+                          {searching ? (
+                            <ActivityIndicator size="small" color={theme.onPrimary} />
+                          ) : (
+                            <Ionicons name="search" size={20} color={theme.onPrimary} />
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                      {results.map((stock) => (
+                        <TouchableOpacity
+                          key={stock.symbol}
+                          style={[styles.result, { borderColor: theme.borderNeutral }]}
+                          onPress={() => pickStock(stock)}
+                        >
+                          <Text style={[styles.resultText, { color: theme.text }]}>
+                            {stock.name}
+                            <Text style={{ color: theme.textMuted }}>
+                              {' '}· {stock.symbol}
+                              {stock.exchange ? ` · ${stock.exchange}` : ''}
+                            </Text>
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                      <Text style={[styles.formHint, { color: theme.textMuted }]}>
+                        Pick the stock to value it at its live price
+                        {market === 'US' ? ', converted to ₹ at today’s dollar rate' : ''}. Or type a
+                        name below and enter the value yourself.
+                      </Text>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                        placeholder="Stock name (if not linking)"
+                        placeholderTextColor={theme.textMuted}
+                        value={name}
+                        onChangeText={setName}
+                      />
+                    </>
+                  )}
+                </>
               ) : (
                 <TextInput
                   style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
                   placeholder={
-                    category === 'Stocks'
-                      ? 'Stock name (e.g. TCS)'
-                      : category === 'Digital Gold'
+                    category === 'Digital Gold'
                         ? 'Locker (e.g. PhonePe Gold, GPay Gold)'
                         : 'Bank / FD name'
                   }
@@ -766,6 +1019,17 @@ export default function InvestmentsScreen() {
                 />
               )}
               {lookupError ? <Text style={[styles.formHint, { color: theme.danger }]}>{lookupError}</Text> : null}
+
+              {stockLinked ? (
+                <TextInput
+                  style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                  placeholder="Shares held (e.g. 25)"
+                  placeholderTextColor={theme.textMuted}
+                  keyboardType="decimal-pad"
+                  value={quantity}
+                  onChangeText={setQuantity}
+                />
+              ) : null}
 
               {fundLinked ? (
                 <TextInput
@@ -826,7 +1090,13 @@ export default function InvestmentsScreen() {
                     {autoCurrent ? money(autoCurrent) : '—'}
                   </Text>
                   <Text style={[styles.cardSub, { color: theme.textMuted }]}>
-                    {fundLinked
+                    {stockLinked
+                      ? quantityNum > 0 && sharePrice
+                        ? market === 'US'
+                          ? `${quantityNum} × $${sharePrice} × ₹${fxRate || '—'} per $`
+                          : `${quantityNum} shares × ${money(sharePrice)}`
+                        : 'Enter your shares to see the value'
+                      : fundLinked
                       ? unitsNum > 0 && nav
                         ? `${unitsNum} units × NAV ₹${nav}`
                         : 'Enter your units to see the value'
@@ -836,7 +1106,7 @@ export default function InvestmentsScreen() {
                   </Text>
                 </View>
               ) : null}
-              {category !== 'Mutual Funds' && category !== 'Digital Gold' ? (
+              {category !== 'Mutual Funds' && category !== 'Digital Gold' && !stockLinked ? (
                 <TextInput
                   style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
                   placeholder={DETAIL_PLACEHOLDERS[category] || 'Detail (optional)'}
@@ -888,7 +1158,13 @@ export default function InvestmentsScreen() {
                         {editingId && hasSip(items.find((i) => i.id === editingId) || {})
                           ? 'Each installment is added on its day: to the amount invested'
                           : `Starts ${monthLabel(firstSipMonth(Math.min(28, Math.max(1, Math.round(toNum(sipDay)) || 1))), true)} (earlier ones are already in what you invested). Each installment is added on its day: to the amount invested`}
-                        {fundLinked ? ', as units at that day’s NAV' : category === 'Digital Gold' && gramsNum > 0 ? ', as grams at the live buy rate' : ''}
+                        {fundLinked
+                          ? ', as units at that day’s NAV'
+                          : category === 'Digital Gold' && gramsNum > 0
+                            ? ', as grams at the live buy rate'
+                            : stockLinked
+                              ? ', as shares at the current price'
+                              : ''}
                         {' '}— and to My Expenditure as an Investment. Change any month’s amount from “Plan”.
                       </Text>
                     </>
@@ -1165,6 +1441,9 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 12,
   },
+  segment: { flexDirection: 'row', borderRadius: 12, padding: 3, marginBottom: 12 },
+  segmentItem: { flex: 1, paddingVertical: 8, paddingHorizontal: 4, borderRadius: 10, alignItems: 'center' },
+  segmentText: { fontSize: 12, fontWeight: '600' },
   sipRow: { flexDirection: 'row', alignItems: 'center', gap: 6, borderTopWidth: 1, marginTop: 10, paddingTop: 8 },
   sipText: { flex: 1, fontSize: 12, fontWeight: '600' },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },

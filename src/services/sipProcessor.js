@@ -1,6 +1,7 @@
 import { readLocal, saveAndPush, notifyLocal } from './sync';
 import { navOnOrAfter } from './mutualFunds';
 import { fetchGoldRate } from './goldRate';
+import { fetchStockPrices, marketOf, sharePriceInr } from './stocks';
 import { todayKey } from '../utils/autopay';
 import {
   applyInstallment,
@@ -37,6 +38,10 @@ async function run() {
   // Prices first (network), then apply to the freshest local data.
   const needsGold = work.some(({ item }) => item.category === 'Digital Gold' && item.grams > 0);
   const goldBuy = needsGold ? (await fetchGoldRate().catch(() => null))?.buy : null;
+  const needsStocks = work.some(({ item }) => item.category === 'Stocks' && item.symbol && item.quantity > 0);
+  const stockPrices = needsStocks
+    ? await fetchStockPrices(work.map(({ item }) => item)).catch(() => null)
+    : null;
   const navs = {};
   const priced = [];
   for (const { item, month } of work) {
@@ -53,6 +58,14 @@ async function run() {
       const rate = goldBuy || item.rate;
       if (!rate) continue;
       price = { rate };
+    } else if (amount > 0 && item.category === 'Stocks' && item.symbol && item.quantity > 0) {
+      // Today's price (₹ per share), else the last one known.
+      const quote = stockPrices?.quotes?.[item.symbol];
+      const fx = stockPrices?.usdInr || item.usdInr;
+      const live = quote ? (marketOf(item) === 'US' ? (fx > 0 ? quote.price * fx : null) : quote.price) : null;
+      const sharePrice = live || sharePriceInr(item);
+      if (!sharePrice) continue;
+      price = { sharePrice };
     }
     priced.push({ itemId: item.id, month, date, price });
   }

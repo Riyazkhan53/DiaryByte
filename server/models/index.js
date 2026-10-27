@@ -81,6 +81,15 @@ const COLLECTIONS = {
       'rate',
       'rateDate',
       'rateSource',
+      // stocks: market 'IN' | 'US'; current = quantity × price (× usdInr for US)
+      'market',
+      'symbol',
+      'exchange',
+      'quantity',
+      'price',
+      'priceCurrency',
+      'priceDate',
+      'usdInr',
       // monthly SIP: sip { amount, day, startMonth, endMonth? }, custom
       // amounts per month and the installments already recorded
       'sip',

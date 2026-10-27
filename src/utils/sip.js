@@ -3,7 +3,7 @@
 // item.sip        { amount, day, startMonth, endMonth? }
 // item.sipAmounts { 'YYYY-MM': amount } — custom amount for a month (0 = skip)
 // item.sipDone    { 'YYYY-MM': record } — installments already processed:
-//                 { amount, date, units?, nav?, grams?, rate?, skipped? }
+//                 { amount, date, units?, nav?, grams?, rate?, shares?, sharePrice?, skipped? }
 //
 // Each installment adds to the amount invested (and to units or grams when
 // the holding is valued that way), and is recorded in My Expenditure as an
@@ -75,9 +75,9 @@ export function sipHistory(item) {
 
 /**
  * Record one installment on the holding. `price` is { nav } for a mutual
- * fund valued by units, { rate } for gold valued by grams; otherwise the
- * amount is simply added to the current value. A zero amount marks the
- * month skipped.
+ * fund valued by units, { rate } for gold valued by grams, { sharePrice }
+ * (₹ per share) for a stock valued by quantity; otherwise the amount is
+ * simply added to the current value. A zero amount marks the month skipped.
  */
 export function applyInstallment(item, month, amount, price = {}, date = sipDueDate(item, month)) {
   if (!(amount > 0)) {
@@ -95,6 +95,15 @@ export function applyInstallment(item, month, amount, price = {}, date = sipDueD
     record.grams = round4(amount / price.rate);
     next.grams = round4(item.grams + record.grams);
     next.current = round2(next.grams * (item.rate || price.rate));
+  } else if (item.category === 'Stocks' && item.symbol && item.quantity > 0 && price.sharePrice > 0) {
+    // Fractional shares, as SIP apps for US stocks allow; for Indian
+    // stocks it's an approximation of what the amount buys.
+    record.sharePrice = round2(price.sharePrice);
+    record.shares = round4(amount / price.sharePrice);
+    next.quantity = round4(item.quantity + record.shares);
+    // Value per share as last priced (in ₹), so US stocks keep their rate.
+    const perShare = item.current > 0 ? item.current / item.quantity : price.sharePrice;
+    next.current = round2(next.quantity * perShare);
   } else {
     next.current = round2((Number(item.current) || 0) + amount);
   }
@@ -114,6 +123,10 @@ export function reverseInstallment(item, month) {
   } else if (record.grams) {
     next.grams = round4(Math.max(0, item.grams - record.grams));
     next.current = round2(next.grams * (item.rate || record.rate));
+  } else if (record.shares) {
+    const perShare = item.quantity > 0 ? (Number(item.current) || 0) / item.quantity : record.sharePrice;
+    next.quantity = round4(Math.max(0, item.quantity - record.shares));
+    next.current = round2(next.quantity * perShare);
   } else {
     next.current = round2(Math.max(0, (Number(item.current) || 0) - record.amount));
   }
