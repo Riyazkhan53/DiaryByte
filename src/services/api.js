@@ -70,6 +70,11 @@ export function pushCollection(collection, items, deleted = []) {
   });
 }
 
+// Live digital gold rate, cached by the server: { buy, sell, gst, timestamp }.
+export function fetchGoldRateFromServer() {
+  return request('/api/gold-rate');
+}
+
 export function fetchTrash(collection) {
   if (!COLLECTIONS.includes(collection)) {
     throw new Error(`Unknown collection: ${collection}`);

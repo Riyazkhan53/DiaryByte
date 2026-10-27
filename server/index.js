@@ -26,6 +26,9 @@ async function connectDatabase() {
   console.log(`[db] Connected to MongoDB (db: ${dbName})`);
 }
 
+const OROPOCKET_URL = 'https://api.oropocket.com/public/prices';
+const GOLD_CACHE_MS = 5 * 60 * 1000;
+
 function createApp() {
   const express = require('express');
   const cors = require('cors');
@@ -49,6 +52,37 @@ function createApp() {
 
   app.get('/api/health', (req, res) => {
     res.json({ ok: true, db: mongoose.connection.readyState === 1 ? 'up' : 'down' });
+  });
+
+  // Live digital gold rate (₹/gram) from OroPocket's public feed, cached for
+  // a few minutes to stay well inside its 10-requests-a-minute limit. Must be
+  // registered before /api/:collection.
+  let goldCache = null;
+  app.get('/api/gold-rate', async (req, res) => {
+    if (goldCache && Date.now() - goldCache.at < GOLD_CACHE_MS) {
+      return res.json(goldCache.rate);
+    }
+    try {
+      const response = await fetch(OROPOCKET_URL, { signal: AbortSignal.timeout(10000) });
+      if (!response.ok) throw new Error(`OroPocket responded ${response.status}`);
+      const body = await response.json();
+      const gold = (body.data || body).gold || {};
+      const rate = {
+        buy: parseFloat(gold.buy),
+        sell: parseFloat(gold.sell),
+        gst: parseFloat(gold.gst) || null,
+        timestamp: (body.data || body).timestamp || null,
+        source: 'OroPocket',
+      };
+      if (!(rate.buy > 0) || !(rate.sell > 0)) throw new Error('No gold rate in response');
+      goldCache = { at: Date.now(), rate };
+      res.json(rate);
+    } catch (error) {
+      console.error('[api] GET /api/gold-rate failed', error.message);
+      // A slightly old rate beats none.
+      if (goldCache) return res.json({ ...goldCache.rate, stale: true });
+      res.status(502).json({ error: 'Gold rate unavailable' });
+    }
   });
 
   app.get('/api/:collection', async (req, res) => {

@@ -80,6 +80,12 @@ const COLLECTIONS = {
       'grams',
       'rate',
       'rateDate',
+      'rateSource',
+      // monthly SIP: sip { amount, day, startMonth, endMonth? }, custom
+      // amounts per month and the installments already recorded
+      'sip',
+      'sipAmounts',
+      'sipDone',
     ],
   },
   debts: {
