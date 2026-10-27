@@ -36,18 +36,48 @@ export async function searchStocks(query, market) {
   return Array.isArray(body?.results) ? body.results : [];
 }
 
-/** Prices for every linked stock: { quotes, usdInr }. */
+// A US stock typed in by hand with its value in dollars.
+const isManualUsdStock = (item) =>
+  item.category === 'Stocks' && !item.symbol && marketOf(item) === 'US' && item.currentUsd > 0;
+
+/**
+ * Dollar figures for a US stock entered in dollars, or null:
+ * { investedUsd, currentUsd }.
+ */
+export function usdFigures(item) {
+  if (item.category !== 'Stocks' || marketOf(item) !== 'US' || !(item.investedUsd > 0)) return null;
+  const currentUsd = isLinkedStock(item) ? round2(item.quantity * item.price) : item.currentUsd;
+  return currentUsd > 0 ? { investedUsd: item.investedUsd, currentUsd } : null;
+}
+
+/** Today's ₹ per $ (through our server). */
+export async function fetchUsdInr() {
+  const body = await fetchStockQuotes([]);
+  return body?.usdInr || null;
+}
+
+/** Prices for every linked stock, and USD→INR for US ones: { quotes, usdInr }. */
 export async function fetchStockPrices(items) {
   const symbols = [...new Set(items.filter(isLinkedStock).map((i) => i.symbol))];
-  if (!symbols.length) return { quotes: {}, usdInr: null };
+  if (!symbols.length && !items.some(isManualUsdStock)) return { quotes: {}, usdInr: null };
   const body = await fetchStockQuotes(symbols);
   return { quotes: body?.quotes || {}, usdInr: body?.usdInr || null };
 }
 
-/** Value linked stocks at the fetched prices. Same array back when nothing changed. */
+/**
+ * Value linked stocks at the fetched prices, and US stocks entered in
+ * dollars at today's rate. Same array back when nothing changed.
+ */
 export function applyStockPrices(items, { quotes, usdInr }, dateKey) {
   let updated = 0;
   const next = items.map((item) => {
+    if (isManualUsdStock(item)) {
+      if (!(usdInr > 0)) return item;
+      const current = round2(item.currentUsd * usdInr);
+      if (item.current === current && item.usdInr === usdInr) return item;
+      updated += 1;
+      return { ...item, usdInr, current, priceDate: dateKey };
+    }
     if (!isLinkedStock(item)) return item;
     const quote = quotes[item.symbol];
     if (!quote) return item;

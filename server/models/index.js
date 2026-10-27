@@ -90,6 +90,10 @@ const COLLECTIONS = {
       'priceCurrency',
       'priceDate',
       'usdInr',
+      // US stocks entered in dollars: $ invested, ₹/$ paid, $ value (if typed)
+      'investedUsd',
+      'investRate',
+      'currentUsd',
       // monthly SIP: sip { amount, day, startMonth, endMonth? }, custom
       // amounts per month and the installments already recorded
       'sip',
