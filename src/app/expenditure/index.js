@@ -28,12 +28,14 @@ import {
 import { todayKey } from '../../utils/autopay';
 import { isCreditCard } from '../../utils/cards';
 import { isSpendExpense } from '../../utils/spends';
+import { parseSipSourceId, reverseInstallment } from '../../utils/sip';
 
 const STORAGE_KEY = '@diarybyte_expenditure';
 const MONTHS_STORAGE_KEY = '@diarybyte_months';
 const DEBTS_STORAGE_KEY = '@diarybyte_debts';
 const SPENDS_STORAGE_KEY = '@diarybyte_spends';
 const CARDS_STORAGE_KEY = '@diarybyte_cards';
+const INVESTMENTS_STORAGE_KEY = '@diarybyte_investments';
 
 const TABS = [
   { key: 'overview', label: 'Overview' },
@@ -50,6 +52,7 @@ const CATEGORIES = [
   { key: 'Entertainment', icon: 'film-outline', color: '#34C759' },
   { key: 'Health', icon: 'medkit-outline', color: '#FF3B30' },
   { key: 'Education', icon: 'school-outline', color: '#007AFF' },
+  { key: 'Investment', icon: 'trending-up-outline', color: '#30B0C7' },
   { key: 'Other', icon: 'wallet-outline', color: '#8E8E93' },
 ];
 
@@ -124,6 +127,10 @@ export default function ExpenditureScreen() {
   const { items: debts, persist: persistDebts } = useSyncedCollection('debts', DEBTS_STORAGE_KEY);
   const { items: spends, persist: persistSpends } = useSyncedCollection('spends', SPENDS_STORAGE_KEY);
   const { items: savedCards } = useSyncedCollection('cards', CARDS_STORAGE_KEY);
+  const { items: investments, persist: persistInvestments } = useSyncedCollection(
+    'investments',
+    INVESTMENTS_STORAGE_KEY
+  );
   const creditCards = savedCards.filter(isCreditCard);
   const [tab, setTab] = useState('overview');
   const currentMonth = monthKeyOf(new Date());
@@ -212,15 +219,25 @@ export default function ExpenditureScreen() {
   const deleteItem = (item) => {
     const due = dueFromSourceId(item.sourceId, debts);
     const fromSpend = isSpendExpense(item);
+    const sip = parseSipSourceId(item.sourceId);
     confirmDelete(
       'Delete Expense',
       due
         ? 'Remove this payment? It will be marked unpaid in My Debts too.'
         : fromSpend
           ? 'Remove this expense? The spend stays in Total Spend, just not counted in expenses.'
-          : 'Remove this expense?',
+          : sip
+            ? 'Remove this SIP installment? It comes off the amount invested in My Investments too, and that month is marked skipped.'
+            : 'Remove this expense?',
       () => {
-        if (fromSpend) {
+        if (sip) {
+          if (investments.some((i) => i.id === sip.itemId)) {
+            persistInvestments(
+              investments.map((i) => (i.id === sip.itemId ? reverseInstallment(i, sip.month) : i))
+            );
+          }
+          persist(items.filter((i) => i.id !== item.id));
+        } else if (fromSpend) {
           persistSpends(
             spends.map((s) =>
               `spend:${s.id}` === item.sourceId ? { ...s, addToExpenses: false, updatedAt: new Date().toISOString() } : s
@@ -393,6 +410,7 @@ export default function ExpenditureScreen() {
     { key: 'EMI', label: 'EMIs' },
     { key: 'Credit Card', label: 'Credit card bills' },
     { key: 'Bills', label: 'Other bills' },
+    { key: 'Investment', label: 'Investments (SIP)' },
   ].map((g) => ({ ...g, amount: monthByCategory[g.key] || 0 }));
   const otherSpend = totalSpent - outflow.reduce((sum, g) => sum + g.amount, 0);
   const shortfall = Math.max(0, -balance);
@@ -836,7 +854,13 @@ export default function ExpenditureScreen() {
                     </Text>
                     <Text style={[styles.rowSub, { color: theme.textSecondary }]}>
                       {item.category} · {formatDate(item.date || item.createdAt)}
-                      {isSpendExpense(item) ? ' · from Total Spend' : item.sourceId ? ' · from My Debts' : ''}
+                      {isSpendExpense(item)
+                    ? ' · from Total Spend'
+                    : parseSipSourceId(item.sourceId)
+                      ? ' · SIP'
+                      : item.sourceId
+                        ? ' · from My Debts'
+                        : ''}
                     </Text>
                   </View>
                   <Text style={[styles.rowAmount, { color: theme.text }]}>{formatAmount(item.amount)}</Text>

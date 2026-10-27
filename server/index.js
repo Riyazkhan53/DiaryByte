@@ -7,6 +7,7 @@ const {
   sanitize,
   toItem,
 } = require('./models');
+const { getQuotes, searchSymbols } = require('./quotes');
 
 async function connectDatabase() {
   let uri = process.env.MONGODB_URI;
@@ -25,6 +26,9 @@ async function connectDatabase() {
   await mongoose.connect(uri, { dbName });
   console.log(`[db] Connected to MongoDB (db: ${dbName})`);
 }
+
+const OROPOCKET_URL = 'https://api.oropocket.com/public/prices';
+const GOLD_CACHE_MS = 5 * 60 * 1000;
 
 function createApp() {
   const express = require('express');
@@ -49,6 +53,63 @@ function createApp() {
 
   app.get('/api/health', (req, res) => {
     res.json({ ok: true, db: mongoose.connection.readyState === 1 ? 'up' : 'down' });
+  });
+
+  // Live digital gold rate (₹/gram) from OroPocket's public feed, cached for
+  // a few minutes to stay well inside its 10-requests-a-minute limit. Must be
+  // registered before /api/:collection.
+  let goldCache = null;
+  app.get('/api/gold-rate', async (req, res) => {
+    if (goldCache && Date.now() - goldCache.at < GOLD_CACHE_MS) {
+      return res.json(goldCache.rate);
+    }
+    try {
+      const response = await fetch(OROPOCKET_URL, { signal: AbortSignal.timeout(10000) });
+      if (!response.ok) throw new Error(`OroPocket responded ${response.status}`);
+      const body = await response.json();
+      const gold = (body.data || body).gold || {};
+      const rate = {
+        buy: parseFloat(gold.buy),
+        sell: parseFloat(gold.sell),
+        gst: parseFloat(gold.gst) || null,
+        timestamp: (body.data || body).timestamp || null,
+        source: 'OroPocket',
+      };
+      if (!(rate.buy > 0) || !(rate.sell > 0)) throw new Error('No gold rate in response');
+      goldCache = { at: Date.now(), rate };
+      res.json(rate);
+    } catch (error) {
+      console.error('[api] GET /api/gold-rate failed', error.message);
+      // A slightly old rate beats none.
+      if (goldCache) return res.json({ ...goldCache.rate, stale: true });
+      res.status(502).json({ error: 'Gold rate unavailable' });
+    }
+  });
+
+  // Stock prices (Indian and US) and today's USD→INR rate.
+  // GET /api/quotes?symbols=TCS.NS,AAPL
+  app.get('/api/quotes', async (req, res) => {
+    const symbols = String(req.query.symbols || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    try {
+      res.json(await getQuotes(symbols));
+    } catch (error) {
+      console.error('[api] GET /api/quotes failed', error.message);
+      res.status(502).json({ error: 'Stock prices unavailable' });
+    }
+  });
+
+  // Find a stock by name or symbol. GET /api/stock-search?q=infosys&market=IN|US
+  app.get('/api/stock-search', async (req, res) => {
+    const market = req.query.market === 'US' ? 'US' : 'IN';
+    try {
+      res.json({ results: await searchSymbols(req.query.q, market) });
+    } catch (error) {
+      console.error('[api] GET /api/stock-search failed', error.message);
+      res.status(502).json({ error: 'Stock search unavailable' });
+    }
   });
 
   app.get('/api/:collection', async (req, res) => {

@@ -49,6 +49,21 @@ export async function latestNav(schemeCode) {
   return { nav, navDate };
 }
 
+/**
+ * NAV used for a purchase on `dateKey`: that day's NAV, or the next one
+ * published after it (weekends and holidays have none). Falls back to the
+ * latest NAV when the date is too recent to have one yet.
+ */
+export async function navOnOrAfter(schemeCode, dateKey) {
+  const body = await getJson(`/mf/${encodeURIComponent(schemeCode)}`);
+  const rows = (Array.isArray(body?.data) ? body.data : [])
+    .map((r) => ({ nav: parseFloat(r.nav), navDate: toDateKey(r.date) }))
+    .filter((r) => r.nav > 0 && r.navDate);
+  if (!rows.length) throw new Error('No NAV available for this fund');
+  const onOrAfter = rows.filter((r) => r.navDate >= dateKey).sort((a, b) => a.navDate.localeCompare(b.navDate));
+  return onOrAfter[0] || rows.sort((a, b) => b.navDate.localeCompare(a.navDate))[0];
+}
+
 const isLinkedFund = (item) =>
   item.category === 'Mutual Funds' && !!item.schemeCode && item.units > 0;
 

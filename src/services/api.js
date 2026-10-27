@@ -70,6 +70,21 @@ export function pushCollection(collection, items, deleted = []) {
   });
 }
 
+// Live digital gold rate, cached by the server: { buy, sell, gst, timestamp }.
+export function fetchGoldRateFromServer() {
+  return request('/api/gold-rate');
+}
+
+// Stock prices for symbols (e.g. TCS.NS, AAPL) and USD→INR: { quotes, usdInr }.
+export function fetchStockQuotes(symbols) {
+  return request(`/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`);
+}
+
+// Find a stock in a market ('IN' or 'US'): { results: [{ symbol, name, exchange }] }.
+export function searchStockSymbols(query, market) {
+  return request(`/api/stock-search?q=${encodeURIComponent(query)}&market=${market}`);
+}
+
 export function fetchTrash(collection) {
   if (!COLLECTIONS.includes(collection)) {
     throw new Error(`Unknown collection: ${collection}`);
