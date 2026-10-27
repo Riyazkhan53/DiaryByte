@@ -29,10 +29,12 @@ import {
   MARKETS,
   applyStockPrices,
   fetchStockPrices,
+  fetchUsdInr,
   isLinkedStock,
   marketOf,
   searchStocks,
   stockValueInr,
+  usdFigures,
 } from '../../services/stocks';
 import { fetchStockQuotes } from '../../services/api';
 import { addMonths, dueDateFor, monthLabel } from '../../utils/debts';
@@ -145,6 +147,9 @@ export default function InvestmentsScreen() {
   const [quantity, setQuantity] = useState('');
   const [sharePrice, setSharePrice] = useState(null);
   const [fxRate, setFxRate] = useState(null);
+  // US stocks: amounts typed in dollars, and ₹ per $ when bought
+  const [inUsd, setInUsd] = useState(true);
+  const [investRate, setInvestRate] = useState('');
 
   // SIP (form) and the SIP plan sheet
   const [sipOn, setSipOn] = useState(false);
@@ -293,10 +298,25 @@ export default function InvestmentsScreen() {
       const quote = body?.quotes?.[stock.symbol];
       if (!quote) throw new Error('no price');
       setSharePrice(quote.price);
-      if (body.usdInr) setFxRate(body.usdInr);
+      if (body.usdInr) {
+        setFxRate(body.usdInr);
+        setInvestRate((r) => r || String(body.usdInr));
+      }
     } catch (_error) {
       setLookupError("Couldn't get this stock's price right now. It will update next time you open Investments.");
     }
+  };
+
+  // Today's ₹ per $, for converting dollar amounts in the form.
+  const ensureFxRate = () => {
+    if (fxRate) return;
+    fetchUsdInr()
+      .then((value) => {
+        if (!value) return;
+        setFxRate(value);
+        setInvestRate((r) => r || String(value));
+      })
+      .catch(() => {});
   };
 
   const unlinkStock = () => {
@@ -357,6 +377,8 @@ export default function InvestmentsScreen() {
     setQuantity('');
     setSharePrice(null);
     setFxRate(usdInrNow || null);
+    setInUsd(true);
+    setInvestRate(usdInrNow ? String(usdInrNow) : '');
     setModalVisible(true);
   };
 
@@ -386,6 +408,14 @@ export default function InvestmentsScreen() {
     setQuantity(item.quantity ? String(item.quantity) : '');
     setSharePrice(item.price || null);
     setFxRate(item.usdInr || usdInrNow || null);
+    const dollars = marketOf(item) === 'US' && item.investedUsd > 0;
+    setInUsd(marketOf(item) === 'US' ? dollars : true);
+    setInvestRate(item.investRate ? String(item.investRate) : usdInrNow ? String(usdInrNow) : '');
+    if (dollars) {
+      setInvested(String(item.investedUsd));
+      setCurrent(item.currentUsd ? String(item.currentUsd) : '');
+    }
+    if (marketOf(item) === 'US' && !item.usdInr && !usdInrNow) ensureFxRate();
     setModalVisible(true);
   };
 
@@ -406,10 +436,20 @@ export default function InvestmentsScreen() {
           ? stockValueInr(quantityNum, sharePrice, market, fxRate)
           : null;
   const manualCurrent = !(fundLinked || stockLinked || (category === 'Digital Gold' && gramsNum > 0));
+  // US stock with amounts typed in dollars: convert to ₹ for the totals.
+  const usdMode = category === 'Stocks' && market === 'US' && inUsd;
+  const investRateNum = toNum(investRate);
+  const investedInr = usdMode
+    ? investRateNum > 0
+      ? round2(toNum(invested) * investRateNum)
+      : NaN
+    : toNum(invested);
+  const manualCurrentInr =
+    usdMode && manualCurrent ? (fxRate > 0 ? round2(toNum(current) * fxRate) : NaN) : toNum(current);
 
   const saveItem = () => {
-    const investedNum = toNum(invested);
-    const currentNum = autoCurrent ?? (manualCurrent ? toNum(current) : NaN);
+    const investedNum = investedInr;
+    const currentNum = autoCurrent ?? (manualCurrent ? manualCurrentInr : NaN);
     if (!name.trim() || !investedNum || !(currentNum > 0)) return;
     const existing = editingId ? items.find((i) => i.id === editingId) : null;
     const gold = category === 'Digital Gold' && gramsNum > 0;
@@ -449,7 +489,10 @@ export default function InvestmentsScreen() {
       price: stockLinked ? sharePrice : undefined,
       priceCurrency: stockLinked ? (market === 'US' ? 'USD' : 'INR') : undefined,
       priceDate: stockLinked ? (sharePrice === existing?.price ? existing?.priceDate : todayKey()) : undefined,
-      usdInr: stockLinked && market === 'US' ? fxRate : undefined,
+      usdInr: category === 'Stocks' && market === 'US' ? fxRate || undefined : undefined,
+      investedUsd: usdMode ? toNum(invested) : undefined,
+      investRate: usdMode ? investRateNum : undefined,
+      currentUsd: usdMode && manualCurrent ? toNum(current) : undefined,
       sip,
       createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -542,8 +585,8 @@ export default function InvestmentsScreen() {
 
   const formValid =
     name.trim() &&
-    toNum(invested) > 0 &&
-    (autoCurrent > 0 || (manualCurrent && toNum(current) > 0)) &&
+    investedInr > 0 &&
+    (autoCurrent > 0 || (manualCurrent && manualCurrentInr > 0)) &&
     (!fundLinked || unitsNum > 0) &&
     (!stockLinked || quantityNum > 0) &&
     (category !== 'Digital Gold' || !(gramsNum > 0) || rateNum > 0) &&
@@ -775,6 +818,22 @@ export default function InvestmentsScreen() {
                   </View>
                 </View>
 
+                {(() => {
+                  const usd = usdFigures(item);
+                  if (!usd) return null;
+                  const usdPct = ((usd.currentUsd - usd.investedUsd) / usd.investedUsd) * 100;
+                  return (
+                    <Text style={[styles.usdLine, { color: theme.textSecondary }]}>
+                      In $: ${usd.investedUsd.toLocaleString('en-US')} → ${usd.currentUsd.toLocaleString('en-US', { maximumFractionDigits: 2 })}{' '}
+                      <Text style={{ color: usdPct >= 0 ? '#2DA44E' : '#E5383B' }}>
+                        ({usdPct >= 0 ? '+' : ''}
+                        {usdPct.toFixed(1)}%)
+                      </Text>
+                      {item.investRate && item.usdInr ? ` · ₹${item.investRate}/$ then, ₹${item.usdInr}/$ now` : ''}
+                    </Text>
+                  );
+                })()}
+
                 {hasSip(item) ? (
                   <TouchableOpacity
                     style={[styles.sipRow, { borderTopColor: theme.borderNeutral }]}
@@ -919,6 +978,7 @@ export default function InvestmentsScreen() {
                         style={[styles.segmentItem, market === m.key && { backgroundColor: theme.sheet }]}
                         onPress={() => {
                           if (m.key === market) return;
+                          if (m.key === 'US') ensureFxRate();
                           setMarket(m.key);
                           unlinkStock();
                           setResults([]);
@@ -1063,10 +1123,32 @@ export default function InvestmentsScreen() {
                 </View>
               ) : null}
 
+              {category === 'Stocks' && market === 'US' ? (
+                <View style={[styles.segment, { backgroundColor: theme.surfaceAlt }]}>
+                  {[
+                    { key: true, label: 'Amounts in $' },
+                    { key: false, label: 'Amounts in ₹' },
+                  ].map((opt) => (
+                    <TouchableOpacity
+                      key={String(opt.key)}
+                      style={[styles.segmentItem, inUsd === opt.key && { backgroundColor: theme.sheet }]}
+                      onPress={() => {
+                        if (opt.key === inUsd) return;
+                        setInUsd(opt.key);
+                        setInvested('');
+                        setCurrent('');
+                        if (opt.key) ensureFxRate();
+                      }}
+                    >
+                      <Text style={[styles.segmentText, { color: theme.text }]}>{opt.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : null}
               <View style={styles.amountRow}>
                 <TextInput
                   style={[styles.input, styles.smallInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-                  placeholder="Amount invested (₹)"
+                  placeholder={usdMode ? 'Amount invested ($)' : 'Amount invested (₹)'}
                   placeholderTextColor={theme.textMuted}
                   keyboardType="decimal-pad"
                   value={invested}
@@ -1075,7 +1157,7 @@ export default function InvestmentsScreen() {
                 {manualCurrent ? (
                   <TextInput
                     style={[styles.input, styles.smallInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-                    placeholder={CURRENT_LABELS[category] || 'Current value (₹)'}
+                    placeholder={usdMode ? 'Current value ($)' : CURRENT_LABELS[category] || 'Current value (₹)'}
                     placeholderTextColor={theme.textMuted}
                     keyboardType="decimal-pad"
                     value={current}
@@ -1083,6 +1165,26 @@ export default function InvestmentsScreen() {
                   />
                 ) : null}
               </View>
+              {usdMode ? (
+                <>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                    placeholder="₹ per $ when you invested (e.g. 83.5)"
+                    placeholderTextColor={theme.textMuted}
+                    keyboardType="decimal-pad"
+                    value={investRate}
+                    onChangeText={setInvestRate}
+                  />
+                  <Text style={[styles.formHint, { color: theme.textMuted }]}>
+                    {investedInr > 0 ? `$${toNum(invested)} invested = ${money(investedInr)} at ₹${investRateNum}/$.` : 'Enter the dollars invested and the rate you paid.'}
+                    {manualCurrent && manualCurrentInr > 0
+                      ? ` Now $${toNum(current)} = ${money(manualCurrentInr)} at today’s ₹${fxRate}/$.`
+                      : manualCurrent && !(fxRate > 0)
+                        ? ' Today’s dollar rate isn’t available right now (it comes from your server).'
+                        : ''}
+                  </Text>
+                </>
+              ) : null}
               {!manualCurrent ? (
                 <View style={[styles.autoValue, { borderColor: theme.borderNeutral }]}>
                   <Text style={[styles.amountLabel, { color: theme.textMuted }]}>Current value</Text>
@@ -1444,6 +1546,7 @@ const styles = StyleSheet.create({
   segment: { flexDirection: 'row', borderRadius: 12, padding: 3, marginBottom: 12 },
   segmentItem: { flex: 1, paddingVertical: 8, paddingHorizontal: 4, borderRadius: 10, alignItems: 'center' },
   segmentText: { fontSize: 12, fontWeight: '600' },
+  usdLine: { fontSize: 12, marginTop: 8 },
   sipRow: { flexDirection: 'row', alignItems: 'center', gap: 6, borderTopWidth: 1, marginTop: 10, paddingTop: 8 },
   sipText: { flex: 1, fontSize: 12, fontWeight: '600' },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
