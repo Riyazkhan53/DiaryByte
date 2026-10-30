@@ -1,0 +1,4 @@
+{
+  "//": "Lets the server (Node) load these files as ES modules; the app's bundler ignores it.",
+  "type": "module"
+}

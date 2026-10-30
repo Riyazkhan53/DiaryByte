@@ -7,7 +7,9 @@ const {
   sanitize,
   toItem,
 } = require('./models');
-const { getQuotes, getCandles, searchSymbols } = require('./quotes');
+const { getQuotes, getCandles, searchSymbols, isSymbol } = require('./quotes');
+const engineService = require('./engine/service');
+const { kiteConfigured, kiteCreateSession, kiteLoginUrl } = require('./engine/providers');
 
 async function connectDatabase() {
   let uri = process.env.MONGODB_URI;
@@ -37,6 +39,24 @@ function createApp() {
 
   app.use(cors());
   app.use(express.json({ limit: '25mb' }));
+
+  // Kite Connect redirects the browser here after login (no API key header
+  // on a redirect, so this sits outside /api). Set it as the redirect URL
+  // in the Kite developer console: https://<server>/kite/callback
+  app.get('/kite/callback', async (req, res) => {
+    const page = (msg) =>
+      `<!doctype html><meta name="viewport" content="width=device-width"><body style="font-family:system-ui;padding:24px"><p>${msg}</p></body>`;
+    if (req.query.status !== 'success' || typeof req.query.request_token !== 'string') {
+      return res.status(400).send(page('Kite login was cancelled or failed.'));
+    }
+    try {
+      await kiteCreateSession(req.query.request_token);
+      res.send(page('Kite connected for today. You can close this tab and go back to DiaryByte.'));
+    } catch (error) {
+      console.error('[kite] session failed', error.message);
+      res.status(502).send(page('Kite login failed. Try again from My Trading.'));
+    }
+  });
 
   // Simple shared-secret auth for this personal app
   const apiKey = process.env.API_KEY;
@@ -99,6 +119,42 @@ function createApp() {
       console.error('[api] GET /api/quotes failed', error.message);
       res.status(502).json({ error: 'Stock prices unavailable' });
     }
+  });
+
+  // ------- intraday signal engine (decision support, paper trading only) -------
+
+  app.get('/api/engine/status', async (req, res) => {
+    try {
+      res.json(await engineService.status());
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Live evaluation of one symbol. GET /api/engine/evaluate?symbol=DLF.NS
+  app.get('/api/engine/evaluate', async (req, res) => {
+    const symbol = String(req.query.symbol || '').toUpperCase();
+    if (!isSymbol(symbol)) return res.status(400).json({ error: 'Bad symbol' });
+    try {
+      res.json(await engineService.evaluate(symbol));
+    } catch (error) {
+      console.error('[api] engine evaluate failed', error.message);
+      res.status(502).json({ error: `Could not evaluate ${symbol}: ${error.message}` });
+    }
+  });
+
+  // Run the watchlist scan now (it also runs every 5 minutes in session).
+  app.post('/api/engine/scan', async (req, res) => {
+    try {
+      res.json(await engineService.scan());
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/kite/login-url', (req, res) => {
+    if (!kiteConfigured()) return res.status(400).json({ error: 'KITE_API_KEY and KITE_API_SECRET are not set on the server' });
+    res.json({ url: kiteLoginUrl() });
   });
 
   // Daily price history for the Setup Check. GET /api/candles?symbol=TCS.NS
@@ -260,6 +316,7 @@ if (require.main === module) {
       app.listen(PORT, () => {
         console.log(`[api] DiaryByte API listening on port ${PORT}`);
       });
+      engineService.startScanner();
     })
     .catch((error) => {
       console.error('[api] Failed to start', error);

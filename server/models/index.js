@@ -196,6 +196,38 @@ const COLLECTIONS = {
       'createdAt',
     ],
   },
+  // Intraday engine settings, saved from the app (one document).
+  tradingconfig: {
+    fields: [
+      'id',
+      'capital',
+      'riskPct',
+      'dailyLossPct',
+      'maxOpenPositions',
+      'atrMultiple',
+      'rewardRisk',
+      'slippagePct',
+      'threshold',
+      'maxDelayMin',
+      'breakoutLookback',
+      'allowShort',
+      'watchlist',
+      'scannerOn',
+      'autoPaper',
+      'updatedAt',
+    ],
+  },
+  // Written by the server's scanner; the app only reads these.
+  signals: {
+    fields: ['id', 'symbol', 'key', 'state', 'side', 'score', 'ruleVersion', 'provider', 'dataStatus', 'dataAgeMin', 'candleTime', 'indicators', 'gates', 'plan', 'createdAt'],
+  },
+  enginetrades: {
+    fields: [
+      'id', 'symbol', 'side', 'signalKey', 'signalTime', 'plan', 'score', 'ruleVersion', 'provider', 'indicators',
+      'status', 'entryTime', 'entryPrice', 'stop', 'target', 'quantity', 'exitTime', 'exitPrice', 'exitReason',
+      'grossPnl', 'costs', 'netPnl', 'r', 'createdAt', 'updatedAt',
+    ],
+  },
   // Paper trades: practice positions, open or closed with a review.
   trades: {
     fields: [

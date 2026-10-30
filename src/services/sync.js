@@ -22,6 +22,7 @@ export const SYNCED_COLLECTIONS = [
   { collection: 'spends', storageKey: '@diarybyte_spends' },
   { collection: 'setups', storageKey: '@diarybyte_setups' },
   { collection: 'trades', storageKey: '@diarybyte_trades' },
+  { collection: 'tradingconfig', storageKey: '@diarybyte_tradingconfig' },
 ];
 
 // ------- in-app change events -------

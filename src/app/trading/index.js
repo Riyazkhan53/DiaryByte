@@ -5,6 +5,8 @@ import SetupCheck from '../../components/trading/SetupCheck';
 import OpenTrades from '../../components/trading/OpenTrades';
 import CompletedTrades from '../../components/trading/CompletedTrades';
 import TradeForm from '../../components/trading/TradeForm';
+import Signals from '../../components/trading/Signals';
+import { DEFAULT_CONFIG } from '../../engine/risk.js';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 
@@ -22,6 +24,8 @@ export default function TradingScreen() {
     'trades',
     TRADES_KEY
   );
+  const { items: configDocs } = useSyncedCollection('tradingconfig', '@diarybyte_tradingconfig');
+  const config = { ...DEFAULT_CONFIG, ...(configDocs[0] || {}) };
   const [tab, setTab] = useState('setup');
   // Trade form: `initial` is a trade to edit, a draft, or null; the key resets it.
   const [form, setForm] = useState({ visible: false, initial: null, key: 0 });
@@ -29,9 +33,10 @@ export default function TradingScreen() {
   const openCount = trades.filter((t) => t.status !== 'closed').length;
   const closedCount = trades.length - openCount;
   const tabs = [
-    { key: 'setup', label: 'Setup Check' },
+    { key: 'setup', label: 'Setup' },
+    { key: 'signals', label: 'Signals' },
     { key: 'open', label: `Open${openCount ? ` (${openCount})` : ''}` },
-    { key: 'completed', label: `Completed${closedCount ? ` (${closedCount})` : ''}` },
+    { key: 'completed', label: `Done${closedCount ? ` (${closedCount})` : ''}` },
   ];
 
   const showForm = (initial) => setForm((f) => ({ visible: true, initial, key: f.key + 1 }));
@@ -51,6 +56,12 @@ export default function TradingScreen() {
       setupBullPct: check.bullPct,
       setupBearPct: check.bearPct,
     });
+  };
+
+  // "Paper trade this plan myself" from Signals: the engine's plan, prefilled.
+  const tradeFromSignal = (draft) => {
+    setTab('open');
+    showForm(draft);
   };
 
   const saveTrade = (trade) => {
@@ -85,10 +96,12 @@ export default function TradingScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
-      <Header title="My Trading" subtitle="Setup checks and paper trades" />
+      <Header title="My Trading" subtitle="Setup checks, intraday signals and paper trades" />
 
       {tab === 'setup' ? (
         <SetupCheck header={tabBar} onPaperTrade={tradeFromCheck} />
+      ) : tab === 'signals' ? (
+        <Signals header={tabBar} onPaperTrade={tradeFromSignal} />
       ) : tab === 'open' ? (
         <OpenTrades
           header={tabBar}
@@ -97,12 +110,20 @@ export default function TradingScreen() {
           sync={sync}
           onNew={() => showForm(null)}
           onEdit={showForm}
+          config={config}
         />
       ) : (
         <CompletedTrades header={tabBar} trades={trades} persist={persist} sync={sync} />
       )}
 
-      <TradeForm key={form.key} visible={form.visible} initial={form.initial} onSave={saveTrade} onClose={hideForm} />
+      <TradeForm
+        key={form.key}
+        visible={form.visible}
+        initial={form.initial}
+        onSave={saveTrade}
+        onClose={hideForm}
+        config={config}
+      />
     </SafeAreaView>
   );
 }

@@ -118,6 +118,8 @@ export default function CompletedTrades({ header, trades, persist, sync }) {
                 />
                 <Stat label="Won / lost" value={`${stats.wins} / ${stats.losses}`} />
                 {hasIn ? <Stat label="Net P/L (₹)" value={formatPnl(stats.net.INR, 'IN')} color={pnlColor(stats.net.INR)} /> : null}
+                {hasIn ? <Stat label="Est. charges (₹)" value={formatMoney(stats.costsINR, 'IN')} /> : null}
+                {hasIn ? <Stat label="Net after charges" value={formatPnl(stats.netAfterCostsINR, 'IN')} color={pnlColor(stats.netAfterCostsINR)} /> : null}
                 {hasUs ? <Stat label="Net P/L ($)" value={formatPnl(stats.net.USD, 'US')} color={pnlColor(stats.net.USD)} /> : null}
                 <Stat label="Avg win" value={formatPct(stats.avgWinPct)} color={PROFIT} />
                 <Stat label="Avg loss" value={formatPct(stats.avgLossPct)} color={LOSS} />
@@ -148,7 +150,8 @@ export default function CompletedTrades({ header, trades, persist, sync }) {
               ) : null}
               <Text style={[styles.hint, { color: theme.textMuted }]}>
                 R is the result in multiples of what you risked (entry to stop-loss): +2R made twice
-                the risk, −1R lost it. Profit factor is total won ÷ total lost.
+                the risk, −1R lost it. Profit factor is total won ÷ total lost. Charges are estimated for
+                intraday NSE trades; check your broker&apos;s contract note.
               </Text>
             </View>
 
