@@ -62,6 +62,17 @@ const CHECK_LABEL = {
   shortAllowed: 'Shorts allowed',
 };
 
+// A 404 means the server answered but predates the signal engine.
+const OUTDATED =
+  'Your server is running an older version without the signal engine. Redeploy it on Render (diarybyte-api → Manual Deploy → Deploy latest commit).';
+
+const problemText = (e) =>
+  e?.status === 404
+    ? OUTDATED
+    : e?.status
+      ? `The server could not answer (${e.status}). Try again in a minute.`
+      : "Couldn't reach your server. It may be waking up; try again in a minute.";
+
 const timeOf = (iso) =>
   iso ? new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '—';
 
@@ -99,6 +110,8 @@ export default function Signals({ header, onPaperTrade }) {
   const watchlist = configDoc?.watchlist || [];
 
   const [status, setStatus] = useState(null);
+  // 'outdated' (server too old for signals) or 'offline'
+  const [statusProblem, setStatusProblem] = useState(null);
   const [selected, setSelected] = useState(null);
   const [evaluation, setEvaluation] = useState(null);
   const [ledger, setLedger] = useState({ trades: [], signals: [] });
@@ -125,8 +138,16 @@ export default function Signals({ header, onPaperTrade }) {
     let cancelled = false;
     const load = () => {
       fetchEngineStatus()
-        .then((s) => !cancelled && setStatus(s))
-        .catch(() => !cancelled && setStatus(null));
+        .then((s) => {
+          if (cancelled) return;
+          setStatus(s);
+          setStatusProblem(null);
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          setStatus(null);
+          setStatusProblem(e?.status === 404 ? 'outdated' : 'offline');
+        });
       Promise.all([fetchCollection('enginetrades'), fetchCollection('signals')])
         .then(([trades, signals]) => !cancelled && setLedger({ trades, signals }))
         .catch(() => {});
@@ -138,7 +159,7 @@ export default function Signals({ header, onPaperTrade }) {
           setEvaluation(r);
           setError(null);
         })
-        .catch((e) => !cancelled && setError(e.message))
+        .catch((e) => !cancelled && setError(problemText(e)))
         .finally(() => !cancelled && setLoading(false));
     };
     load();
@@ -254,7 +275,11 @@ export default function Signals({ header, onPaperTrade }) {
               NSE {status ? (status.marketOpen ? 'open' : 'closed') : '—'}
             </Text>
             <Text style={[styles.stripText, styles.flex, { color: theme.textSecondary }]} numberOfLines={1}>
-              {status ? status.provider.label : 'Server not reachable'}
+              {status
+                ? status.provider.label
+                : statusProblem === 'outdated'
+                  ? 'Server needs an update'
+                  : 'Server not reachable'}
             </Text>
             <TouchableOpacity onPress={openSettings} accessibilityLabel="Signal settings" style={styles.iconBtn}>
               <Ionicons name="settings-outline" size={19} color={theme.primary} />
@@ -272,6 +297,11 @@ export default function Signals({ header, onPaperTrade }) {
               Scanner {status.scanner.enabled ? 'on' : 'off'}
               {status.scanner.lastScanAt ? ` · last scan ${timeOf(status.scanner.lastScanAt)}` : ' · no scan yet since the server started'}
               {status.scanner.lastError ? ` · last error: ${status.scanner.lastError}` : ''}
+            </Text>
+          ) : null}
+          {!status && statusProblem ? (
+            <Text style={[styles.stripSub, { color: statusProblem === 'outdated' ? '#FF9500' : theme.textMuted }]}>
+              {statusProblem === 'outdated' ? OUTDATED : problemText(null)}
             </Text>
           ) : null}
           {status?.provider.note ? (
