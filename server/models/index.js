@@ -196,6 +196,34 @@ const COLLECTIONS = {
       'createdAt',
     ],
   },
+  // Paper trades: practice positions, open or closed with a review.
+  trades: {
+    fields: [
+      'id',
+      'symbol',
+      'name',
+      'market',
+      'side',
+      'entryPrice',
+      'quantity',
+      'stopLoss',
+      'target',
+      'entryDate',
+      'plan',
+      'setupId',
+      'setupSignal',
+      'setupBullPct',
+      'setupBearPct',
+      'status',
+      'exitPrice',
+      'exitDate',
+      'exitReason',
+      'followedPlan',
+      'review',
+      'createdAt',
+      'updatedAt',
+    ],
+  },
   // Total Spend: what was spent in a month and what it was paid from.
   // source: card | cred | icici | canara | jupiter | cash | other
   spends: {

@@ -28,6 +28,7 @@ const SECTION_LABELS = {
   months: 'Income',
   spends: 'Total spend',
   setups: 'Setup checks',
+  trades: 'Paper trades',
   investments: 'Investments',
   debts: 'Debts',
   autopays: 'Autopays',

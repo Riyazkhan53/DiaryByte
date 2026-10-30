@@ -1,6 +1,6 @@
 /**
  * setupScore.js — stock setup confluence scoring (framework-agnostic).
- * Used by the Setup Check screen (src/app/setup-check.js).
+ * Used by the Setup Check section of My Trading (src/components/trading/SetupCheck.js).
  *
  * Usage:
  *   import { scoreSetup } from './setupScore.js';

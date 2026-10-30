@@ -18,6 +18,7 @@ const COLLECTIONS = [
   'months',
   'spends',
   'setups',
+  'trades',
 ];
 
 async function request(path, options = {}) {

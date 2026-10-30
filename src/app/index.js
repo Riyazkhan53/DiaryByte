@@ -79,11 +79,11 @@ const TABS = [
     gradient: ['#4FD8C8', '#00A99D'],
   },
   {
-    key: 'setup',
-    label: 'Setup Check',
-    description: 'Score a stock setup on 7 indicators',
+    key: 'trading',
+    label: 'My Trading',
+    description: 'Setup checks and paper trades',
     icon: 'pulse-outline',
-    route: '/setup-check',
+    route: '/trading',
     gradient: ['#FF8A65', '#E5383B'],
   },
   {
