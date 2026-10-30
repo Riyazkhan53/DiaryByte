@@ -15,8 +15,11 @@ const HEADERS = {
   Accept: 'application/json',
 };
 
+const CANDLES_CACHE_MS = 15 * 60 * 1000;
+
 const quoteCache = new Map();
 const searchCache = new Map();
+const candlesCache = new Map();
 
 // Symbols look like TCS.NS, 500325.BO, AAPL, BRK-B or USDINR=X.
 const isSymbol = (s) => typeof s === 'string' && /^[A-Z0-9.\-=^&]{1,20}$/i.test(s);
@@ -74,6 +77,40 @@ async function getQuotes(symbols) {
   return { quotes, usdInr };
 }
 
+/**
+ * About six months of daily candles for one symbol, oldest first:
+ * { symbol, name, currency, candles: [{ t, open, high, low, close, volume }] }.
+ * Enough for EMA 50, RSI 14, MACD and 20-day volume and swing levels.
+ */
+async function getCandles(symbol) {
+  if (!isSymbol(symbol)) throw new Error('Bad symbol');
+  const key = symbol.toUpperCase();
+  const cached = candlesCache.get(key);
+  if (cached && Date.now() - cached.at < CANDLES_CACHE_MS) return cached.data;
+  const body = await getJson(`${CHART_URL}${encodeURIComponent(key)}?range=6mo&interval=1d`);
+  const result = body?.chart?.result?.[0];
+  const q = result?.indicators?.quote?.[0] || {};
+  const candles = (result?.timestamp || [])
+    .map((t, i) => ({
+      t: new Date(t * 1000).toISOString(),
+      open: q.open?.[i],
+      high: q.high?.[i],
+      low: q.low?.[i],
+      close: q.close?.[i],
+      volume: q.volume?.[i],
+    }))
+    .filter((c) => c.close > 0);
+  if (!candles.length) throw new Error('No price history');
+  const data = {
+    symbol: key,
+    name: result.meta?.longName || result.meta?.shortName || null,
+    currency: result.meta?.currency || null,
+    candles,
+  };
+  candlesCache.set(key, { at: Date.now(), data });
+  return data;
+}
+
 const US_EXCHANGES = new Set(['NMS', 'NGM', 'NCM', 'NYQ', 'ASE', 'PCX', 'BTS', 'NAS', 'NYS', 'CBOE']);
 
 /** Stocks/ETFs matching `query` in one market: [{ symbol, name, exchange }]. */
@@ -105,4 +142,4 @@ async function searchSymbols(query, market) {
   return results;
 }
 
-module.exports = { getQuotes, searchSymbols, isSymbol };
+module.exports = { getQuotes, getCandles, searchSymbols, isSymbol };

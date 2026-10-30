@@ -17,6 +17,8 @@ const COLLECTIONS = [
   'dates',
   'months',
   'spends',
+  'setups',
+  'trades',
 ];
 
 async function request(path, options = {}) {
@@ -83,6 +85,11 @@ export function fetchStockQuotes(symbols) {
 // Find a stock in a market ('IN' or 'US'): { results: [{ symbol, name, exchange }] }.
 export function searchStockSymbols(query, market) {
   return request(`/api/stock-search?q=${encodeURIComponent(query)}&market=${market}`);
+}
+
+// About six months of daily candles: { symbol, name, currency, candles }.
+export function fetchCandles(symbol) {
+  return request(`/api/candles?symbol=${encodeURIComponent(symbol)}`);
 }
 
 export function fetchTrash(collection) {
