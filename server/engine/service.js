@@ -101,7 +101,16 @@ async function updateOpenTrades() {
     try {
       const candles = E.normalizeCandles(await provider.getCandles(t.symbol, 5));
       const done = E.completedCandles(candles, 5, Date.now());
-      const sim = E.simulateTrade(t.plan, done, t.signalTime, cfg);
+      let sim = E.simulateTrade(t.plan, done, t.signalTime, cfg);
+      // A candle touched both stop and target: settle it on 1-minute candles.
+      if (sim.resolvedBy === 'conservative') {
+        try {
+          const fine = E.completedCandles(E.normalizeCandles(await provider.getCandles(t.symbol, 1)), 1, Date.now());
+          sim = E.simulateTrade(t.plan, done, t.signalTime, cfg, { fine });
+        } catch (_error) {
+          // Keep the conservative result (stop first).
+        }
+      }
       if (sim.status !== t.status || sim.exitPrice !== t.exitPrice) {
         await Trades.updateOne({ id: t.id }, { $set: { ...sim, updatedAt: new Date().toISOString() } });
         changed += 1;
@@ -113,7 +122,66 @@ async function updateOpenTrades() {
   return changed;
 }
 
-/** One scan: evaluate the watchlist, log candidates, open paper trades. */
+/**
+ * Save an evaluation to the signal history (tradingsignals), keyed by
+ * symbol and candle so repeated scans can't duplicate it. Only in-session
+ * evaluations of a completed candle are kept. Returns true when this call
+ * created the record.
+ */
+async function logSignal(r, tradeId) {
+  if (!r.candle || !r.data.marketOpen) return false;
+  const id = `${r.symbol}:${r.candle.t}`;
+  const record = {
+    id,
+    symbol: r.symbol,
+    timeframe: '5m',
+    candleTime: r.candle.t,
+    key: r.key,
+    state: r.state,
+    side: r.side,
+    score: r.score,
+    rawScore: r.rawScore,
+    threshold: r.threshold,
+    failedConditions: r.failedConditions,
+    nextAction: r.nextAction,
+    ruleVersion: r.ruleVersion,
+    provider: r.provider.id,
+    dataStatus: r.data.status,
+    indicators: r.indicators,
+    plan: r.state === 'BUY CANDIDATE' || r.state === 'SELL CANDIDATE' ? r.plan : null,
+    tradeId,
+    createdAt: new Date().toISOString(),
+    loggedAt: new Date(),
+  };
+  const res = await getModel('tradingsignals').updateOne({ id }, { $setOnInsert: record }, { upsert: true });
+  return (res?.upsertedCount ?? 0) > 0;
+}
+
+const HISTORY_STATES = ['BUY CANDIDATE', 'SELL CANDIDATE', 'WAIT', 'NEUTRAL', 'NO TRADE'];
+
+/**
+ * Signal history, newest first, with the paper trade of each candidate.
+ * Filters: symbol, state, days (back from now), timeframe. Up to `limit`.
+ */
+async function history({ symbol, state: wanted, days, timeframe, limit = 500 } = {}) {
+  const filter = {};
+  if (symbol) filter.symbol = symbol;
+  if (HISTORY_STATES.includes(wanted)) filter.state = wanted;
+  if (timeframe) filter.timeframe = timeframe;
+  if (days > 0) filter.candleTime = { $gte: Date.now() - days * 86400000 };
+  const signals = await getModel('tradingsignals')
+    .find(filter)
+    .sort({ candleTime: -1 })
+    .limit(Math.min(Math.max(1, limit), 2000))
+    .lean();
+  const tradeFilter = { signalTime: filter.candleTime || { $gte: 0 } };
+  if (symbol) tradeFilter.symbol = symbol;
+  const trades = await getModel('enginetrades').find(tradeFilter).lean();
+  const strip = ({ _id, __v, loggedAt, ...rest }) => rest;
+  return { signals: signals.map(strip), trades: trades.map(strip) };
+}
+
+/** One scan: evaluate the watchlist, log every decision, open paper trades. */
 async function scan() {
   if (state.scanning) return { skipped: true };
   state.scanning = true;
@@ -127,30 +195,14 @@ async function scan() {
         const r = await evaluate(symbol, { config: cfg, context: ctx });
         results.push({ symbol, state: r.state, score: r.score, failedConditions: r.failedConditions, nextAction: r.nextAction });
         const candidate = r.state === 'BUY CANDIDATE' || r.state === 'SELL CANDIDATE';
-        if (!candidate) continue;
-        const snapshot = {
-          id: newId(),
-          symbol,
-          key: r.key,
-          state: r.state,
-          side: r.side,
-          score: r.score,
-          rawScore: r.rawScore,
-          penalties: r.penalties,
-          ruleVersion: r.ruleVersion,
-          provider: r.provider.id,
-          dataStatus: r.data.status,
-          dataAgeMin: r.data.ageMin,
-          candleTime: r.candle.t,
-          indicators: r.indicators,
-          gates: r.gates[r.side],
-          plan: r.plan,
-          createdAt: new Date().toISOString(),
-        };
-        await getModel('signals').create(snapshot);
-        if (cfg.autoPaper) {
+        const tradeId = candidate && cfg.autoPaper ? newId() : null;
+        // One history record per symbol and completed candle, whatever the
+        // decision. The first scan of a candle wins; later ones change nothing.
+        const logged = await logSignal(r, tradeId);
+        if (!candidate || !logged) continue;
+        if (tradeId) {
           await getModel('enginetrades').create({
-            id: newId(),
+            id: tradeId,
             symbol,
             side: r.side,
             signalKey: r.key,
@@ -224,4 +276,4 @@ async function status() {
   };
 }
 
-module.exports = { evaluate, scan, startScanner, status, updateOpenTrades, getConfig };
+module.exports = { evaluate, scan, startScanner, status, updateOpenTrades, getConfig, history };

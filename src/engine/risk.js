@@ -27,6 +27,7 @@ export const DEFAULT_CONFIG = {
   threshold: 65, // score needed for a candidate
   maxDelayMin: 20, // data older than this (during the session) is stale
   breakoutLookback: 12, // 5-minute candles = 1 hour
+  maxHoldMin: 0, // paper trades exit after this many minutes (0 = hold until 15:20)
   allowShort: true, // intraday shorts (MIS) only
   charges: DEFAULT_CHARGES,
 };

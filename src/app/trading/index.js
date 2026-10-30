@@ -6,6 +6,7 @@ import OpenTrades from '../../components/trading/OpenTrades';
 import CompletedTrades from '../../components/trading/CompletedTrades';
 import TradeForm from '../../components/trading/TradeForm';
 import Signals from '../../components/trading/Signals';
+import History from '../../components/trading/History';
 import { DEFAULT_CONFIG } from '../../engine/risk.js';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
@@ -15,8 +16,8 @@ const TRADES_KEY = '@diarybyte_trades';
 const makeId = () => `${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`;
 
 /**
- * My Trading: Setup Check, open paper trades and completed ones to review,
- * under one tab.
+ * My Trading: Setup Check, intraday signals, signal history with paper
+ * performance, open paper trades and completed ones to review, under one tab.
  */
 export default function TradingScreen() {
   const { theme } = useTheme();
@@ -35,6 +36,7 @@ export default function TradingScreen() {
   const tabs = [
     { key: 'setup', label: 'Setup' },
     { key: 'signals', label: 'Signals' },
+    { key: 'history', label: 'History' },
     { key: 'open', label: `Open${openCount ? ` (${openCount})` : ''}` },
     { key: 'completed', label: `Done${closedCount ? ` (${closedCount})` : ''}` },
   ];
@@ -102,6 +104,8 @@ export default function TradingScreen() {
         <SetupCheck header={tabBar} onPaperTrade={tradeFromCheck} />
       ) : tab === 'signals' ? (
         <Signals header={tabBar} onPaperTrade={tradeFromSignal} />
+      ) : tab === 'history' ? (
+        <History header={tabBar} watchlist={config.watchlist || []} />
       ) : tab === 'open' ? (
         <OpenTrades
           header={tabBar}
@@ -133,5 +137,5 @@ const styles = StyleSheet.create({
   tabs: { flexDirection: 'row', borderRadius: 12, padding: 3, marginBottom: 12 },
   tab: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center' },
   tabSelected: { shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.12, shadowRadius: 3, elevation: 2 },
-  tabText: { fontSize: 13, fontWeight: '600' },
+  tabText: { fontSize: 12, fontWeight: '600' },
 });

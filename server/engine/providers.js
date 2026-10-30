@@ -137,11 +137,12 @@ function istString(ms) {
 
 async function kiteCandles(symbol, intervalMin) {
   const token = await instrumentToken(symbol);
-  const days = intervalMin <= 5 ? 6 : 25;
+  const days = intervalMin === 1 ? 3 : intervalMin <= 5 ? 6 : 25;
   const from = istString(Date.now() - days * 86400000);
   const to = istString(Date.now());
   const body = await kiteGet(
-    `/instruments/historical/${token}/${intervalMin}minute?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+    // Kite names the 1-minute interval "minute", the rest "5minute" etc.
+    `/instruments/historical/${token}/${intervalMin === 1 ? '' : intervalMin}minute?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
   );
   return (body?.data?.candles || []).map(([ts, open, high, low, close, volume]) => ({
     // '2026-10-29T09:15:00+0530' → '+05:30' so every JS engine parses it.

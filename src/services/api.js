@@ -113,6 +113,16 @@ export function runEngineScan() {
   return request('/api/engine/scan', { method: 'POST' });
 }
 
+// Logged signals (newest first) and their paper trades: { signals, trades }.
+// Filters: { symbol, state, days, timeframe }.
+export function fetchSignalHistory(filters = {}) {
+  const query = Object.entries(filters)
+    .filter(([, v]) => v != null && v !== '')
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+    .join('&');
+  return request(`/api/engine/history${query ? `?${query}` : ''}`);
+}
+
 export function fetchKiteLoginUrl() {
   return request('/api/kite/login-url');
 }
