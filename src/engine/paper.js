@@ -1,7 +1,10 @@
 // Paper-trade simulation on candles, with conservative fill rules:
 // - entry at the NEXT candle's open after the signal candle (never at the
 //   signal candle's close), plus slippage;
-// - a candle that touches both stop and target counts as the stop;
+// - a candle that touches both stop and target is settled on 1-minute
+//   candles when given (`fine`); without them, or if a 1-minute candle
+//   also touches both, it counts as the stop;
+// - an optional maximum holding time exits at the next candle's open;
 // - a gap through the stop fills at the open (worse than the stop);
 // - open positions are squared off at 15:20 IST (intraday);
 // - estimated charges come off the gross P/L.
@@ -12,14 +15,35 @@ import { istMinutes, istParts } from './time.js';
 const round2 = (n) => Math.round(n * 100) / 100;
 const SQUARE_OFF = istMinutes('15:20');
 
+const STEP_5M = 5 * 60000;
+
+/**
+ * Which level a 5-minute candle that touched both reached first, from the
+ * 1-minute candles inside it: 'stop', 'target', or null when they don't
+ * cover it or one of them touched both too.
+ */
+function firstTouched(fine, start, d, stop, target) {
+  const inside = (fine || []).filter((m) => m.t >= start && m.t < start + STEP_5M).sort((a, b) => a.t - b.t);
+  for (const m of inside) {
+    const s = d > 0 ? m.low <= stop : m.high >= stop;
+    const t = d > 0 ? m.high >= target : m.low <= target;
+    if (s && t) return null;
+    if (s) return 'stop';
+    if (t) return 'target';
+  }
+  return null;
+}
+
 /**
  * Simulate `plan` (from planTrade, with signalTime = the signal candle's
- * start) over the candles after it. Returns the trade so far:
- * { status: 'pending' | 'open' | 'closed', entryTime, entryPrice, exitTime,
- *   exitPrice, exitReason: 'stop' | 'target' | 'eod', grossPnl, costs,
- *   netPnl, r }.
+ * start) over the 5-minute candles after it. `fine`: optional 1-minute
+ * candles to settle candles that touched both levels. Returns the trade so
+ * far: { status: 'pending' | 'open' | 'closed', entryTime, entryPrice,
+ *   exitTime, exitPrice, exitReason: 'stop' | 'target' | 'eod' | 'time',
+ *   grossPnl, costs, netPnl, r, bothTouched?, resolvedBy?: '1m' |
+ *   'conservative' }.
  */
-export function simulateTrade(plan, candles, signalTime, config = DEFAULT_CONFIG) {
+export function simulateTrade(plan, candles, signalTime, config = DEFAULT_CONFIG, { fine } = {}) {
   const slipPct = (config.slippagePct ?? DEFAULT_CONFIG.slippagePct) / 100;
   const d = plan.side === 'short' ? -1 : 1;
   const after = candles.filter((c) => c.t > signalTime);
@@ -55,6 +79,7 @@ export function simulateTrade(plan, candles, signalTime, config = DEFAULT_CONFIG
     };
   };
 
+  const maxHoldMs = (config.maxHoldMin ?? DEFAULT_CONFIG.maxHoldMin) * 60000;
   for (let i = 0; i < after.length; i += 1) {
     const c = after[i];
     const { dateKey, minutes } = istParts(c.t);
@@ -62,8 +87,20 @@ export function simulateTrade(plan, candles, signalTime, config = DEFAULT_CONFIG
       // Square off at the open of the first candle at/after 15:20 (or next day's open).
       return close(c.t, c.open, 'eod');
     }
+    if (maxHoldMs > 0 && c.t - entryCandle.t >= maxHoldMs) return close(c.t, c.open, 'time');
     const hitStop = d > 0 ? c.low <= stop : c.high >= stop;
     const hitTarget = d > 0 ? c.high >= target : c.low <= target;
+    if (hitStop && hitTarget) {
+      const gapped = d > 0 ? c.open < stop : c.open > stop;
+      const gappedTarget = d > 0 ? c.open > target : c.open < target;
+      // An open beyond either level settles it without finer data.
+      if (gapped) return { ...close(c.t, c.open, 'stop'), bothTouched: true, resolvedBy: 'open' };
+      if (gappedTarget) return { ...close(c.t, c.open, 'target'), bothTouched: true, resolvedBy: 'open' };
+      const first = firstTouched(fine, c.t, d, stop, target);
+      return first === 'target'
+        ? { ...close(c.t, target, 'target'), bothTouched: true, resolvedBy: '1m' }
+        : { ...close(c.t, stop, 'stop'), bothTouched: true, resolvedBy: first ? '1m' : 'conservative' };
+    }
     if (hitStop) {
       const gapped = d > 0 ? c.open < stop : c.open > stop;
       return close(c.t, gapped ? c.open : stop, 'stop');

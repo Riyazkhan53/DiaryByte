@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 import { DEFAULT_CONFIG, MIN_REWARD_RISK } from '../../engine/risk.js';
+import { maxDrawdown } from '../../engine/stats.js';
 import { searchStocks } from '../../services/stocks';
 import {
   evaluateSymbol,
@@ -49,6 +50,7 @@ const SETTINGS = [
   { key: 'slippagePct', label: 'Slippage per fill (%)' },
   { key: 'threshold', label: 'Score needed (of 100)' },
   { key: 'maxDelayMin', label: 'Stale after (minutes)' },
+  { key: 'maxHoldMin', label: 'Max hold, minutes (0 = till 15:20)', min: 0, integer: true },
 ];
 
 const CHECK_LABEL = {
@@ -80,21 +82,6 @@ const problemText = (e) =>
 const timeOf = (iso) =>
   iso ? new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '—';
 
-/** Drawdown: the largest fall of cumulative net P/L from a previous high. */
-function maxDrawdown(closed) {
-  let peak = 0;
-  let equity = 0;
-  let worst = 0;
-  [...closed]
-    .sort((a, b) => (a.exitTime || 0) - (b.exitTime || 0))
-    .forEach((t) => {
-      equity += t.netPnl || 0;
-      peak = Math.max(peak, equity);
-      worst = Math.min(worst, equity - peak);
-    });
-  return worst;
-}
-
 /**
  * Signals section of My Trading: the intraday engine on the server. Shows
  * data status, the signal and every gate for a watchlist stock, its
@@ -118,7 +105,7 @@ export default function Signals({ header, onPaperTrade }) {
   const [statusProblem, setStatusProblem] = useState(null);
   const [selected, setSelected] = useState(null);
   const [evaluation, setEvaluation] = useState(null);
-  const [ledger, setLedger] = useState({ trades: [], signals: [] });
+  const [ledger, setLedger] = useState({ trades: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [version, setVersion] = useState(0);
@@ -152,8 +139,8 @@ export default function Signals({ header, onPaperTrade }) {
           setStatus(null);
           setStatusProblem(e?.status === 404 ? 'outdated' : 'offline');
         });
-      Promise.all([fetchCollection('enginetrades'), fetchCollection('signals')])
-        .then(([trades, signals]) => !cancelled && setLedger({ trades, signals }))
+      fetchCollection('enginetrades')
+        .then((trades) => !cancelled && setLedger({ trades }))
         .catch(() => {});
       if (!symbol) return;
       setLoading(true);
@@ -598,11 +585,9 @@ export default function Signals({ header, onPaperTrade }) {
                 ) : null}
               </View>
             ))}
-          {ledger.signals.length ? (
-            <Text style={[styles.hint, { color: theme.textMuted }]}>
-              {ledger.signals.length} candidate signal{ledger.signals.length > 1 ? 's' : ''} logged with their indicators, gates and data freshness.
-            </Text>
-          ) : null}
+          <Text style={[styles.hint, { color: theme.textMuted }]}>
+            Every scanned candle&apos;s decision and full performance analytics are in the History tab.
+          </Text>
         </View>
 
         <Text style={[styles.disclaimer, { color: theme.textMuted }]}>

@@ -211,6 +211,7 @@ const COLLECTIONS = {
       'threshold',
       'maxDelayMin',
       'breakoutLookback',
+      'maxHoldMin',
       'allowShort',
       'watchlist',
       'scannerOn',
@@ -222,11 +223,23 @@ const COLLECTIONS = {
   signals: {
     fields: ['id', 'symbol', 'key', 'state', 'side', 'score', 'rawScore', 'penalties', 'ruleVersion', 'provider', 'dataStatus', 'dataAgeMin', 'candleTime', 'indicators', 'gates', 'plan', 'createdAt'],
   },
+  // Every scanned completed candle's decision (BUY/SELL/WAIT/...), one per
+  // symbol and candle (id = "SYMBOL:candleTime"). Kept for one day to save
+  // space; the paper trades in enginetrades stay until deleted.
+  tradingsignals: {
+    expireDays: 1,
+    indexes: [{ candleTime: -1 }, { symbol: 1, candleTime: -1 }],
+    fields: [
+      'id', 'symbol', 'timeframe', 'candleTime', 'key', 'state', 'side', 'score', 'rawScore', 'threshold',
+      'failedConditions', 'nextAction', 'ruleVersion', 'provider', 'dataStatus', 'indicators', 'plan', 'tradeId',
+      'createdAt',
+    ],
+  },
   enginetrades: {
     fields: [
       'id', 'symbol', 'side', 'signalKey', 'signalTime', 'plan', 'score', 'ruleVersion', 'provider', 'indicators',
       'status', 'entryTime', 'entryPrice', 'stop', 'target', 'quantity', 'exitTime', 'exitPrice', 'exitReason',
-      'grossPnl', 'costs', 'netPnl', 'r', 'createdAt', 'updatedAt',
+      'grossPnl', 'costs', 'netPnl', 'r', 'bothTouched', 'resolvedBy', 'createdAt', 'updatedAt',
     ],
   },
   // Paper trades: practice positions, open or closed with a review.
@@ -292,14 +305,18 @@ function getModel(name) {
     throw new Error(`Unknown collection: ${name}`);
   }
   if (!modelCache[name]) {
+    const { expireDays } = COLLECTIONS[name];
     const schema = new mongoose.Schema(
       {
         id: { type: String, required: true, unique: true },
+        // Server-written logs set loggedAt; MongoDB deletes them after expireDays.
+        ...(expireDays ? { loggedAt: { type: Date, expires: expireDays * 24 * 60 * 60 } } : {}),
       },
       // No mongoose timestamps — the app manages createdAt/addedAt itself
       // and we want its values preserved exactly on round-trips.
       { strict: false, collection: name }
     );
+    (COLLECTIONS[name].indexes || []).forEach((index) => schema.index(index));
     modelCache[name] = mongoose.model(name, schema);
   }
   return modelCache[name];

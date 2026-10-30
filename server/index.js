@@ -155,6 +155,27 @@ function createApp() {
     }
   });
 
+  // Signal history and the paper trades behind it.
+  // GET /api/engine/history?symbol=DLF.NS&state=WAIT&days=7&timeframe=5m
+  app.get('/api/engine/history', async (req, res) => {
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : undefined;
+    if (symbol && !isSymbol(symbol)) return res.status(400).json({ error: 'Bad symbol' });
+    try {
+      res.json(
+        await engineService.history({
+          symbol,
+          state: req.query.state ? String(req.query.state) : undefined,
+          timeframe: req.query.timeframe ? String(req.query.timeframe) : undefined,
+          days: Number(req.query.days) || 0,
+          limit: Number(req.query.limit) || 500,
+        })
+      );
+    } catch (error) {
+      console.error('[api] engine history failed', error.message);
+      res.status(500).json({ error: 'Could not load signal history' });
+    }
+  });
+
   app.get('/api/kite/login-url', (req, res) => {
     if (!kiteConfigured()) return res.status(400).json({ error: 'KITE_API_KEY and KITE_API_SECRET are not set on the server' });
     res.json({ url: kiteLoginUrl() });
