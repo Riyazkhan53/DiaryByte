@@ -20,8 +20,9 @@ export const DEFAULT_CONFIG = {
   riskPct: 1, // per trade
   dailyLossPct: 2, // stop opening new trades after this
   maxOpenPositions: 1,
+  maxQuantity: 1, // shares per trade, even when the budget and cash allow more (0 = no cap)
   atrMultiple: 1.5, // stop distance = ATR × this
-  rewardRisk: 2, // target = entry ± reward:risk × stop distance
+  rewardRisk: 2, // target = entry ± reward:risk × stop distance (never below MIN_REWARD_RISK)
   slippagePct: 0.05, // per side, on fills
   threshold: 65, // score needed for a candidate
   maxDelayMin: 20, // data older than this (during the session) is stale
@@ -29,6 +30,9 @@ export const DEFAULT_CONFIG = {
   allowShort: true, // intraday shorts (MIS) only
   charges: DEFAULT_CHARGES,
 };
+
+// Engine targets are at least 1:2. A higher setting moves the target out.
+export const MIN_REWARD_RISK = 2;
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
@@ -47,10 +51,12 @@ export function estimateCosts(buyValue, sellValue, charges = DEFAULT_CHARGES) {
 }
 
 /**
- * Quantity for a given entry and stop: as many shares as fit both the
- * rupee risk budget (including slippage and estimated charges) and the
- * cash. Returns { ok, reason?, quantity, riskPerShare, costs, maxLoss,
- * cashUsed, riskBudget }. The stop is never moved to make it fit.
+ * Quantity for a given entry and stop: as many shares as fit the rupee
+ * risk budget (including slippage and estimated charges) and the cash, up
+ * to maxQuantity. Returns { ok, reason?, quantity, riskPerShare, costs,
+ * maxLoss, cashUsed, riskBudget, maxQuantity, capped }. capped is true when
+ * the budget and cash would allow more than maxQuantity. The stop is never
+ * moved to make it fit.
  */
 export function sizeForStop({ side = 'long', entry, stop, cash, config = DEFAULT_CONFIG }) {
   const cfg = { ...DEFAULT_CONFIG, ...config, charges: { ...DEFAULT_CHARGES, ...config?.charges } };
@@ -69,8 +75,13 @@ export function sizeForStop({ side = 'long', entry, stop, cash, config = DEFAULT
   let quantity = Math.min(Math.floor(riskBudget / riskPerShare), maxByCash);
   // Costs count against the risk budget: trim quantity until it fits.
   while (quantity > 0 && lossAt(quantity) > riskBudget) quantity -= 1;
+  const maxQuantity = cfg.maxQuantity > 0 ? Math.floor(cfg.maxQuantity) : 0;
+  const capped = maxQuantity > 0 && quantity > maxQuantity;
+  if (capped) quantity = maxQuantity;
   const result = {
     riskBudget,
+    maxQuantity,
+    capped,
     riskPerShare: round2(riskPerShare),
     quantity,
     costs: quantity ? estimateCosts(entry * quantity, stop * quantity, cfg.charges) : 0,
@@ -93,7 +104,7 @@ export function sizeForStop({ side = 'long', entry, stop, cash, config = DEFAULT
 /**
  * Plan a trade before entry: stop from ATR, target from reward:risk, size
  * from sizeForStop. Returns { ok, reason?, side, entry, stop, target,
- * riskPerShare, quantity, costs, maxLoss, reward, cashUsed, riskBudget }.
+ * rewardRisk, riskPerShare, quantity, costs, maxLoss, reward, cashUsed, riskBudget }.
  * `ok` false means NO TRADE.
  */
 export function planTrade({ side = 'long', entry, atr, cash, config = DEFAULT_CONFIG }) {
@@ -104,8 +115,9 @@ export function planTrade({ side = 'long', entry, atr, cash, config = DEFAULT_CO
   if (!(atr > 0)) return { ...base, ok: false, reason: 'No ATR to set a stop from' };
   const d = side === 'short' ? -1 : 1;
   const distance = atr * cfg.atrMultiple;
+  const rewardRisk = Math.max(MIN_REWARD_RISK, Number(cfg.rewardRisk) || 0);
   const stop = round2(entry - d * distance);
-  const target = round2(entry + d * distance * cfg.rewardRisk);
+  const target = round2(entry + d * distance * rewardRisk);
   if (!(stop > 0)) return { ...base, ok: false, reason: 'Stop would be at or below zero' };
   const size = sizeForStop({ side, entry, stop, cash, config: cfg });
   return {
@@ -113,6 +125,7 @@ export function planTrade({ side = 'long', entry, atr, cash, config = DEFAULT_CO
     ...size,
     stop,
     target,
+    rewardRisk,
     reward: size.quantity ? round2(size.quantity * Math.abs(target - entry)) : 0,
   };
 }

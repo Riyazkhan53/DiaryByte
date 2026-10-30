@@ -14,7 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
-import { DEFAULT_CONFIG } from '../../engine/risk.js';
+import { DEFAULT_CONFIG, MIN_REWARD_RISK } from '../../engine/risk.js';
 import { searchStocks } from '../../services/stocks';
 import {
   evaluateSymbol,
@@ -35,14 +35,17 @@ const STATE_COLORS = {
   'NO TRADE': '#8E8E93',
 };
 
-// Settings shown in the sheet, over the engine defaults.
+// Settings shown in the sheet, over the engine defaults. `min` is the
+// lowest value saved (anything lower is raised to it); default min is
+// just above zero. `rupees` shows the % of capital as an amount.
 const SETTINGS = [
   { key: 'capital', label: 'Practice capital (₹)' },
-  { key: 'riskPct', label: 'Risk per trade (%)' },
-  { key: 'dailyLossPct', label: 'Daily loss stop (%)' },
+  { key: 'riskPct', label: 'Risk per trade (%)', rupees: true },
+  { key: 'dailyLossPct', label: 'Daily loss stop (%)', rupees: true },
   { key: 'maxOpenPositions', label: 'Open positions at once' },
+  { key: 'maxQuantity', label: 'Max shares per trade (0 = no cap)', min: 0, integer: true },
   { key: 'atrMultiple', label: 'Stop distance (× ATR)' },
-  { key: 'rewardRisk', label: 'Target (× risk)' },
+  { key: 'rewardRisk', label: `Target (× risk, at least ${MIN_REWARD_RISK})`, min: MIN_REWARD_RISK },
   { key: 'slippagePct', label: 'Slippage per fill (%)' },
   { key: 'threshold', label: 'Score needed (of 100)' },
   { key: 'maxDelayMin', label: 'Stale after (minutes)' },
@@ -55,6 +58,7 @@ const CHECK_LABEL = {
   history: 'Enough history',
   vwap: 'VWAP side',
   volume: 'Volume confirmation',
+  trend15: '15-minute trend',
   risk: 'Risk plan fits',
   dailyLimit: 'Daily loss limit',
   positions: 'Position limit',
@@ -230,8 +234,11 @@ export default function Signals({ header, onPaperTrade }) {
   const saveSettings = () => {
     const changes = {};
     SETTINGS.forEach((s) => {
-      const v = parseFloat(drafts[s.key]);
-      if (Number.isFinite(v) && v > 0) changes[s.key] = v;
+      let v = parseFloat(drafts[s.key]);
+      if (!Number.isFinite(v)) return;
+      if (s.integer) v = Math.floor(v);
+      if (s.min != null) changes[s.key] = Math.max(s.min, v);
+      else if (v > 0) changes[s.key] = v;
     });
     saveConfig(changes);
     setSettingsOpen(false);
@@ -256,7 +263,7 @@ export default function Signals({ header, onPaperTrade }) {
     <View key={g.id} style={styles.gateRow}>
       <Ionicons name={g.pass ? 'checkmark-circle' : 'close-circle'} size={16} color={g.pass ? PROFIT : LOSS} />
       <Text style={[styles.gateText, { color: theme.text }]}>
-        <Text style={styles.bold}>{CHECK_LABEL[g.id] || g.id}</Text>
+        <Text style={styles.bold}>{CHECK_LABEL[g.id] || g.label || g.id}</Text>
         <Text style={{ color: theme.textSecondary }}> · {g.note}</Text>
       </Text>
     </View>
@@ -388,8 +395,24 @@ export default function Signals({ header, onPaperTrade }) {
                     <Text style={[styles.scoreValue, { color: theme.text }]}>{ev.score[side]}</Text>
                   </View>
                 ))}
+                {ev.nextAction ? (
+                  <View style={[styles.explain, { backgroundColor: stateColor + '18' }]}>
+                    {[
+                      ['Long score', ev.score.long],
+                      ['Short score', ev.score.short],
+                      ['Failed condition', ev.failedConditions?.length ? ev.failedConditions.join(', ') : 'None'],
+                      ['Next action', ev.nextAction],
+                    ].map(([label, value]) => (
+                      <Text key={label} style={[styles.explainLine, { color: theme.text }]}>
+                        <Text style={styles.bold}>{label}: </Text>
+                        {value}
+                      </Text>
+                    ))}
+                  </View>
+                ) : null}
                 <Text style={[styles.hint, { color: theme.textMuted }]}>
-                  Score = weighted checks that agree (needs {ev.threshold}). It is not a probability of profit.
+                  Score = weighted checks that agree, minus points for chasing an extended move (needs {ev.threshold}). It is
+                  not a probability of profit.
                 </Text>
                 {ev.reasons.map((r) => (
                   <Text key={r} style={[styles.reason, { color: theme.text }]}>• {r}</Text>
@@ -412,6 +435,18 @@ export default function Signals({ header, onPaperTrade }) {
                     <Text style={[styles.checkVote, { color: c.short ? LOSS : theme.textMuted }]}>{c.short == null ? '—' : c.short ? '✓' : '✗'}</Text>
                   </View>
                 ))}
+                {ev.penalties?.length ? (
+                  <>
+                    <Text style={[styles.subTitle, { color: theme.textSecondary }]}>Overextension (points off)</Text>
+                    {ev.penalties.map((p) => (
+                      <View key={p.id} style={styles.checkRow}>
+                        <Text style={[styles.checkName, { color: theme.text }]}>{p.name}</Text>
+                        <Text style={[styles.checkVote, { color: p.long ? LOSS : theme.textMuted }]}>{p.long ? `−${p.long}` : '0'}</Text>
+                        <Text style={[styles.checkVote, { color: p.short ? LOSS : theme.textMuted }]}>{p.short ? `−${p.short}` : '0'}</Text>
+                      </View>
+                    ))}
+                  </>
+                ) : null}
               </>
             ) : null}
           </View>
@@ -434,7 +469,15 @@ export default function Signals({ header, onPaperTrade }) {
                 ['MACD', ev.indicators.macd],
                 ['MACD signal', ev.indicators.macdSignal],
                 ['ATR 14', ev.indicators.atr],
-                ['Volume', ev.indicators.volume != null && ev.indicators.volumeAvg ? `${(ev.indicators.volume / ev.indicators.volumeAvg).toFixed(1)}× avg` : null],
+                [
+                  'Volume',
+                  ev.indicators.volumeRatio != null
+                    ? `${ev.indicators.volumeRatio}× avg`
+                    : ev.indicators.volumeCandles != null
+                      ? `avg after 20 candles (${ev.indicators.volumeCandles})`
+                      : null,
+                ],
+                ['From VWAP', ev.indicators.stretchAtr != null ? `${ev.indicators.stretchAtr} × ATR` : null],
                 ['15-min trend', ev.indicators.trend15],
                 ['1-hr range', ev.indicators.rangeHigh != null ? `${ev.indicators.rangeLow}–${ev.indicators.rangeHigh}` : null],
               ].map(([label, value]) => (
@@ -451,7 +494,8 @@ export default function Signals({ header, onPaperTrade }) {
         {ev?.plan ? (
           <View style={cardStyle}>
             <Text style={[styles.title, { color: theme.text }]}>
-              Risk plan ({ev.plan.side}) · ₹{config.capital} capital, {config.riskPct}% risk
+              Risk plan ({ev.plan.side}) · ₹{Math.round((config.capital * config.riskPct) / 100)} risk
+              {config.maxQuantity > 0 ? `, max ${config.maxQuantity} share${config.maxQuantity > 1 ? 's' : ''}` : ''}
             </Text>
             {ev.plan.ok ? (
               <View style={styles.grid}>
@@ -476,8 +520,9 @@ export default function Signals({ header, onPaperTrade }) {
               <Text style={[styles.reason, { color: LOSS }]}>No trade: {ev.plan.reason}</Text>
             )}
             <Text style={[styles.hint, { color: theme.textMuted }]}>
-              Stop = {config.atrMultiple} × ATR, target = {config.rewardRisk} × risk. Max loss includes slippage and estimated charges
-              and never exceeds your risk budget. Charges are estimates; check your broker&apos;s contract note.
+              Stop = {config.atrMultiple} × ATR, target = {ev.plan.rewardRisk ?? config.rewardRisk} × risk (never below 1:
+              {MIN_REWARD_RISK}).{ev.plan.capped ? ` The budget allows more, but quantity stays at your max of ${ev.plan.maxQuantity}.` : ''} Max
+              loss includes slippage and estimated charges and never exceeds your risk budget. Charges are estimates; check your broker&apos;s contract note.
             </Text>
             {ev.plan.ok ? (
               <TouchableOpacity
@@ -574,7 +619,12 @@ export default function Signals({ header, onPaperTrade }) {
               <View style={styles.grid}>
                 {SETTINGS.map((s) => (
                   <View key={s.key} style={styles.field}>
-                    <Text style={[styles.cellLabel, { color: theme.textSecondary }]}>{s.label}</Text>
+                    <Text style={[styles.cellLabel, { color: theme.textSecondary }]}>
+                      {s.label}
+                      {s.rupees && parseFloat(drafts.capital) > 0 && parseFloat(drafts[s.key]) > 0
+                        ? ` = ₹${Math.round((parseFloat(drafts.capital) * parseFloat(drafts[s.key])) / 100)}`
+                        : ''}
+                    </Text>
                     <TextInput
                       style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
                       keyboardType="decimal-pad"
@@ -637,6 +687,8 @@ const styles = StyleSheet.create({
   stripRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   dot: { width: 9, height: 9, borderRadius: 5 },
   stripText: { fontSize: 13, fontWeight: '600' },
+  explain: { borderRadius: 10, padding: 10, marginTop: 8, gap: 3 },
+  explainLine: { fontSize: 13, lineHeight: 19 },
   stripSub: { fontSize: 12, marginTop: 6, lineHeight: 17 },
   iconBtn: { padding: 4 },
   title: { fontSize: 15, fontWeight: '700', marginBottom: 8 },

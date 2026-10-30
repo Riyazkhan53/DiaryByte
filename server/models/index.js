@@ -204,6 +204,7 @@ const COLLECTIONS = {
       'riskPct',
       'dailyLossPct',
       'maxOpenPositions',
+      'maxQuantity',
       'atrMultiple',
       'rewardRisk',
       'slippagePct',
@@ -219,7 +220,7 @@ const COLLECTIONS = {
   },
   // Written by the server's scanner; the app only reads these.
   signals: {
-    fields: ['id', 'symbol', 'key', 'state', 'side', 'score', 'ruleVersion', 'provider', 'dataStatus', 'dataAgeMin', 'candleTime', 'indicators', 'gates', 'plan', 'createdAt'],
+    fields: ['id', 'symbol', 'key', 'state', 'side', 'score', 'rawScore', 'penalties', 'ruleVersion', 'provider', 'dataStatus', 'dataAgeMin', 'candleTime', 'indicators', 'gates', 'plan', 'createdAt'],
   },
   enginetrades: {
     fields: [
