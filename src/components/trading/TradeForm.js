@@ -14,7 +14,7 @@ import DatePicker from '../DatePicker';
 import { useTheme } from '../../hooks/useTheme';
 import { todayKey } from '../../utils/autopay';
 import { plannedRR, riskPerShare } from '../../utils/trades';
-import { sizeForStop } from '../../engine/risk.js';
+import { MIN_REWARD_RISK, sizeForStop } from '../../engine/risk.js';
 import { MARKETS, searchStocks } from '../../services/stocks';
 import { fetchStockQuotes } from '../../services/api';
 import { formatMoney } from './format';
@@ -231,7 +231,7 @@ export default function TradeForm({ visible, initial, onSave, onClose, config })
               {stopWrongSide
                 ? `For a ${side} trade the stop-loss must be ${side === 'long' ? 'below' : 'above'} the entry.`
                 : risk && draft.quantity > 0
-                  ? `Risking ${money(risk * draft.quantity)} (${((risk / draft.entryPrice) * 100).toFixed(1)}%)${rr ? ` to make ${money(rr * risk * draft.quantity)} · reward:risk ${rr}:1` : ''}.`
+                  ? `Risking ${money(risk * draft.quantity)} (${((risk / draft.entryPrice) * 100).toFixed(1)}%)${rr ? ` to make ${money(rr * risk * draft.quantity)} · reward:risk ${rr}:1` : ''}.${rr && rr < MIN_REWARD_RISK ? ` Below 1:${MIN_REWARD_RISK}: the engine would set the target further out.` : ''}`
                   : 'Add a stop-loss to track risk and results in R (multiples of what you risked).'}
             </Text>
 
@@ -239,7 +239,7 @@ export default function TradeForm({ visible, initial, onSave, onClose, config })
               <View style={[styles.sizeBox, { backgroundColor: theme.surfaceAlt }]}>
                 <Text style={[styles.hint, styles.noTop, { color: sizing.ok ? theme.text : theme.danger }]}>
                   {sizing.ok
-                    ? `Risk budget ₹${sizing.riskBudget}: up to ${sizing.quantity} share${sizing.quantity > 1 ? 's' : ''} (max loss ₹${sizing.maxLoss} incl. ~₹${sizing.costs} charges, ₹${sizing.cashUsed} cash).`
+                    ? `Risk budget ₹${sizing.riskBudget}: up to ${sizing.quantity} share${sizing.quantity > 1 ? 's' : ''}${sizing.capped ? ` (your max per trade; the budget allows more)` : ''} (max loss ₹${sizing.maxLoss} incl. ~₹${sizing.costs} charges, ₹${sizing.cashUsed} cash).`
                     : `No trade: ${sizing.reason}.`}
                 </Text>
                 {sizing.ok && sizing.quantity !== draft.quantity ? (

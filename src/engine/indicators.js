@@ -85,11 +85,35 @@ export function sessionVwap(candles) {
   return vol > 0 ? pv / vol : null;
 }
 
-/** Average volume of the `n` candles before the last one (like-for-like, excludes it). */
+/**
+ * Volume of the last candle against the average of the `n` candles before
+ * it from the same IST session and timeframe (pass completed candles only,
+ * so the forming candle is never in either number). Yesterday's candles are
+ * not used: the open and close of a day trade very different volume.
+ * Returns { volume, avg, ratio, count, needed }; avg and ratio are null
+ * until the session has `n` earlier candles.
+ */
+export function volumeStats(candles, n = 20) {
+  if (!candles.length) return { volume: null, avg: null, ratio: null, count: 0, needed: n };
+  const last = candles[candles.length - 1];
+  const day = istParts(last.t).dateKey;
+  const prior = [];
+  for (let i = candles.length - 2; i >= 0 && prior.length < n && istParts(candles[i].t).dateKey === day; i -= 1) {
+    prior.push(candles[i]);
+  }
+  const avg = prior.length === n ? prior.reduce((s, c) => s + c.volume, 0) / n : null;
+  return {
+    volume: last.volume,
+    avg,
+    ratio: avg > 0 ? last.volume / avg : null,
+    count: prior.length,
+    needed: n,
+  };
+}
+
+/** Same-session average volume of the `n` candles before the last one (see volumeStats). */
 export function volumeAverage(candles, n = 20) {
-  if (candles.length < n + 1) return null;
-  const prior = candles.slice(-1 - n, -1);
-  return prior.reduce((s, c) => s + c.volume, 0) / n;
+  return volumeStats(candles, n).avg;
 }
 
 /** Highest high / lowest low of the `n` candles before the last one. */

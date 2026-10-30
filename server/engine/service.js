@@ -125,7 +125,7 @@ async function scan() {
     for (const symbol of cfg.watchlist) {
       try {
         const r = await evaluate(symbol, { config: cfg, context: ctx });
-        results.push({ symbol, state: r.state, score: r.score });
+        results.push({ symbol, state: r.state, score: r.score, failedConditions: r.failedConditions, nextAction: r.nextAction });
         const candidate = r.state === 'BUY CANDIDATE' || r.state === 'SELL CANDIDATE';
         if (!candidate) continue;
         const snapshot = {
@@ -135,6 +135,8 @@ async function scan() {
           state: r.state,
           side: r.side,
           score: r.score,
+          rawScore: r.rawScore,
+          penalties: r.penalties,
           ruleVersion: r.ruleVersion,
           provider: r.provider.id,
           dataStatus: r.data.status,
