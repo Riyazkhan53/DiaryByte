@@ -58,6 +58,13 @@ function createApp() {
     }
   });
 
+  // Public on purpose: Render's health check (render.yaml healthCheckPath)
+  // sends no API key, so a protected route answers 401 and every deploy
+  // times out. It reveals only whether the server and database are up.
+  app.get('/api/health', (req, res) => {
+    res.json({ ok: true, db: mongoose.connection.readyState === 1 ? 'up' : 'down' });
+  });
+
   // Simple shared-secret auth for this personal app
   const apiKey = process.env.API_KEY;
   if (apiKey) {
@@ -70,10 +77,6 @@ function createApp() {
   } else {
     console.warn('[auth] API_KEY not set — endpoints are unprotected');
   }
-
-  app.get('/api/health', (req, res) => {
-    res.json({ ok: true, db: mongoose.connection.readyState === 1 ? 'up' : 'down' });
-  });
 
   // Live digital gold rate (₹/gram) from OroPocket's public feed, cached for
   // a few minutes to stay well inside its 10-requests-a-minute limit. Must be
