@@ -17,6 +17,7 @@ import { confirmDelete } from '../../utils/confirm';
 import { todayKey } from '../../utils/autopay';
 import {
   EXIT_REASONS,
+  tradeNetPnl,
   daysHeld,
   levelHit,
   plannedRR,
@@ -33,7 +34,7 @@ const toNum = (text) => parseFloat(String(text ?? '').replace(/,/g, ''));
  * Open paper trades with live prices and unrealised P/L. Closing one asks
  * for the exit and a short review, then it moves to Completed.
  */
-export default function OpenTrades({ header, trades, persist, sync, onNew, onEdit }) {
+export default function OpenTrades({ header, trades, persist, sync, onNew, onEdit, config }) {
   const { theme } = useTheme();
   const open = trades
     .filter((t) => t.status !== 'closed')
@@ -123,6 +124,17 @@ export default function OpenTrades({ header, trades, persist, sync, onNew, onEdi
     { IN: 0, US: 0 }
   );
   const hasUs = open.some((t) => t.market === 'US');
+
+  // Daily loss stop (₹ trades closed today, after estimated charges).
+  // Same day key the close sheet stores as exitDate.
+  const today = todayKey();
+  const todayNet = trades
+    .filter((t) => t.status === 'closed' && t.market !== 'US' && t.exitDate === today)
+    .reduce((s, t) => s + (tradeNetPnl(t, t.exitPrice) || 0), 0);
+  const dailyLimit = (config.capital * config.dailyLossPct) / 100;
+  const limitHit = todayNet <= -dailyLimit;
+  const openIndian = open.filter((t) => t.market !== 'US').length;
+  const tooMany = openIndian >= config.maxOpenPositions;
   const hasIn = open.some((t) => t.market !== 'US');
 
   const cardStyle = [
@@ -155,7 +167,27 @@ export default function OpenTrades({ header, trades, persist, sync, onNew, onEdi
               {refreshing ? <ActivityIndicator size="small" color={theme.primary} /> : <Ionicons name="refresh" size={20} color={theme.primary} />}
             </TouchableOpacity>
           </View>
-          <TouchableOpacity style={[styles.newBtn, { backgroundColor: theme.primary }]} onPress={onNew}>
+          {limitHit ? (
+            <View style={[styles.alert, { backgroundColor: '#E5383B1F' }]}>
+              <Ionicons name="hand-left-outline" size={16} color="#E5383B" />
+              <Text style={[styles.alertText, { color: theme.text }]}>
+                Daily loss stop reached: {formatPnl(todayNet, 'IN')} today (limit ₹{dailyLimit}). No new
+                trades until tomorrow. Review what happened instead.
+              </Text>
+            </View>
+          ) : tooMany ? (
+            <View style={[styles.alert, { backgroundColor: '#FF95001F' }]}>
+              <Ionicons name="alert-circle-outline" size={16} color="#FF9500" />
+              <Text style={[styles.alertText, { color: theme.text }]}>
+                {openIndian} Indian trade{openIndian > 1 ? 's' : ''} open; your limit is {config.maxOpenPositions} at a time.
+              </Text>
+            </View>
+          ) : null}
+          <TouchableOpacity
+            style={[styles.newBtn, { backgroundColor: theme.primary }, limitHit && styles.disabled]}
+            onPress={onNew}
+            disabled={limitHit}
+          >
             <Ionicons name="add" size={18} color={theme.onPrimary} />
             <Text style={[styles.newText, { color: theme.onPrimary }]}>New paper trade</Text>
           </TouchableOpacity>

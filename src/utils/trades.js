@@ -6,7 +6,27 @@
 //          status ('open' | 'closed'), exitPrice?, exitDate?,
 //          exitReason? ('target' | 'stop' | 'manual'), followedPlan?, review? }
 
+import { estimateCosts } from '../engine/risk.js';
+
 const round2 = (n) => Math.round(n * 100) / 100;
+
+/**
+ * Estimated round-trip charges for an Indian (₹) trade at `exitPrice`, as
+ * intraday equity. US trades return null (broker fees vary too much).
+ */
+export function tradeCosts(trade, exitPrice) {
+  if (trade.market === 'US' || !(exitPrice > 0) || !(trade.quantity > 0)) return null;
+  const entryValue = trade.entryPrice * trade.quantity;
+  const exitValue = exitPrice * trade.quantity;
+  return trade.side === 'short' ? estimateCosts(exitValue, entryValue) : estimateCosts(entryValue, exitValue);
+}
+
+/** Net P/L after estimated charges (₹ trades), or plain P/L for US trades. */
+export function tradeNetPnl(trade, price) {
+  const pnl = tradePnl(trade, price);
+  const costs = tradeCosts(trade, price);
+  return pnl == null ? null : round2(pnl - (costs || 0));
+}
 
 export const EXIT_REASONS = [
   { key: 'target', label: 'Target hit' },
@@ -96,7 +116,11 @@ export function tradeStats(closed) {
   });
   const grossWin = byCurrency(wins);
   const grossLoss = byCurrency(losses);
+  const inrCosts = round2(rows.reduce((s, x) => s + (tradeCosts(x.trade, x.trade.exitPrice) || 0), 0));
   return {
+    // Estimated charges on ₹ trades, and ₹ P/L after them.
+    costsINR: inrCosts,
+    netAfterCostsINR: round2(byCurrency(rows).INR - inrCosts),
     count: rows.length,
     wins: wins.length,
     losses: losses.length,

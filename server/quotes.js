@@ -142,4 +142,27 @@ async function searchSymbols(query, market) {
   return results;
 }
 
-module.exports = { getQuotes, getCandles, searchSymbols, isSymbol };
+/**
+ * Intraday candles from Yahoo's chart endpoint, for the signal engine:
+ * [{ t (ms), open, high, low, close, volume }], oldest first, including a
+ * possibly still-forming last candle (the engine drops it).
+ */
+async function getIntradayCandles(symbol, intervalMin) {
+  if (!isSymbol(symbol)) throw new Error('Bad symbol');
+  const range = intervalMin <= 5 ? '5d' : '1mo';
+  const body = await getJson(
+    `${CHART_URL}${encodeURIComponent(symbol.toUpperCase())}?range=${range}&interval=${intervalMin}m`
+  );
+  const result = body?.chart?.result?.[0];
+  const q = result?.indicators?.quote?.[0] || {};
+  return (result?.timestamp || []).map((t, i) => ({
+    t: t * 1000,
+    open: q.open?.[i],
+    high: q.high?.[i],
+    low: q.low?.[i],
+    close: q.close?.[i],
+    volume: q.volume?.[i],
+  }));
+}
+
+module.exports = { getQuotes, getCandles, getIntradayCandles, searchSymbols, isSymbol };

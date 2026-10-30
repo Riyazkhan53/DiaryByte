@@ -14,6 +14,7 @@ import DatePicker from '../DatePicker';
 import { useTheme } from '../../hooks/useTheme';
 import { todayKey } from '../../utils/autopay';
 import { plannedRR, riskPerShare } from '../../utils/trades';
+import { sizeForStop } from '../../engine/risk.js';
 import { MARKETS, searchStocks } from '../../services/stocks';
 import { fetchStockQuotes } from '../../services/api';
 import { formatMoney } from './format';
@@ -25,7 +26,7 @@ const str = (n) => (n != null && Number.isFinite(Number(n)) ? String(n) : '');
  * Add or edit a paper trade. `initial` is an existing trade, a draft from a
  * Setup Check, or null for a blank one. Remount with a new `key` to reset.
  */
-export default function TradeForm({ visible, initial, onSave, onClose }) {
+export default function TradeForm({ visible, initial, onSave, onClose, config }) {
   const { theme } = useTheme();
   const [market, setMarket] = useState(initial?.market === 'US' ? 'US' : 'IN');
   const [name, setName] = useState(initial?.name || '');
@@ -53,6 +54,12 @@ export default function TradeForm({ visible, initial, onSave, onClose }) {
   const stopWrongSide =
     draft.stopLoss > 0 && draft.entryPrice > 0 && !risk;
   const valid = name.trim() && draft.entryPrice > 0 && draft.quantity > 0 && !stopWrongSide;
+
+  // Indian trades: quantity from the risk budget, charges and cash (settings in Signals).
+  const sizing =
+    market === 'IN' && draft.entryPrice > 0 && draft.stopLoss > 0
+      ? sizeForStop({ side, entry: draft.entryPrice, stop: draft.stopLoss, config })
+      : null;
 
   const runSearch = async () => {
     if (name.trim().length < 2) return;
@@ -115,7 +122,7 @@ export default function TradeForm({ visible, initial, onSave, onClose }) {
             </Text>
             {initial?.setupSignal ? (
               <Text style={[styles.sub, { color: theme.textSecondary }]}>
-                From a Setup Check: {initial.setupSignal} (bull {initial.setupBullPct}% / bear{' '}
+                From a signal: {initial.setupSignal} (bull {initial.setupBullPct}% / bear{' '}
                 {initial.setupBearPct}%)
               </Text>
             ) : null}
@@ -228,6 +235,21 @@ export default function TradeForm({ visible, initial, onSave, onClose }) {
                   : 'Add a stop-loss to track risk and results in R (multiples of what you risked).'}
             </Text>
 
+            {sizing ? (
+              <View style={[styles.sizeBox, { backgroundColor: theme.surfaceAlt }]}>
+                <Text style={[styles.hint, styles.noTop, { color: sizing.ok ? theme.text : theme.danger }]}>
+                  {sizing.ok
+                    ? `Risk budget ₹${sizing.riskBudget}: up to ${sizing.quantity} share${sizing.quantity > 1 ? 's' : ''} (max loss ₹${sizing.maxLoss} incl. ~₹${sizing.costs} charges, ₹${sizing.cashUsed} cash).`
+                    : `No trade: ${sizing.reason}.`}
+                </Text>
+                {sizing.ok && sizing.quantity !== draft.quantity ? (
+                  <TouchableOpacity onPress={() => setQuantity(String(sizing.quantity))}>
+                    <Text style={[styles.sizeLink, { color: theme.primary }]}>Use {sizing.quantity}</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ) : null}
+
             <Text style={[styles.label, styles.gap, { color: theme.textSecondary }]}>Entry date</Text>
             <DatePicker value={entryDate} onChange={setEntryDate} />
 
@@ -282,6 +304,9 @@ const styles = StyleSheet.create({
   label: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
   hint: { fontSize: 12, marginTop: 6, lineHeight: 17 },
   note: { minHeight: 64, textAlignVertical: 'top', marginTop: 12 },
+  sizeBox: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, padding: 10, marginTop: 8 },
+  sizeLink: { fontSize: 13, fontWeight: '700' },
+  noTop: { marginTop: 0, flex: 1 },
   actions: { flexDirection: 'row', gap: 12, marginTop: 16 },
   cancel: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center' },
   cancelText: { fontSize: 15, fontWeight: '600' },

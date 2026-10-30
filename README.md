@@ -58,6 +58,20 @@ DiaryByte greets you by name on a personal dashboard and keeps your daily journa
 - Month-end report: income vs EMIs, credit card bills, other bills and other spending
 - If a month ends in the red, tally it as borrowed (optionally added to My Debts), from savings or extra income
 
+### My Trading
+- **Setup**: score a stock on 7 indicators (BUY / SELL / WAIT), fill them from daily prices, keep a log.
+- **Signals**: intraday engine on completed 5-minute candles (15-minute trend filter). Score and
+  eligibility are separate: mandatory gates (fresh data, market open, enough history, VWAP side,
+  volume, a stop that fits your risk budget and cash, daily loss limit, position limit, no repeats)
+  turn anything unsafe into NO TRADE. Risk plan sizes trades from a rupee budget with estimated
+  charges. The server scans a watchlist every 5 minutes in NSE hours and paper-trades candidates
+  (next-candle entry, conservative fills, 15:20 square-off, charges deducted). Engine code lives in
+  `src/engine` and runs in both the app and the server. Data: Yahoo (prototype, may be delayed) or
+  Kite Connect (`MARKET_DATA_PROVIDER=kite`, `KITE_API_KEY`, `KITE_API_SECRET`, daily login from the
+  Signals tab). Paper trading only — no order placement.
+- **Open / Done**: your own paper trades with live P/L and R, a daily loss stop, sizing from your
+  risk budget, and a review page (win rate, net after charges, average R, by signal).
+
 ### Settings
 - Change your name (used in the dashboard greeting)
 - Dark mode toggle (persisted)

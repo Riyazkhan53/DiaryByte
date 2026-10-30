@@ -13,6 +13,17 @@ services:
         sync: false # set in Render dashboard (MongoDB Atlas connection string)
       - key: API_KEY
         generateValue: true # shared secret the app sends as x-api-key
+      # Intraday signals (My Trading → Signals). Optional: without these the
+      # engine uses the Yahoo prototype feed. For Kite Connect, set
+      # MARKET_DATA_PROVIDER=kite and your app's keys, and set the app's
+      # redirect URL in the Kite developer console to
+      # https://<this service>/kite/callback
+      - key: MARKET_DATA_PROVIDER
+        sync: false
+      - key: KITE_API_KEY
+        sync: false
+      - key: KITE_API_SECRET
+        sync: false
     healthCheckPath: /api/health
 
   # --- Static web app ---

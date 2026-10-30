@@ -19,6 +19,10 @@ const COLLECTIONS = [
   'spends',
   'setups',
   'trades',
+  'tradingconfig',
+  // Written by the server's scanner; read-only in the app.
+  'signals',
+  'enginetrades',
 ];
 
 async function request(path, options = {}) {
@@ -90,6 +94,24 @@ export function searchStockSymbols(query, market) {
 // About six months of daily candles: { symbol, name, currency, candles }.
 export function fetchCandles(symbol) {
   return request(`/api/candles?symbol=${encodeURIComponent(symbol)}`);
+}
+
+// ------- intraday signal engine -------
+
+export function fetchEngineStatus() {
+  return request('/api/engine/status');
+}
+
+export function evaluateSymbol(symbol) {
+  return request(`/api/engine/evaluate?symbol=${encodeURIComponent(symbol)}`);
+}
+
+export function runEngineScan() {
+  return request('/api/engine/scan', { method: 'POST' });
+}
+
+export function fetchKiteLoginUrl() {
+  return request('/api/kite/login-url');
 }
 
 export function fetchTrash(collection) {

@@ -1,56 +1,14 @@
 // Technical indicators from daily candles, to fill in a Setup Check.
 // Candles are oldest first: [{ t, open, high, low, close, volume }].
 
-const round2 = (n) => Math.round(n * 100) / 100;
+import { emaSeries, macd, rsi } from '../engine/indicators.js';
 
-/** Exponential moving average series (seeded with the simple average of the first `period`). */
-export function emaSeries(values, period) {
-  if (values.length < period) return [];
-  const k = 2 / (period + 1);
-  let ema = values.slice(0, period).reduce((s, v) => s + v, 0) / period;
-  const out = new Array(period - 1).fill(null);
-  out.push(ema);
-  for (let i = period; i < values.length; i += 1) {
-    ema = values[i] * k + ema * (1 - k);
-    out.push(ema);
-  }
-  return out;
-}
+const round2 = (n) => Math.round(n * 100) / 100;
 
 const last = (series) => (series.length ? series[series.length - 1] : null);
 
-/** Wilder's RSI over `period` closes. */
-export function rsi(closes, period = 14) {
-  if (closes.length <= period) return null;
-  let gain = 0;
-  let loss = 0;
-  for (let i = 1; i <= period; i += 1) {
-    const change = closes[i] - closes[i - 1];
-    if (change > 0) gain += change;
-    else loss -= change;
-  }
-  gain /= period;
-  loss /= period;
-  for (let i = period + 1; i < closes.length; i += 1) {
-    const change = closes[i] - closes[i - 1];
-    gain = (gain * (period - 1) + Math.max(change, 0)) / period;
-    loss = (loss * (period - 1) + Math.max(-change, 0)) / period;
-  }
-  if (loss === 0) return 100;
-  return 100 - 100 / (1 + gain / loss);
-}
-
-/** MACD (12, 26) and its 9-period signal line. */
-export function macd(closes, fast = 12, slow = 26, signal = 9) {
-  const fastEma = emaSeries(closes, fast);
-  const slowEma = emaSeries(closes, slow);
-  if (!slowEma.length) return null;
-  const line = closes.map((_, i) => (fastEma[i] != null && slowEma[i] != null ? fastEma[i] - slowEma[i] : null));
-  const valid = line.filter((v) => v != null);
-  const signalSeries = emaSeries(valid, signal);
-  if (!signalSeries.length) return null;
-  return { macd: last(valid), signal: last(signalSeries) };
-}
+// The maths lives in the shared engine; kept importable from here.
+export { emaSeries, macd, rsi };
 
 /**
  * Setup Check inputs from daily candles: today's price and volume against
