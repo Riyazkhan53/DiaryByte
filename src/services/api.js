@@ -34,7 +34,10 @@ async function request(path, options = {}) {
     },
   });
   if (!response.ok) {
-    throw new Error(`API request failed (${response.status})`);
+    const error = new Error(`API request failed (${response.status})`);
+    // Lets screens tell "server is out of date" (404) from other failures.
+    error.status = response.status;
+    throw error;
   }
   return response.json();
 }
