@@ -19,6 +19,11 @@ import { MARKETS, searchStocks } from '../../services/stocks';
 import { fetchCandles, fetchStockQuotes } from '../../services/api';
 
 const STORAGE_KEY = '@diarybyte_setups';
+const CONFIG_KEY = '@diarybyte_tradingconfig';
+const MAX_WATCHLIST = 10;
+
+const shortSymbol = (s) => s.replace(/\.(NS|BO)$/, '');
+const marketOfSymbol = (s) => (/\.(NS|BO)$/.test(s) ? 'IN' : 'US');
 
 // The form, in the order of the sections on screen.
 const SECTIONS = [
@@ -97,6 +102,15 @@ export default function SetupCheck({ header, onPaperTrade }) {
     pullInfo,
     pullNow,
   } = useSyncedCollection('setups', STORAGE_KEY);
+  // The watchlist is shared with the Signals tab.
+  const {
+    items: configDocs,
+    loaded: configLoaded,
+    persist: persistConfig,
+    pullNow: pullConfig,
+  } = useSyncedCollection('tradingconfig', CONFIG_KEY);
+  const configDoc = configDocs[0] || null;
+  const watchlist = configDoc?.watchlist || [];
 
   const [fields, setFields] = useState(EMPTY_FIELDS);
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD);
@@ -108,6 +122,21 @@ export default function SetupCheck({ header, onPaperTrade }) {
   const [filling, setFilling] = useState(false);
   const [notice, setNotice] = useState(null);
   const [nowPrices, setNowPrices] = useState({});
+
+  // First time on this device: fetch the watchlist saved from another one.
+  useEffect(() => {
+    if (configLoaded && !configDocs.length) pullConfig();
+  }, [configLoaded, configDocs.length, pullConfig]);
+
+  // Stocks checked before (newest first), for one-tap picking.
+  const recent = [];
+  [...log]
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+    .forEach((e) => {
+      if (e.symbol && !watchlist.includes(e.symbol) && !recent.some((r) => r.symbol === e.symbol)) {
+        recent.push({ symbol: e.symbol, name: e.name, market: e.market });
+      }
+    });
 
   const result = scoreSetup(fields, threshold);
   const signalColor = SIGNAL_COLORS[result.signal];
@@ -152,6 +181,28 @@ export default function SetupCheck({ header, onPaperTrade }) {
     }
   };
 
+  // One tap from the watchlist or recent stocks: select it and fill it.
+  const quickPick = (stock) => {
+    setMarket(stock.market || marketOfSymbol(stock.symbol));
+    setSymbol(stock.symbol);
+    setName(stock.name || shortSymbol(stock.symbol));
+    setResults([]);
+    fillFromLiveData(stock.symbol);
+  };
+
+  const inWatchlist = !!symbol && watchlist.includes(symbol);
+
+  // ★: add or remove the current (Indian) stock from the shared watchlist.
+  const toggleWatchlist = () => {
+    if (!symbol) return;
+    if (!inWatchlist && watchlist.length >= MAX_WATCHLIST) {
+      setNotice({ error: true, text: `The watchlist holds ${MAX_WATCHLIST} stocks. Remove one first.` });
+      return;
+    }
+    const next = inWatchlist ? watchlist.filter((s) => s !== symbol) : [...watchlist, symbol];
+    persistConfig([{ ...(configDoc || { id: 'default' }), watchlist: next, updatedAt: new Date().toISOString() }]);
+  };
+
   const pickStock = (stock) => {
     setSymbol(stock.symbol);
     setName(stock.name);
@@ -159,12 +210,14 @@ export default function SetupCheck({ header, onPaperTrade }) {
     setNotice(null);
   };
 
-  const fillFromLiveData = async () => {
-    if (!symbol) return;
+  const fillFromLiveData = async (sym = symbol) => {
+    if (!sym) return;
     setFilling(true);
     setNotice(null);
     try {
-      const data = await fetchCandles(symbol);
+      const data = await fetchCandles(sym);
+      // Picked by symbol alone (watchlist): show the company name.
+      if (data.name) setName((n) => (!n || n === shortSymbol(sym) ? data.name : n));
       const inputs = setupInputsFromCandles(data.candles);
       setFields((f) => ({
         ...f,
@@ -368,6 +421,46 @@ export default function SetupCheck({ header, onPaperTrade }) {
       {/* Inputs */}
       <View style={cardStyle}>
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Stock</Text>
+        {watchlist.length || recent.length ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.pickScroll}
+            contentContainerStyle={styles.pickRow}
+            keyboardShouldPersistTaps="handled"
+          >
+            {[
+              ...watchlist.map((s) => ({ symbol: s, starred: true })),
+              ...recent.slice(0, 8),
+            ].map((s) => {
+              const selected = s.symbol === symbol;
+              return (
+                <TouchableOpacity
+                  key={s.symbol}
+                  style={[
+                    styles.pickChip,
+                    {
+                      backgroundColor: selected ? theme.primary : theme.surfaceAlt,
+                      borderColor: selected ? theme.primary : theme.borderNeutral,
+                    },
+                  ]}
+                  onPress={() => quickPick(s)}
+                  accessibilityLabel={`Check ${shortSymbol(s.symbol)}`}
+                >
+                  <Ionicons
+                    name={s.starred ? 'star' : 'time-outline'}
+                    size={13}
+                    color={selected ? theme.onPrimary : s.starred ? '#FFB400' : theme.textMuted}
+                  />
+                  <Text style={[styles.pickText, { color: selected ? theme.onPrimary : theme.text }]}>
+                    {shortSymbol(s.symbol)}
+                    {marketOfSymbol(s.symbol) === 'US' ? ' 🇺🇸' : ''}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        ) : null}
         <View style={[styles.segment, { backgroundColor: theme.surfaceAlt }]}>
           {MARKETS.map((m) => (
             <TouchableOpacity
@@ -415,6 +508,15 @@ export default function SetupCheck({ header, onPaperTrade }) {
               <Ionicons name="search" size={20} color={theme.onPrimary} />
             )}
           </TouchableOpacity>
+          {symbol && marketOfSymbol(symbol) === 'IN' ? (
+            <TouchableOpacity
+              style={[styles.iconBtn, { backgroundColor: theme.surfaceAlt }]}
+              onPress={toggleWatchlist}
+              accessibilityLabel={inWatchlist ? 'Remove from watchlist' : 'Add to watchlist'}
+            >
+              <Ionicons name={inWatchlist ? 'star' : 'star-outline'} size={20} color="#FFB400" />
+            </TouchableOpacity>
+          ) : null}
         </View>
         {results.map((stock) => (
           <TouchableOpacity
@@ -435,7 +537,7 @@ export default function SetupCheck({ header, onPaperTrade }) {
         {symbol ? (
           <TouchableOpacity
             style={[styles.fillBtn, { borderColor: theme.primary }]}
-            onPress={fillFromLiveData}
+            onPress={() => fillFromLiveData()}
             disabled={filling}
           >
             {filling ? (
@@ -675,6 +777,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   segmentText: { fontSize: 13, fontWeight: '600' },
+  pickScroll: { flexGrow: 0, marginBottom: 10 },
+  pickRow: { gap: 8, paddingRight: 8 },
+  pickChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+  },
+  pickText: { fontSize: 13, fontWeight: '700' },
   searchRow: { flexDirection: 'row', gap: 8 },
   input: {
     borderRadius: 12,
