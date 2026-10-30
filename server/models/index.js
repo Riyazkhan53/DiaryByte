@@ -224,9 +224,10 @@ const COLLECTIONS = {
     fields: ['id', 'symbol', 'key', 'state', 'side', 'score', 'rawScore', 'penalties', 'ruleVersion', 'provider', 'dataStatus', 'dataAgeMin', 'candleTime', 'indicators', 'gates', 'plan', 'createdAt'],
   },
   // Every scanned completed candle's decision (BUY/SELL/WAIT/...), one per
-  // symbol and candle (id = "SYMBOL:candleTime"). Kept for 180 days.
+  // symbol and candle (id = "SYMBOL:candleTime"). Kept for one day to save
+  // space; the paper trades in enginetrades stay until deleted.
   tradingsignals: {
-    expireDays: 180,
+    expireDays: 1,
     indexes: [{ candleTime: -1 }, { symbol: 1, candleTime: -1 }],
     fields: [
       'id', 'symbol', 'timeframe', 'candleTime', 'key', 'state', 'side', 'score', 'rawScore', 'threshold',

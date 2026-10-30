@@ -3,7 +3,8 @@ import { StyleSheet, Text, View, TouchableOpacity, ScrollView, ActivityIndicator
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../hooks/useTheme';
 import { performanceStats, statsByScore } from '../../engine/stats.js';
-import { fetchSignalHistory } from '../../services/api';
+import { fetchSignalHistory, pushCollection } from '../../services/api';
+import { confirmDelete } from '../../utils/confirm';
 import { LOSS, PROFIT, formatMoney, formatPct, formatPnl, formatR, pnlColor } from './format';
 
 const STATE_COLORS = {
@@ -21,6 +22,7 @@ const SHORT_STATE = {
   'NO TRADE': 'NO TRADE',
 };
 const STATE_FILTERS = [['', 'All'], ...Object.entries(SHORT_STATE).map(([k, v]) => [k, v])];
+// Decisions are kept for a day; the period mainly filters paper trades.
 const DAY_FILTERS = [
   [1, '24 h'],
   [7, '7 days'],
@@ -117,6 +119,15 @@ export default function History({ header, watchlist = [] }) {
     setShown(PAGE);
     setFilters((f) => ({ ...f, [key]: value }));
   };
+  // Paper trades stay until deleted here (they go to Recently deleted).
+  const deleteTrade = (t) =>
+    confirmDelete('Delete paper trade', `Remove the ${t.symbol.replace(/\.NS$/, '')} paper trade?`, () => {
+      setData((d) => ({ ...d, trades: d.trades.filter((x) => x.id !== t.id) }));
+      pushCollection('enginetrades', [], [t.id]).catch(() => {
+        setError("Couldn't delete it on the server. Try again when it's reachable.");
+        refresh();
+      });
+    });
   const refresh = () => {
     setLoading(true);
     setReload((n) => n + 1);
@@ -158,6 +169,7 @@ export default function History({ header, watchlist = [] }) {
         </View>
         <Text style={[styles.hint, { color: theme.textMuted }]}>
           One record per completed 5-minute candle the scanner checked, so repeat scans never duplicate it.
+          Decisions are kept for 24 hours; paper trades stay until you delete them.
         </Text>
         <Chips
           options={[['', 'All stocks'], ...symbols.map((s) => [s, s.replace(/\.NS$/, '')])]}
@@ -352,6 +364,50 @@ export default function History({ header, watchlist = [] }) {
         ) : null}
       </View>
 
+      {/* Paper trades, kept until deleted */}
+      <View style={cardStyle}>
+        <Text style={[styles.title, { color: theme.text }]}>Paper trades ({data.trades.length})</Text>
+        <Text style={[styles.hint, { color: theme.textMuted }]}>
+          The engine&apos;s paper trades for this stock and period. They stay until you delete one.
+        </Text>
+        {[...data.trades]
+          .sort((a, b) => (b.signalTime || 0) - (a.signalTime || 0))
+          .map((t) => (
+            <View key={t.id} style={[styles.tradeRow, { borderTopColor: theme.borderNeutral }]}>
+              <Text style={[styles.tradeSide, { color: t.side === 'short' ? LOSS : PROFIT }]}>
+                {t.side === 'short' ? 'S' : 'L'}
+              </Text>
+              <View style={styles.flex}>
+                <Text style={[styles.td, styles.bold, { color: theme.text }]} numberOfLines={1}>
+                  {t.symbol.replace(/\.NS$/, '')} · {t.plan?.quantity ?? t.quantity} @{' '}
+                  {formatMoney(t.entryPrice ?? t.plan?.entry, 'IN')}
+                </Text>
+                <Text style={[styles.detailLine, { color: theme.textMuted }]}>
+                  {dayLabel(t.signalTime)} {timeLabel(t.signalTime)} ·{' '}
+                  {t.status === 'closed'
+                    ? `${EXIT_LABEL[t.exitReason] || t.exitReason} at ${formatMoney(t.exitPrice, 'IN')} · ${formatR(t.r)}`
+                    : t.status}
+                </Text>
+              </View>
+              {t.status === 'closed' ? (
+                <Text style={[styles.td, styles.bold, { color: pnlColor(t.netPnl, theme.text) }]}>
+                  {formatPnl(t.netPnl, 'IN')}
+                </Text>
+              ) : null}
+              <TouchableOpacity
+                onPress={() => deleteTrade(t)}
+                accessibilityLabel={`Delete ${t.symbol} paper trade`}
+                style={styles.iconBtn}
+              >
+                <Ionicons name="trash-outline" size={18} color={theme.textMuted} />
+              </TouchableOpacity>
+            </View>
+          ))}
+        {!data.trades.length && !loading ? (
+          <Text style={[styles.hint, { color: theme.textMuted }]}>No paper trades for these filters.</Text>
+        ) : null}
+      </View>
+
       <Text style={[styles.disclaimer, { color: theme.textMuted }]}>
         Paper results only. Past signals don&apos;t predict future ones, and charges are estimates.
       </Text>
@@ -397,6 +453,8 @@ const styles = StyleSheet.create({
   tableRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 9, borderBottomWidth: 1, gap: 4 },
   tableHead: { marginTop: 8, paddingVertical: 6 },
   th: { fontSize: 12, fontWeight: '700' },
+  tradeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, borderTopWidth: 1, paddingTop: 8, marginTop: 8 },
+  tradeSide: { width: 14, fontSize: 13, fontWeight: '800', textAlign: 'center' },
   dayHead: { fontSize: 12, fontWeight: '700', marginTop: 12, marginBottom: 2 },
   td: { fontSize: 13 },
   detail: { borderRadius: 10, padding: 10, marginVertical: 6, gap: 4 },
@@ -407,4 +465,4 @@ const styles = StyleSheet.create({
 });
 
 // Column widths: time, stock, signal, score, result.
-const COLS = [{ width: 48 }, { flex: 1, minWidth: 0 }, { width: 66 }, { width: 44 }, { width: 70, textAlign: 'right' }];
+const COLS = [{ width: 46 }, { flex: 1, minWidth: 0 }, { width: 76 }, { width: 40 }, { width: 68, textAlign: 'right' }];
