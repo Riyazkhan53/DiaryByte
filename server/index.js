@@ -7,7 +7,7 @@ const {
   sanitize,
   toItem,
 } = require('./models');
-const { getQuotes, searchSymbols } = require('./quotes');
+const { getQuotes, getCandles, searchSymbols } = require('./quotes');
 
 async function connectDatabase() {
   let uri = process.env.MONGODB_URI;
@@ -98,6 +98,16 @@ function createApp() {
     } catch (error) {
       console.error('[api] GET /api/quotes failed', error.message);
       res.status(502).json({ error: 'Stock prices unavailable' });
+    }
+  });
+
+  // Daily price history for the Setup Check. GET /api/candles?symbol=TCS.NS
+  app.get('/api/candles', async (req, res) => {
+    try {
+      res.json(await getCandles(String(req.query.symbol || '')));
+    } catch (error) {
+      console.error('[api] GET /api/candles failed', error.message);
+      res.status(502).json({ error: 'Price history unavailable' });
     }
   });
 

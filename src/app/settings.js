@@ -70,7 +70,7 @@ export default function SettingsScreen() {
   const clearAllData = () => {
     Alert.alert(
       'Reset All Data',
-      'This will permanently delete all diary entries, movies, passwords, banking details, cards, to-dos, expenses, total spends, income, investments, debts, autopays and vault items. This cannot be undone.',
+      'This will permanently delete all diary entries, movies, passwords, banking details, cards, to-dos, expenses, total spends, setup checks, income, investments, debts, autopays and vault items. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {

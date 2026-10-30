@@ -79,6 +79,14 @@ const TABS = [
     gradient: ['#4FD8C8', '#00A99D'],
   },
   {
+    key: 'setup',
+    label: 'Setup Check',
+    description: 'Score a stock setup on 7 indicators',
+    icon: 'pulse-outline',
+    route: '/setup-check',
+    gradient: ['#FF8A65', '#E5383B'],
+  },
+  {
     key: 'balance',
     label: 'Account Balance',
     description: 'Bank balances at a glance',

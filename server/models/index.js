@@ -179,6 +179,23 @@ const COLLECTIONS = {
   months: {
     fields: ['id', 'month', 'incomes', 'adjustments', 'createdAt'],
   },
+  // Setup Check log: a stock's indicator readings, the score and signal.
+  setups: {
+    fields: [
+      'id',
+      'symbol',
+      'name',
+      'market',
+      'price',
+      'inputs',
+      'threshold',
+      'signal',
+      'bullPct',
+      'bearPct',
+      'note',
+      'createdAt',
+    ],
+  },
   // Total Spend: what was spent in a month and what it was paid from.
   // source: card | cred | icici | canara | jupiter | cash | other
   spends: {
