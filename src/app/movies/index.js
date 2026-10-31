@@ -28,6 +28,8 @@ import {
   posterUrl,
 } from '../../services/tmdb';
 import JustAdded from '../../components/movies/JustAdded';
+import { SA_KEY_STORAGE, fetchStreamingLinks } from '../../services/streamingAvailability';
+import { pickLink, watchTarget } from '../../services/ottLinks';
 import { confirmAction } from '../../utils/confirm';
 
 const STORAGE_KEY = '@diarybyte_movies';
@@ -148,6 +150,10 @@ export default function MoviesScreen() {
   }, []);
 
   const ottRequestIdRef = useRef(0);
+  // Watch button: the title being looked up, and titles already looked up
+  // this session without a link (so a tap doesn't spend another request).
+  const [resolvingId, setResolvingId] = useState(null);
+  const noLinkRef = useRef(new Set());
 
   const loadOttMovies = useCallback(async (key, providerIds, type, lang, order = sortRef.current) => {
     const requestId = ++ottRequestIdRef.current;
@@ -273,6 +279,37 @@ export default function MoviesScreen() {
       },
       ...movies,
     ]);
+  };
+
+  // Open the title on its OTT: its stored link, or (for TMDB titles, with a
+  // Streaming Availability key) look the exact link up once and keep it,
+  // else the OTT's search for the title, else a JustWatch search.
+  const watchTitle = async (item) => {
+    if (!item.link && item.tmdbId && !noLinkRef.current.has(item.id)) {
+      const key = await AsyncStorage.getItem(SA_KEY_STORAGE).catch(() => null);
+      if (key) {
+        setResolvingId(item.id);
+        try {
+          const links = await fetchStreamingLinks(key, item.mediaType === 'tv' ? 'tv' : 'movie', item.tmdbId);
+          const best = pickLink(links, item);
+          if (best) {
+            persist(
+              movies.map((m) =>
+                m.id === item.id ? { ...m, link: best.link, platform: m.platform || best.service } : m
+              )
+            );
+            Linking.openURL(best.link).catch(() => {});
+            return;
+          }
+          noLinkRef.current.add(item.id);
+        } catch (_error) {
+          // Quota used up or offline: fall back to search below.
+        } finally {
+          setResolvingId(null);
+        }
+      }
+    }
+    Linking.openURL(watchTarget(item).url).catch(() => {});
   };
 
   const cycleStatus = (movie) => {
@@ -415,6 +452,18 @@ export default function MoviesScreen() {
             {item.rating ? `  ·  ★ ${item.rating.toFixed(1)}` : ''}
           </Text>
         </View>
+        <TouchableOpacity
+          style={styles.watchBtn}
+          onPress={() => watchTitle(item)}
+          disabled={resolvingId === item.id}
+          accessibilityLabel={watchTarget(item).label}
+        >
+          {resolvingId === item.id ? (
+            <ActivityIndicator size="small" color={theme.secondary} />
+          ) : (
+            <Ionicons name="play-circle" size={30} color={theme.secondary} />
+          )}
+        </TouchableOpacity>
         <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteMovie(item.id)}>
           <Ionicons name="trash-outline" size={20} color={theme.danger} />
         </TouchableOpacity>
@@ -1168,6 +1217,7 @@ const styles = StyleSheet.create({
   rowBody: { flex: 1 },
   rowTitle: { fontSize: 16, fontWeight: '600' },
   rowSub: { fontSize: 12, marginTop: 2 },
+  watchBtn: { padding: 4, marginRight: 2, width: 38, alignItems: 'center' },
   deleteBtn: { padding: 6 },
   providerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
   providerChips: { flexDirection: 'row', gap: 8 },

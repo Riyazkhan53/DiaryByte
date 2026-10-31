@@ -170,3 +170,19 @@ export async function checkHost(apiKey, url) {
     return { ok: false, message: error.message || "Couldn't reach that host." };
   }
 }
+
+/**
+ * Where a title streams in India, by its TMDB id ('movie' or 'tv' + number):
+ * [{ service, link, type }], subscription options first. One request.
+ */
+export async function fetchStreamingLinks(apiKey, tmdbType, tmdbId) {
+  const show = await saFetch(apiKey, `/shows/${encodeURIComponent(`${tmdbType}/${tmdbId}`)}`, {
+    country: COUNTRY,
+    output_language: 'en',
+  });
+  const order = { subscription: 0, free: 1, addon: 2, rent: 3, buy: 4 };
+  return (show.streamingOptions?.[COUNTRY] || [])
+    .filter((o) => o.link && o.service?.name)
+    .map((o) => ({ service: o.service.name, link: o.link, type: o.type }))
+    .sort((a, b) => (order[a.type] ?? 9) - (order[b.type] ?? 9));
+}
