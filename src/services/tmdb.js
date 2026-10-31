@@ -37,15 +37,18 @@ export async function fetchProviders(apiKey, mediaType = 'movie') {
     }));
 }
 
-export async function fetchOTTTitles(apiKey, providerIds, mediaType = 'movie', language = '') {
+// sort: 'popular' (most watched) or 'latest' (newest release first, up to today).
+export async function fetchOTTTitles(apiKey, providerIds, mediaType = 'movie', language = '', sort = 'popular') {
+  const dateField = mediaType === 'tv' ? 'first_air_date' : 'primary_release_date';
   const params = {
     api_key: apiKey,
     watch_region: WATCH_REGION,
     with_watch_providers: providerIds.join('|'),
-    sort_by: 'popularity.desc',
     include_adult: 'false',
-    'vote_count.gte': '20',
     page: '1',
+    ...(sort === 'latest'
+      ? { sort_by: `${dateField}.desc`, [`${dateField}.lte`]: new Date().toISOString().slice(0, 10) }
+      : { sort_by: 'popularity.desc', 'vote_count.gte': '20' }),
   };
   if (language) {
     params.with_original_language = language;
