@@ -3,9 +3,31 @@
 // Tamil originals and Tamil-dubbed titles can be told apart.
 // Free plan: a limited number of requests a day, so results are cached.
 
-const HOST = 'streaming-availability.p.rapidapi.com';
-const BASE_URL = `https://${HOST}`;
+export const DEFAULT_BASE_URL = 'https://streaming-availability.p.rapidapi.com';
 const COUNTRY = 'in';
+
+// The host in use. Another one can be tried for this session only: it is
+// never saved, so the app is back on the default after a restart.
+let baseUrl = DEFAULT_BASE_URL;
+
+/** Normalise a typed host ("example.com" or "https://example.com/v4/") to a base URL. */
+export function normalizeBaseUrl(input) {
+  const raw = String(input || '').trim().replace(/\/+$/, '');
+  if (!raw) return null;
+  const url = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    return new URL(url).host ? url : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+export const getBaseUrl = () => baseUrl;
+
+/** Use `url` until the app restarts; null goes back to the default. */
+export function setSessionBaseUrl(url) {
+  baseUrl = url || DEFAULT_BASE_URL;
+}
 
 export const SA_KEY_STORAGE = '@diarybyte_sa_key';
 export const SA_SIGNUP_URL =
@@ -14,13 +36,13 @@ export const SA_SIGNUP_URL =
 // Tamil script (U+0B80–U+0BFF) in the original title marks a Tamil original.
 const TAMIL_SCRIPT = /[஀-௿]/;
 
-async function saFetch(apiKey, path, params) {
+async function saFetch(apiKey, path, params, base = baseUrl) {
   const query = Object.entries(params)
     .filter(([, value]) => value != null && value !== '')
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
     .join('&');
-  const response = await fetch(`${BASE_URL}${path}?${query}`, {
-    headers: { 'X-RapidAPI-Key': apiKey, 'X-RapidAPI-Host': HOST },
+  const response = await fetch(`${base}${path}${query ? `?${query}` : ''}`, {
+    headers: { 'X-RapidAPI-Key': apiKey, 'X-RapidAPI-Host': new URL(base).host },
   });
   if (!response.ok) {
     const error = new Error(
@@ -131,4 +153,20 @@ export async function fetchTamilDubbed(apiKey, { showType = 'movie', cursor, pag
     if (!next || items.length >= want) break;
   }
   return { items, nextCursor: next };
+}
+
+/**
+ * Check a host with `apiKey` without switching to it: asks it for India's
+ * services. Returns { ok: true, services: [names] } or { ok: false, message }.
+ */
+export async function checkHost(apiKey, url) {
+  try {
+    const data = await saFetch(apiKey, `/countries/${COUNTRY}`, {}, url);
+    const services = (data.services || []).map((s) => s.name).filter(Boolean);
+    return services.length
+      ? { ok: true, services }
+      : { ok: false, message: 'The host answered, but not with Streaming Availability data for India.' };
+  } catch (error) {
+    return { ok: false, message: error.message || "Couldn't reach that host." };
+  }
 }

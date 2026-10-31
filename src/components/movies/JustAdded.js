@@ -16,8 +16,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../hooks/useTheme';
 import { confirmAction } from '../../utils/confirm';
 import {
+  DEFAULT_BASE_URL,
   SA_KEY_STORAGE,
   SA_SIGNUP_URL,
+  checkHost,
+  getBaseUrl,
+  normalizeBaseUrl,
+  setSessionBaseUrl,
   fetchJustAdded,
   fetchTamilDubbed,
   fetchTamilLatest,
@@ -71,6 +76,12 @@ export default function JustAdded({ cardWidth, isAdded, onAdd }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const requestRef = useRef(0);
+  // Trying another host: for this session only, never saved.
+  const [host, setHost] = useState(getBaseUrl());
+  const [hostOpen, setHostOpen] = useState(false);
+  const [hostInput, setHostInput] = useState(getBaseUrl());
+  const [hostCheck, setHostCheck] = useState(null); // { state: 'checking' | 'ok' | 'fail', text }
+  const customHost = host !== DEFAULT_BASE_URL;
 
   useEffect(() => {
     AsyncStorage.getItem(SA_KEY_STORAGE)
@@ -87,7 +98,8 @@ export default function JustAdded({ cardWidth, isAdded, onAdd }) {
     setLoading(true);
     setError(null);
     try {
-      const cache = await readCache();
+      // Only the default host's results are cached.
+      const cache = customHost ? {} : await readCache();
       const hit = cache[cacheId];
       if (!force && !more && hit && Date.now() - hit.at < CACHE_MS) {
         if (requestRef.current === id) setResult(hit);
@@ -103,7 +115,9 @@ export default function JustAdded({ cardWidth, isAdded, onAdd }) {
         at: Date.now(),
       };
       setResult(next);
-      AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ ...cache, [cacheId]: next })).catch(() => {});
+      if (!customHost) {
+        AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ ...cache, [cacheId]: next })).catch(() => {});
+      }
     } catch (e) {
       if (requestRef.current !== id) return;
       setError(e.message);
@@ -120,7 +134,30 @@ export default function JustAdded({ cardWidth, isAdded, onAdd }) {
 
   useEffect(() => {
     if (apiKey) loadRef.current();
-  }, [apiKey, feed, showType]);
+  }, [apiKey, feed, showType, host]);
+
+  const checkTypedHost = async () => {
+    const url = normalizeBaseUrl(hostInput);
+    if (!url) {
+      setHostCheck({ state: 'fail', text: 'Enter a host, e.g. streaming-availability.p.rapidapi.com' });
+      return;
+    }
+    setHostCheck({ state: 'checking', text: `Checking ${url}…` });
+    const r = await checkHost(apiKey, url);
+    setHostCheck(
+      r.ok
+        ? { state: 'ok', url, text: `Works: ${r.services.length} services in India (${r.services.slice(0, 4).join(', ')}${r.services.length > 4 ? '…' : ''}).` }
+        : { state: 'fail', text: r.message }
+    );
+  };
+
+  const applyHost = (url) => {
+    setSessionBaseUrl(url);
+    setHost(getBaseUrl());
+    setHostInput(getBaseUrl());
+    setHostCheck(null);
+    setResult({ items: [], nextCursor: null, at: null });
+  };
 
   const saveKey = async () => {
     const key = keyInput.trim();
@@ -294,10 +331,74 @@ export default function JustAdded({ cardWidth, isAdded, onAdd }) {
         <TouchableOpacity style={styles.iconBtn} onPress={() => load({ force: true })} accessibilityLabel="Refresh">
           <Ionicons name="refresh" size={18} color={theme.textMuted} />
         </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={() => setHostOpen((o) => !o)}
+          accessibilityLabel="Try another host"
+        >
+          <Ionicons name="server-outline" size={18} color={customHost ? theme.accent : theme.textMuted} />
+        </TouchableOpacity>
         <TouchableOpacity style={styles.iconBtn} onPress={changeKey} accessibilityLabel="Change Streaming Availability key">
           <Ionicons name="key-outline" size={18} color={theme.textMuted} />
         </TouchableOpacity>
       </View>
+
+      {hostOpen ? (
+        <View style={[styles.hostPanel, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Text style={[styles.hostLabel, { color: theme.textSecondary }]}>
+            Host in use: <Text style={styles.bold}>{host}</Text>
+            {customHost ? ' (this session only)' : ' (default)'}
+          </Text>
+          <TextInput
+            style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+            value={hostInput}
+            onChangeText={(v) => {
+              setHostInput(v);
+              setHostCheck(null);
+            }}
+            placeholder={DEFAULT_BASE_URL}
+            placeholderTextColor={theme.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            accessibilityLabel="Host to try"
+          />
+          {hostCheck ? (
+            <Text
+              style={[
+                styles.hostResult,
+                { color: hostCheck.state === 'ok' ? '#34C759' : hostCheck.state === 'fail' ? '#FF3B30' : theme.textMuted },
+              ]}
+            >
+              {hostCheck.text}
+            </Text>
+          ) : null}
+          <View style={styles.hostActions}>
+            <TouchableOpacity
+              style={[styles.hostBtn, { borderColor: theme.primary }]}
+              onPress={checkTypedHost}
+              disabled={hostCheck?.state === 'checking'}
+            >
+              <Text style={[styles.hostBtnText, { color: theme.primary }]}>Check</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.hostBtn, { borderColor: theme.secondary, opacity: hostCheck?.state === 'ok' ? 1 : 0.4 }]}
+              onPress={() => applyHost(hostCheck.url)}
+              disabled={hostCheck?.state !== 'ok'}
+            >
+              <Text style={[styles.hostBtnText, { color: theme.secondary }]}>Use for now</Text>
+            </TouchableOpacity>
+            {customHost ? (
+              <TouchableOpacity style={[styles.hostBtn, { borderColor: theme.borderNeutral }]} onPress={() => applyHost(null)}>
+                <Text style={[styles.hostBtnText, { color: theme.text }]}>Reset to default</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          <Text style={[styles.hostNote, { color: theme.textMuted }]}>
+            Not saved: the app goes back to the default host when it restarts. Check uses your key and one request.
+          </Text>
+        </View>
+      ) : null}
 
       {services.length > 1 ? (
         <ScrollView
@@ -389,6 +490,14 @@ export default function JustAdded({ cardWidth, isAdded, onAdd }) {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   noShrink: { flexGrow: 0, flexShrink: 0 },
+  bold: { fontWeight: '700' },
+  hostPanel: { borderWidth: 1, borderRadius: 14, padding: 12, gap: 8, marginBottom: 10 },
+  hostLabel: { fontSize: 12 },
+  hostResult: { fontSize: 12, lineHeight: 17 },
+  hostActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  hostBtn: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7 },
+  hostBtnText: { fontSize: 13, fontWeight: '600' },
+  hostNote: { fontSize: 11, lineHeight: 15 },
   iconGap: { marginRight: 6 },
   list: { paddingBottom: 100 },
   setupCard: { borderRadius: 18, borderWidth: 1, padding: 20, alignItems: 'center', gap: 10 },
