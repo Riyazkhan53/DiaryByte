@@ -1,0 +1,47 @@
+# Starts a native build on EAS from GitHub (no computer needed): GitHub app →
+# Actions → Build Android → Run workflow. Needed after native changes (app
+# icon, splash screen, a new native package), which EAS Update can't ship.
+# Uses the same EXPO_TOKEN repository secret as eas-update.yml, and the
+# signing credentials stored on EAS.
+#
+# The job only queues the build and links to it; the build itself runs on
+# EAS (about 10–20 minutes). Open the link on your phone to install it.
+name: Build Android
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Build profile (preview = installable APK)'
+        type: choice
+        options: [preview, production]
+        default: preview
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Queue the build on EAS
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          PROFILE: ${{ inputs.profile }}
+        run: |
+          npx eas-cli@latest build --platform android --profile "$PROFILE" \
+            --non-interactive --no-wait --json > build.json
+          cat build.json
+          url=$(node -e "const b=[].concat(require('./build.json'))[0]; console.log('https://expo.dev/accounts/riyaz-creations/projects/diarybyte/builds/' + b.id)")
+          {
+            echo "### Android build queued ($PROFILE)"
+            echo ""
+            echo "Follow it and install when done: $url"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Build page: $url"
