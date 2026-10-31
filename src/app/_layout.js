@@ -1,5 +1,6 @@
 import { Stack, ThemeProvider as NavigationThemeProvider, DefaultTheme, DarkTheme } from 'expo-router';
 import { ShareIntentProvider } from 'expo-share-intent';
+import * as SplashScreen from 'expo-splash-screen';
 import { ThemeProvider, useTheme } from '../hooks/useTheme';
 import ServerGate from '../components/ServerGate';
 import GlassBackground from '../components/GlassBackground';
@@ -7,6 +8,10 @@ import AutopayReminderService from '../components/AutopayReminderService';
 import DebtReminderService from '../components/DebtReminderService';
 import SipService from '../components/SipService';
 import ShareIntentHandler from '../components/ShareIntentHandler';
+import AnimatedSplash from '../components/AnimatedSplash';
+
+// Keep the native splash up until the launch animation has drawn over it.
+SplashScreen.preventAutoHideAsync();
 
 const renderScreen = ({ children }) => <GlassBackground>{children}</GlassBackground>;
 
@@ -48,6 +53,7 @@ export default function RootLayout() {
     <ShareIntentProvider>
       <ThemeProvider>
         <GlassRoot />
+        <AnimatedSplash />
       </ThemeProvider>
     </ShareIntentProvider>
   );
