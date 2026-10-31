@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View, Animated, Easing, TouchableOpacity } from 'react-native';
+import { StyleSheet, Text, View, Animated, Easing, Image, Platform, TouchableOpacity } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useTheme } from '../hooks/useTheme';
 import { checkHealth } from '../services/api';
+import { BRAND_ICON, GLOW_RINGS, brandStyles, glowRingStyle } from './brand';
 
-const ICON_SIZE = 132;
+const BAR_WIDTH = 200;
 const RETRY_DELAY_MS = 2000;
 const MIN_SPLASH_MS = 900;
 const OFFLINE_BUTTON_AFTER_MS = 12000;
@@ -18,13 +17,14 @@ const FILL_TIME_CONSTANT_MS = 20000;
  * Start page shown while the API server wakes up. Renders children once
  * /api/health responds, or when the user chooses to continue offline
  * (the app is local-first, so everything still works without the server).
+ * Laid out like the launch animation (AnimatedSplash), which fades into it.
  */
 export default function ServerGate({ children }) {
-  const { theme } = useTheme();
   const [ready, setReady] = useState(false);
   const [showOffline, setShowOffline] = useState(false);
   const [percent, setPercent] = useState(0);
   const [fill] = useState(() => new Animated.Value(0));
+  const [pulse] = useState(() => new Animated.Value(0));
   const doneRef = useRef(false);
 
   useEffect(() => {
@@ -80,6 +80,18 @@ export default function ServerGate({ children }) {
     };
   }, [fill]);
 
+  // The halo breathes slowly while waiting.
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.sin), useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(pulse, { toValue: 0, duration: 1400, easing: Easing.inOut(Easing.sin), useNativeDriver: Platform.OS !== 'web' }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
   if (ready) return children;
 
   const continueOffline = () => {
@@ -87,105 +99,65 @@ export default function ServerGate({ children }) {
     setReady(true);
   };
 
-  const fillHeight = fill.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, ICON_SIZE],
-  });
+  const fillWidth = fill.interpolate({ inputRange: [0, 1], outputRange: [0, BAR_WIDTH] });
+  // Starts where the launch animation's halo ends (scale 1.25, opacity 0.7).
+  const haloScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1.25, 1.35] });
+  const haloOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.7, 0.45] });
 
   return (
-    <View style={styles.container}>
-      <StatusBar style={theme.statusBar} />
+    <View style={brandStyles.screen}>
+      <StatusBar style="light" />
 
-      <View
-        style={[
-          styles.icon,
-          { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow },
-        ]}
-        accessibilityRole="progressbar"
-        accessibilityLabel="Loading DiaryByte"
-        accessibilityValue={{ min: 0, max: 100, now: percent }}
-      >
-        <Animated.View style={[styles.fill, { height: fillHeight }]}>
-          <LinearGradient
-            colors={[theme.primary, theme.secondary]}
-            start={{ x: 0, y: 1 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.fillGradient}
+      <View style={brandStyles.stage}>
+        {GLOW_RINGS.map((ring) => (
+          <Animated.View
+            key={ring[0]}
+            style={[glowRingStyle(ring), { opacity: haloOpacity, transform: [{ scale: haloScale }] }]}
           />
-        </Animated.View>
-        <Ionicons name="book" size={60} color={theme.text} style={styles.glyph} />
+        ))}
+        <Image source={BRAND_ICON} style={brandStyles.icon} accessibilityIgnoresInvertColors />
       </View>
 
-      <Text style={[styles.title, { color: theme.text }]}>DiaryByte</Text>
-      <Text style={[styles.status, { color: theme.textSecondary }]}>
-        {percent >= 100 ? 'Ready' : 'Waking up the server…'}
-      </Text>
-      <Text style={[styles.percent, { color: theme.textMuted }]}>{percent}%</Text>
+      <View style={brandStyles.below}>
+        <Text style={brandStyles.name}>
+          Diary<Text style={brandStyles.nameAccent}>Byte</Text>
+        </Text>
+        <Text style={styles.status}>{percent >= 100 ? 'Ready' : 'Waking up the server…'}</Text>
+        <View
+          style={styles.track}
+          accessibilityRole="progressbar"
+          accessibilityLabel="Loading DiaryByte"
+          accessibilityValue={{ min: 0, max: 100, now: percent }}
+        >
+          <Animated.View style={[styles.fill, { width: fillWidth }]}>
+            <LinearGradient colors={['#35C8F5', '#2C6BFF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.fillGradient} />
+          </Animated.View>
+        </View>
+        <Text style={styles.percent}>{percent}%</Text>
 
-      {showOffline && percent < 100 && (
-        <TouchableOpacity onPress={continueOffline} style={styles.offlineButton} activeOpacity={0.7}>
-          <Text style={[styles.offlineText, { color: theme.secondaryDark }]}>
-            Taking a while? Continue offline
-          </Text>
-        </TouchableOpacity>
-      )}
+        {showOffline && percent < 100 && (
+          <TouchableOpacity onPress={continueOffline} style={styles.offlineButton} activeOpacity={0.7}>
+            <Text style={styles.offlineText}>Taking a while? Continue offline</Text>
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  icon: {
-    width: ICON_SIZE,
-    height: ICON_SIZE,
-    borderRadius: 34,
-    borderWidth: 2,
+  status: { fontSize: 15, marginTop: 10, color: '#9FB3D1' },
+  track: {
+    width: BAR_WIDTH,
+    height: 6,
+    borderRadius: 3,
+    marginTop: 14,
     overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
   },
-  fill: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  fillGradient: {
-    flex: 1,
-  },
-  glyph: {
-    opacity: 0.85,
-  },
-  title: {
-    fontSize: 30,
-    fontWeight: 'bold',
-    marginTop: 24,
-  },
-  status: {
-    fontSize: 15,
-    marginTop: 8,
-  },
-  percent: {
-    fontSize: 13,
-    marginTop: 4,
-    fontVariant: ['tabular-nums'],
-  },
-  offlineButton: {
-    marginTop: 28,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-  },
-  offlineText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  fill: { height: '100%', borderRadius: 3, overflow: 'hidden' },
+  fillGradient: { flex: 1 },
+  percent: { fontSize: 13, marginTop: 8, color: '#6F84A6', fontVariant: ['tabular-nums'] },
+  offlineButton: { marginTop: 22, paddingVertical: 10, paddingHorizontal: 16 },
+  offlineText: { fontSize: 14, fontWeight: '600', color: '#35C8F5' },
 });

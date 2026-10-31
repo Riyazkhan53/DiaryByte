@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Easing, Image, Platform, StyleSheet, Text, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 
+import { BRAND_BG, BRAND_ICON, GLOW_RINGS, brandStyles, glowRingStyle } from './brand';
+
 // Same navy and logo as the native splash (app.json), so the hand-over is seamless.
-const BG = '#0E192D';
 const LOGO = require('../../assets/splash-icon.png');
-const ICON = require('../../assets/icon.png');
 const useNativeDriver = Platform.OS !== 'web';
 
 /**
@@ -72,58 +72,36 @@ export default function AnimatedSplash() {
       pointerEvents="none"
       accessibilityLabel="DiaryByte is starting"
     >
-      <View style={styles.stage}>
+      <View style={brandStyles.stage}>
         {/* A soft halo: rings that get fainter outwards. */}
         {GLOW_RINGS.map(([size, alpha]) => (
           <Animated.View
             key={size}
-            style={[
-              styles.glow,
-              { width: size, height: size, borderRadius: size / 2, backgroundColor: `rgba(44, 140, 255, ${alpha})` },
-              { opacity: glowOpacity, transform: [{ scale: glowScale }] },
-            ]}
+            style={[glowRingStyle([size, alpha]), { opacity: glowOpacity, transform: [{ scale: glowScale }] }]}
           />
         ))}
         <Animated.Image source={LOGO} style={[styles.logo, { opacity: logo }]} resizeMode="contain" />
         <Animated.View style={{ opacity: icon, transform: [{ scale: iconScale }] }}>
-          <Image source={ICON} style={styles.icon} />
+          <Image source={BRAND_ICON} style={brandStyles.icon} />
         </Animated.View>
       </View>
-      <Animated.View style={[styles.textBox, { opacity: text, transform: [{ translateY: textShift }] }]}>
-        <Text style={styles.name}>
-          Diary<Text style={styles.nameAccent}>Byte</Text>
+      <Animated.View style={[brandStyles.below, { opacity: text, transform: [{ translateY: textShift }] }]}>
+        <Text style={brandStyles.name}>
+          Diary<Text style={brandStyles.nameAccent}>Byte</Text>
         </Text>
-        <Text style={styles.tagline}>Diary · Money · Trading · Watch list</Text>
+        <Text style={brandStyles.tagline}>Diary · Money · Trading · Watch list</Text>
       </Animated.View>
     </Animated.View>
   );
 }
 
-const ICON_SIZE = 168;
-// [diameter, opacity] from the inside out.
-const GLOW_RINGS = [
-  [190, 0.22],
-  [230, 0.12],
-  [280, 0.07],
-  [340, 0.04],
-];
-
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 1000,
-    backgroundColor: BG,
+    backgroundColor: BRAND_BG,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // The native splash centres its 200px logo on the screen; the stage is
-  // centred the same way, with the name placed below it.
-  stage: { width: 200, height: 200, alignItems: 'center', justifyContent: 'center' },
-  textBox: { position: 'absolute', top: '50%', left: 0, right: 0, marginTop: 110 },
-  glow: { position: 'absolute' },
   logo: { position: 'absolute', width: 200, height: 200 },
-  icon: { width: ICON_SIZE, height: ICON_SIZE, borderRadius: ICON_SIZE * 0.23 },
-  name: { fontSize: 32, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', letterSpacing: 0.5 },
-  nameAccent: { color: '#35C8F5' },
-  tagline: { marginTop: 8, fontSize: 14, color: '#9FB3D1', textAlign: 'center', letterSpacing: 0.3 },
 });
