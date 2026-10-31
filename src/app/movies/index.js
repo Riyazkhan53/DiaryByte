@@ -27,6 +27,8 @@ import {
   fetchOTTTitles,
   posterUrl,
 } from '../../services/tmdb';
+import JustAdded from '../../components/movies/JustAdded';
+import { confirmAction } from '../../utils/confirm';
 
 const STORAGE_KEY = '@diarybyte_movies';
 
@@ -123,11 +125,13 @@ export default function MoviesScreen() {
   const [selectedProviders, setSelectedProviders] = useState([]);
   const [mediaType, setMediaType] = useState('movie');
   const [language, setLanguage] = useState('');
+  const [sort, setSort] = useState('popular');
   const [ottMovies, setOttMovies] = useState([]);
   const [ottLoading, setOttLoading] = useState(false);
   const [ottError, setOttError] = useState(null);
 
   const languageRef = useRef(language);
+  const sortRef = useRef(sort);
 
   const cardWidth = (width - 32 - 12) / 2;
 
@@ -145,12 +149,12 @@ export default function MoviesScreen() {
 
   const ottRequestIdRef = useRef(0);
 
-  const loadOttMovies = useCallback(async (key, providerIds, type, lang) => {
+  const loadOttMovies = useCallback(async (key, providerIds, type, lang, order = sortRef.current) => {
     const requestId = ++ottRequestIdRef.current;
     setOttLoading(true);
     setOttError(null);
     try {
-      const list = await fetchOTTTitles(key, providerIds, type, lang);
+      const list = await fetchOTTTitles(key, providerIds, type, lang, order);
       if (ottRequestIdRef.current !== requestId) return;
       setOttMovies(list);
     } catch (error) {
@@ -242,6 +246,35 @@ export default function MoviesScreen() {
     ]);
   };
 
+  // From the "Just added" tab (Streaming Availability).
+  const isInList = (item) =>
+    movies.some((m) =>
+      item.tmdbId
+        ? m.tmdbId === item.tmdbId && (m.mediaType || 'movie') === item.mediaType
+        : (m.title || '').trim().toLowerCase() === item.title.trim().toLowerCase()
+    );
+
+  const addFromJustAdded = (item) => {
+    if (isInList(item)) return;
+    persist([
+      {
+        id: makeId(),
+        title: item.title,
+        platform: item.services.slice(0, 2).join(', '),
+        type: item.mediaType === 'tv' ? 'Series' : 'Movie',
+        status: 'watchlist',
+        addedAt: new Date().toISOString(),
+        tmdbId: item.tmdbId || undefined,
+        mediaType: item.mediaType,
+        posterUri: item.posterUri || undefined,
+        link: item.link || undefined,
+        rating: item.rating || undefined,
+        releaseDate: item.year ? String(item.year) : undefined,
+      },
+      ...movies,
+    ]);
+  };
+
   const cycleStatus = (movie) => {
     const order = ['watchlist', 'watching', 'watched'];
     const next = order[(order.indexOf(movie.status) + 1) % order.length];
@@ -273,20 +306,13 @@ export default function MoviesScreen() {
   };
 
   const clearApiKey = () => {
-    Alert.alert('Change API key', 'Disconnect TMDB and enter a new API key?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Change',
-        style: 'destructive',
-        onPress: () => {
-          AsyncStorage.removeItem(TMDB_KEY_STORAGE).catch(() => {});
-          setApiKey(null);
-          setProviders([]);
-          setSelectedProviders([]);
-          setOttMovies([]);
-        },
-      },
-    ]);
+    confirmAction('Change API key', 'Disconnect TMDB and enter a new API key?', 'Change', () => {
+      AsyncStorage.removeItem(TMDB_KEY_STORAGE).catch(() => {});
+      setApiKey(null);
+      setProviders([]);
+      setSelectedProviders([]);
+      setOttMovies([]);
+    });
   };
 
   const toggleProvider = (id) => {
@@ -296,6 +322,14 @@ export default function MoviesScreen() {
     setSelectedProviders(next);
     if (apiKey && next.length > 0) {
       loadOttMovies(apiKey, next, mediaType, language);
+    }
+  };
+
+  const changeSort = (order) => {
+    setSort(order);
+    sortRef.current = order;
+    if (apiKey && selectedProviders.length > 0) {
+      loadOttMovies(apiKey, selectedProviders, mediaType, language, order);
     }
   };
 
@@ -340,7 +374,7 @@ export default function MoviesScreen() {
 
   const renderMovieRow = ({ item }) => {
     const meta = statusMeta(item.status);
-    const thumb = posterUrl(item.posterPath, 'w92');
+    const thumb = posterUrl(item.posterPath, 'w92') || item.posterUri;
     const typeLabel = getTypeLabel(item);
     const typeColor = getTypeColor(typeLabel, theme);
     const infoParts = [typeLabel];
@@ -489,7 +523,19 @@ export default function MoviesScreen() {
               color={tab === 'ott' ? theme.onPrimary : theme.text}
               style={{ marginRight: 6 }}
             />
-            <Text style={[styles.tabBtnText, { color: tab === 'ott' ? theme.onPrimary : theme.text }]}>New on OTT</Text>
+            <Text style={[styles.tabBtnText, { color: tab === 'ott' ? theme.onPrimary : theme.text }]}>Browse OTT</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tabBtn, tab === 'new' && { backgroundColor: theme.accent }]}
+            onPress={() => setTab('new')}
+          >
+            <Ionicons
+              name="flash-outline"
+              size={16}
+              color={tab === 'new' ? theme.onPrimary : theme.text}
+              style={{ marginRight: 6 }}
+            />
+            <Text style={[styles.tabBtnText, { color: tab === 'new' ? theme.onPrimary : theme.text }]}>Just added</Text>
           </TouchableOpacity>
         </View>
 
@@ -591,6 +637,8 @@ export default function MoviesScreen() {
               renderItem={renderMovieRow}
             />
           </>
+        ) : tab === 'new' ? (
+          <JustAdded cardWidth={cardWidth} isAdded={isInList} onAdd={addFromJustAdded} />
         ) : (
           <>
             {!apiKey ? (
@@ -679,6 +727,25 @@ export default function MoviesScreen() {
 
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.langScroll}>
                   <View style={styles.langChips}>
+                    {[
+                      ['popular', 'Popular'],
+                      ['latest', 'Latest'],
+                    ].map(([key, label]) => (
+                      <TouchableOpacity
+                        key={key}
+                        style={[
+                          styles.chip,
+                          styles.langChip,
+                          {
+                            backgroundColor: sort === key ? theme.primary : theme.surface,
+                            borderColor: sort === key ? theme.primary : theme.borderNeutral,
+                          },
+                        ]}
+                        onPress={() => changeSort(key)}
+                      >
+                        <Text style={[styles.chipText, { color: sort === key ? theme.onPrimary : theme.text }]}>{label}</Text>
+                      </TouchableOpacity>
+                    ))}
                     {LANGUAGES.map((l) => {
                       const selected = language === l.code;
                       return (
@@ -1025,7 +1092,7 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     borderRadius: 10,
   },
-  tabBtnText: { fontSize: 14, fontWeight: '600' },
+  tabBtnText: { fontSize: 13, fontWeight: '600' },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
   filterBtn: {
     flexDirection: 'row',

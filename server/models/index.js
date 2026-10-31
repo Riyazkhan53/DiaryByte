@@ -14,6 +14,9 @@ const COLLECTIONS = {
       'tmdbId',
       'mediaType',
       'posterPath',
+      // Full poster URL and OTT deep link for titles from Streaming Availability
+      'posterUri',
+      'link',
       'rating',
       'releaseDate',
     ],
