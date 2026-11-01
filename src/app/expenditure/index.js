@@ -11,6 +11,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import Header from '../../components/Header';
 import SyncRow from '../../components/SyncRow';
 import TotalSpend from '../../components/TotalSpend';
@@ -23,6 +24,8 @@ import {
   dueFromSourceId,
   markDuePaid,
   markDueUnpaid,
+  ONE_MONTH_LOAN,
+  oneMonthAfter,
   shortDate,
 } from '../../utils/debts';
 import { todayKey } from '../../utils/autopay';
@@ -62,6 +65,9 @@ const INCOME_SOURCES = [
   { key: 'Freelance', icon: 'laptop-outline' },
   { key: 'Rental', icon: 'home-outline' },
   { key: 'Interest', icon: 'trending-up-outline' },
+  // Money that must be paid back: also added to My Debts (see saveIncome).
+  { key: 'Borrowed', icon: 'people-outline' },
+  { key: 'New loan', icon: 'business-outline' },
   { key: 'Other', icon: 'cash-outline' },
 ];
 
@@ -351,28 +357,83 @@ export default function ExpenditureScreen() {
     setIncomeVisible(true);
   };
 
+  // The debt a "Borrowed" income created, if it is still unpaid (paid ones are left alone).
+  const unpaidBorrowDebt = (income) => {
+    const debt = income?.debtId ? debts.find((d) => d.id === income.debtId) : null;
+    return debt && !debt.paid ? debt : null;
+  };
+  const borrowName = (note) => (note ? `Borrowed from ${note}` : 'Borrowed money');
+
   const saveIncome = () => {
     const parsed = parseAmount(incomeAmount);
     if (!parsed || parsed <= 0) return;
+    const previous = editingIncomeId ? incomes.find((i) => i.id === editingIncomeId) : null;
+    const note = incomeNote.trim();
     const entry = {
       id: editingIncomeId || makeId(),
       source: incomeSource,
-      note: incomeNote.trim(),
+      note,
       amount: parsed,
     };
+
+    // Borrowed: owe it back in a month, as a 1-month loan in Debts → Other Bills.
+    const linked = unpaidBorrowDebt(previous);
+    if (incomeSource === 'Borrowed') {
+      if (linked) {
+        entry.debtId = linked.id;
+        persistDebts(
+          debts.map((d) =>
+            d.id === linked.id ? { ...d, name: borrowName(note), amount: parsed, updatedAt: new Date().toISOString() } : d
+          )
+        );
+      } else if (!previous?.debtId) {
+        const dueDate = oneMonthAfter(todayKey());
+        const debt = {
+          id: makeId(),
+          section: 'bill',
+          name: borrowName(note),
+          billType: ONE_MONTH_LOAN,
+          amount: parsed,
+          dueDate,
+          month: dueDate.slice(0, 7),
+          paid: false,
+          note: `Borrowed on ${todayKey()} (added from My Income)`,
+          createdAt: new Date().toISOString(),
+        };
+        entry.debtId = debt.id;
+        persistDebts([debt, ...debts]);
+      } else {
+        entry.debtId = previous.debtId; // already repaid: keep the link
+      }
+    } else if (linked) {
+      // No longer borrowed: drop the unpaid repayment it created.
+      persistDebts(debts.filter((d) => d.id !== linked.id));
+    }
+
     saveMonthIncomes(
       selectedMonth,
       editingIncomeId ? incomes.map((i) => (i.id === editingIncomeId ? entry : i)) : [...incomes, entry]
     );
     setIncomeVisible(false);
+
+    // New loan: continue in Debts to add its EMI details.
+    if (incomeSource === 'New loan' && !editingIncomeId) {
+      router.push({ pathname: '/debts', params: { newLoan: '1', principal: String(parsed), name: note } });
+    }
   };
 
   const deleteIncome = (income) => {
-    confirmDelete('Delete Income', `Remove ${income.note || income.source}?`, () =>
-      saveMonthIncomes(
-        selectedMonth,
-        incomes.filter((i) => i.id !== income.id)
-      )
+    const linked = unpaidBorrowDebt(income);
+    confirmDelete(
+      'Delete Income',
+      `Remove ${income.note || income.source}?${linked ? ' Its unpaid repayment in My Debts is removed too.' : ''}`,
+      () => {
+        if (linked) persistDebts(debts.filter((d) => d.id !== linked.id));
+        saveMonthIncomes(
+          selectedMonth,
+          incomes.filter((i) => i.id !== income.id)
+        );
+      }
     );
   };
 
@@ -987,7 +1048,13 @@ export default function ExpenditureScreen() {
             </View>
             <TextInput
               style={[inputStyle, styles.spaced]}
-              placeholder="Name (optional, e.g. Company name)"
+              placeholder={
+                incomeSource === 'Borrowed'
+                  ? 'From whom (optional, e.g. Ravi)'
+                  : incomeSource === 'New loan'
+                    ? 'Loan name (e.g. HDFC personal loan)'
+                    : 'Name (optional, e.g. Company name)'
+              }
               placeholderTextColor={theme.textMuted}
               value={incomeNote}
               onChangeText={setIncomeNote}
@@ -1000,6 +1067,16 @@ export default function ExpenditureScreen() {
               onChangeText={setIncomeAmount}
               keyboardType="decimal-pad"
             />
+            {incomeSource === 'Borrowed' ? (
+              <Text style={[styles.modalSub, styles.incomeHint, { color: theme.textMuted }]}>
+                Also added to My Debts → Other Bills as a 1-month loan, due {shortDate(oneMonthAfter(todayKey()))}, so you
+                remember to pay it back.
+              </Text>
+            ) : incomeSource === 'New loan' && !editingIncomeId ? (
+              <Text style={[styles.modalSub, styles.incomeHint, { color: theme.textMuted }]}>
+                Next, My Debts opens so you can add the loan&apos;s interest rate, tenure and EMI date.
+              </Text>
+            ) : null}
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={[styles.cancelBtn, { backgroundColor: theme.surfaceAlt }]}
@@ -1337,6 +1414,7 @@ const styles = StyleSheet.create({
   modal: { borderRadius: 20, padding: 20 },
   modalTitle: { fontSize: 20, fontWeight: 'bold' },
   modalSub: { fontSize: 13, marginTop: 2, marginBottom: 16 },
+  incomeHint: { marginTop: 10, marginBottom: 0, lineHeight: 18 },
   input: {
     borderRadius: 12,
     borderWidth: 1,

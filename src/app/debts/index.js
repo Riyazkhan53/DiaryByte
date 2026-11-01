@@ -11,6 +11,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams } from 'expo-router';
 import Header from '../../components/Header';
 import SyncRow from '../../components/SyncRow';
 import DatePicker from '../../components/DatePicker';
@@ -37,6 +38,8 @@ import {
   markDuePaid,
   markDueUnpaid,
   monthLabel,
+  ONE_MONTH_LOAN,
+  oneMonthAfter,
   recurringBillDues,
   sectionOf,
   shortDate,
@@ -79,22 +82,11 @@ const BILL_TYPES = [
   { key: 'Other', icon: 'receipt-outline', color: '#8E8E93' },
 ];
 
-// A short loan repaid in one go about a month later (pay-later, salary
-// advance, money borrowed till next month): a one-time bill whose payment
-// counts as an EMI in My Expenditure.
-const ONE_MONTH_LOAN = 'One-month loan';
 
 // Expense category a paid bill is filed under.
 const billCategory = (kind, billType) =>
   kind === 'card' ? 'Credit Card' : billType === ONE_MONTH_LOAN ? 'EMI' : 'Bills';
 
-// The same day next month (or that month's last day), as YYYY-MM-DD.
-const oneMonthAfter = (dateKey) => {
-  const [y, m, d] = dateKey.split('-').map(Number);
-  const last = new Date(y, m + 1, 0).getDate();
-  const next = new Date(y, m, Math.min(d, last));
-  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`;
-};
 
 const CARD_META = { icon: 'card-outline', color: '#FF9500' };
 
@@ -162,10 +154,23 @@ export default function DebtsScreen() {
   const [section, setSection] = useState('emi');
   const [webPermission, setWebPermission] = useState(webNotificationPermission);
 
-  // Loan form
-  const [loanVisible, setLoanVisible] = useState(false);
+  // Loan form. "New loan" income in My Expenditure opens it here, prefilled
+  // (?newLoan=1&principal=…&name=…): first EMI next month, none paid yet.
+  const params = useLocalSearchParams();
+  const fromIncome = params.newLoan === '1';
+  const [loanVisible, setLoanVisible] = useState(fromIncome);
   const [editingId, setEditingId] = useState(null);
-  const [loan, setLoan] = useState(EMPTY_LOAN);
+  const [loan, setLoan] = useState(() =>
+    fromIncome
+      ? {
+          ...EMPTY_LOAN,
+          name: typeof params.name === 'string' ? params.name : '',
+          principal: typeof params.principal === 'string' ? params.principal : '',
+          startMonth: addMonths(currentMonthKey(), 1),
+          paidBefore: false,
+        }
+      : EMPTY_LOAN
+  );
   const setLoanField = (key) => (value) => setLoan((f) => ({ ...f, [key]: value }));
 
   // Bill form (credit card + other bills)

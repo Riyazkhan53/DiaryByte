@@ -90,6 +90,18 @@ export function calcTenure(principal, annualRate, emi) {
 // were really loans too, so everything old is treated as a loan.
 export const sectionOf = (item) => item.section || 'emi';
 
+// A short loan repaid in one go about a month later (pay-later, salary
+// advance, money borrowed till next month): a one-time bill in Other Bills
+// whose payment counts as an EMI in My Expenditure.
+export const ONE_MONTH_LOAN = 'One-month loan';
+
+/** The same day next month (or that month's last day), as YYYY-MM-DD. */
+export function oneMonthAfter(dateKey) {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const last = new Date(y, m + 1, 0).getDate();
+  return `${y + Math.floor(m / 12)}-${pad((m % 12) + 1)}-${pad(Math.min(d, last))}`;
+}
+
 /** A loan with enough details to generate its EMI schedule. */
 export const hasSchedule = (item) =>
   sectionOf(item) === 'emi' &&
