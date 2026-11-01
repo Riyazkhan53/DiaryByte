@@ -165,6 +165,7 @@ export default function DebtsScreen() {
   const [manualOutstanding, setManualOutstanding] = useState('');
 
   const [showPaid, setShowPaid] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
 
   const loans = items.filter((i) => sectionOf(i) === 'emi');
   const cards = items.filter((i) => sectionOf(i) === 'card');
@@ -482,6 +483,24 @@ export default function DebtsScreen() {
   const loanSummaries = Object.fromEntries(loans.map((l) => [l.id, loanSummary(l)]));
   const totalOutstanding = loans.reduce((s, l) => s + loanSummaries[l.id].outstanding, 0);
   const totalPrincipal = loans.reduce((s, l) => s + (Number(l.principal) || 0), 0);
+  // Completed: every scheduled EMI paid, or (no schedule) nothing left to repay.
+  const isCompleted = (l) => {
+    const s = loanSummaries[l.id];
+    return s.scheduled ? s.remainingCount === 0 : s.outstanding <= 0;
+  };
+  const activeLoans = loans.filter((l) => !isCompleted(l));
+  const completedLoans = loans.filter(isCompleted);
+  // EMIs still to pay this month, plus earlier months not marked paid.
+  const pendingEmis = activeLoans
+    .flatMap((l) => {
+      const s = loanSummaries[l.id];
+      const paid = new Set(l.paidMonths || []);
+      return s.rows
+        .filter((r) => r.month <= thisMonth && !paid.has(r.month))
+        .map((r) => ({ loan: l, row: r, overdue: r.month < thisMonth }));
+    })
+    .sort((a, b) => a.row.dueDate.localeCompare(b.row.dueDate));
+  const pendingEmiTotal = pendingEmis.reduce((s, x) => s + x.row.payment, 0);
   const totalPaidOff = Math.max(0, totalPrincipal - totalOutstanding);
   const paidPct = totalPrincipal > 0 ? Math.min((totalPaidOff / totalPrincipal) * 100, 100) : 0;
   const monthEmiRows = loans
@@ -515,7 +534,7 @@ export default function DebtsScreen() {
     .reduce((s, r) => s + r.due.amount, 0);
 
   const counts = {
-    emi: loans.length,
+    emi: activeLoans.length,
     card: billRows(cards).filter((r) => !r.due.paid).length,
     bill: billRows(bills).filter((r) => !r.due.paid).length,
   };
@@ -754,8 +773,71 @@ export default function DebtsScreen() {
           <View style={[styles.progressFill, { width: `${paidPct}%`, backgroundColor: theme.primary }]} />
         </View>
       </View>
+
+      {loans.length ? (
+        <>
+          <Text style={[styles.listTitle, { color: theme.text }]}>
+            Pending in {monthLabel(thisMonth)}
+            {pendingEmis.length ? ` (${pendingEmis.length} · ${money(pendingEmiTotal)})` : ''}
+          </Text>
+          {pendingEmis.length === 0 ? (
+            <Text style={[styles.emptyInline, { color: theme.textMuted }]}>
+              {activeLoans.some((l) => loanSummaries[l.id].scheduled)
+                ? `All EMIs for ${monthLabel(thisMonth)} are paid.`
+                : 'No EMIs due this month.'}
+            </Text>
+          ) : (
+            <View style={[styles.pendingCard, cardStyle]}>
+              {pendingEmis.map(({ loan: l, row, overdue }, i) => {
+                const meta = loanMeta(l.type);
+                return (
+                  <View
+                    key={`${l.id}-${row.month}`}
+                    style={[styles.pendingRow, i > 0 && { borderTopWidth: 1, borderTopColor: theme.borderNeutral }]}
+                  >
+                    <View style={[styles.pendingIcon, { backgroundColor: meta.color + '40' }]}>
+                      <Ionicons name={meta.icon} size={16} color="#455A64" />
+                    </View>
+                    <View style={styles.flex}>
+                      <Text style={[styles.pendingName, { color: theme.text }]} numberOfLines={1}>
+                        {l.name}
+                      </Text>
+                      <Text style={[styles.pendingSub, { color: overdue ? theme.danger : theme.textMuted }]}>
+                        {overdue ? `Overdue · ${monthLabel(row.month)}` : `Due ${shortDate(row.dueDate)}`}
+                      </Text>
+                    </View>
+                    <Text style={[styles.pendingAmount, { color: theme.text }]}>{money(row.payment)}</Text>
+                    <TouchableOpacity
+                      style={[styles.payBtn, { backgroundColor: theme.surfaceAlt }]}
+                      onPress={() => payEmi(l, row)}
+                      accessibilityLabel={`Mark ${l.name} paid for ${monthLabel(row.month)}`}
+                    >
+                      <Ionicons name="checkmark-outline" size={14} color={theme.text} />
+                      <Text style={[styles.payBtnText, { color: theme.text }]}>Paid</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+          {activeLoans.length ? <Text style={[styles.listTitle, { color: theme.text }]}>My EMIs</Text> : null}
+        </>
+      ) : null}
     </View>
   );
+
+  const loanFooter =
+    completedLoans.length > 0 ? (
+      <View>
+        <TouchableOpacity style={styles.paidToggle} onPress={() => setShowCompleted(!showCompleted)}>
+          <Text style={[styles.listTitle, styles.noMargin, { color: theme.text }]}>
+            Completed EMIs ({completedLoans.length})
+          </Text>
+          <Ionicons name={showCompleted ? 'chevron-up' : 'chevron-down'} size={18} color={theme.text} />
+        </TouchableOpacity>
+        {showCompleted ? completedLoans.map((l) => <View key={l.id}>{renderLoan({ item: l })}</View>) : null}
+      </View>
+    ) : null;
 
   const billHeader = (
     <View>
@@ -827,19 +909,22 @@ export default function DebtsScreen() {
 
         {section === 'emi' ? (
           <FlatList
-            data={loans}
+            data={activeLoans}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.list}
             showsVerticalScrollIndicator={false}
             ListHeaderComponent={loanHeader}
+            ListFooterComponent={loanFooter}
             renderItem={renderLoan}
             ListEmptyComponent={
-              <View style={styles.empty}>
-                <Ionicons name="checkmark-circle-outline" size={56} color={theme.textMuted} />
-                <Text style={[styles.emptyText, { color: theme.textMuted }]}>
-                  No loans. Tap + to add one — enter the loan amount, interest rate and tenure and every EMI is planned for you.
-                </Text>
-              </View>
+              completedLoans.length ? null : (
+                <View style={styles.empty}>
+                  <Ionicons name="checkmark-circle-outline" size={56} color={theme.textMuted} />
+                  <Text style={[styles.emptyText, { color: theme.textMuted }]}>
+                    No loans. Tap + to add one — enter the loan amount, interest rate and tenure and every EMI is planned for you.
+                  </Text>
+                </View>
+              )
             }
           />
         ) : (
@@ -1382,6 +1467,12 @@ const styles = StyleSheet.create({
   hintTight: { marginTop: -4, marginBottom: 12 },
   listTitle: { fontSize: 16, fontWeight: '700', marginBottom: 10 },
   noMargin: { marginBottom: 0 },
+  pendingCard: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 12, marginBottom: 16 },
+  pendingRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
+  pendingIcon: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  pendingName: { fontSize: 14, fontWeight: '600' },
+  pendingSub: { fontSize: 12, marginTop: 2 },
+  pendingAmount: { fontSize: 14, fontWeight: '700' },
   emptyInline: { fontSize: 13, marginBottom: 14 },
   paidToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, marginBottom: 10 },
   chip: { paddingVertical: 7, paddingHorizontal: 14, borderRadius: 18, borderWidth: 1 },
