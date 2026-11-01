@@ -48,6 +48,7 @@ import {
 const STORAGE_KEY = '@diarybyte_debts';
 const EXPENSES_KEY = '@diarybyte_expenditure';
 const CARDS_KEY = '@diarybyte_cards';
+const MONTHS_KEY = '@diarybyte_months';
 
 const SECTIONS = [
   { key: 'emi', label: 'My EMIs', icon: 'calendar-outline' },
@@ -111,6 +112,9 @@ const EMPTY_LOAN = {
   startMonth: currentMonthKey(),
   emiDay: '5',
   paidBefore: true,
+  // Add the loan amount to this month's income (null = yes for a loan whose EMIs start later).
+  addToIncome: null,
+  fromIncome: false,
   outstanding: '',
   dueDate: '',
   note: '',
@@ -147,6 +151,7 @@ export default function DebtsScreen() {
   const { items, synced, persist, pulling, pullInfo, pullNow } = useSyncedCollection('debts', STORAGE_KEY);
   const { items: expenses, persist: persistExpenses } = useSyncedCollection('expenditure', EXPENSES_KEY);
   const { items: savedCards } = useSyncedCollection('cards', CARDS_KEY);
+  const { items: monthDocs, persist: persistMonths } = useSyncedCollection('months', MONTHS_KEY);
   const creditCards = savedCards.filter((c) => c.cardType === 'Credit');
   const thisMonth = currentMonthKey();
   const today = todayKey();
@@ -168,6 +173,7 @@ export default function DebtsScreen() {
           principal: typeof params.principal === 'string' ? params.principal : '',
           startMonth: addMonths(currentMonthKey(), 1),
           paidBefore: false,
+          fromIncome: true, // its income is already added
         }
       : EMPTY_LOAN
   );
@@ -308,6 +314,9 @@ export default function DebtsScreen() {
     ? loan.name.trim() && principalNum > 0 && String(loan.outstanding).trim() !== ''
     : loan.name.trim() && principalNum > 0 && tenureNum > 0 && draftRows.length > 0;
 
+  const offerIncome = !editingId && !loan.fromIncome && principalNum > 0;
+  const addIncome = loan.addToIncome ?? (!loan.manual && loan.startMonth > thisMonth);
+
   const saveLoan = () => {
     if (!loanValid) return;
     const base = {
@@ -343,6 +352,16 @@ export default function DebtsScreen() {
           remainingEmis: draftSummary.remainingCount,
         };
     persist(editingId ? items.map((i) => (i.id === editingId ? entry : i)) : [entry, ...items]);
+    // A new loan's money arrives this month: add it to My Expenditure's income.
+    if (offerIncome && addIncome) {
+      const income = { id: makeId(), source: 'New loan', note: entry.name, amount: principalNum, loanId: entry.id };
+      const doc = monthDocs.find((m) => m.month === thisMonth);
+      persistMonths(
+        doc
+          ? monthDocs.map((m) => (m.month === thisMonth ? { ...m, incomes: [...(m.incomes || []), income] } : m))
+          : [{ id: thisMonth, month: thisMonth, incomes: [income], createdAt: new Date().toISOString() }, ...monthDocs]
+      );
+    }
     setLoanVisible(false);
   };
 
@@ -1079,6 +1098,15 @@ export default function DebtsScreen() {
                       <Ionicons name={loan.paidBefore ? 'checkbox' : 'square-outline'} size={20} color={theme.primary} />
                       <Text style={[styles.checkText, { color: theme.text }]}>
                         EMIs before {monthLabel(thisMonth)} are already paid
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+
+                  {offerIncome ? (
+                    <TouchableOpacity style={styles.checkRow} onPress={() => setLoanField('addToIncome')(!addIncome)}>
+                      <Ionicons name={addIncome ? 'checkbox' : 'square-outline'} size={20} color={theme.primary} />
+                      <Text style={[styles.checkText, { color: theme.text }]}>
+                        Add {money(principalNum)} to {monthLabel(thisMonth)} income (new loan received)
                       </Text>
                     </TouchableOpacity>
                   ) : null}
