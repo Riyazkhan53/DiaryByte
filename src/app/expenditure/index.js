@@ -20,6 +20,7 @@ import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 import { confirmDelete } from '../../utils/confirm';
 import {
   addMonths,
+  dueDateFor,
   duesForMonth,
   dueFromSourceId,
   markDuePaid,
@@ -29,7 +30,7 @@ import {
   shortDate,
 } from '../../utils/debts';
 import { todayKey } from '../../utils/autopay';
-import { isCreditCard } from '../../utils/cards';
+import { isCreditCard, savedCardLabel } from '../../utils/cards';
 import { isSpendExpense } from '../../utils/spends';
 import { parseSipSourceId, reverseInstallment } from '../../utils/sip';
 
@@ -68,6 +69,7 @@ const INCOME_SOURCES = [
   // Money that must be paid back: also added to My Debts (see saveIncome).
   { key: 'Borrowed', icon: 'people-outline' },
   { key: 'New loan', icon: 'business-outline' },
+  { key: 'From credit card', icon: 'card-outline' },
   { key: 'Other', icon: 'cash-outline' },
 ];
 
@@ -93,6 +95,9 @@ const parseAmount = (text) => parseFloat(String(text).replace(/[^\d.]/g, ''));
 
 const categoryMeta = (key) =>
   CATEGORIES.find((c) => c.key === key) || CATEGORIES[CATEGORIES.length - 1];
+
+// Money taken from a credit card (cash withdrawal, transfer to the bank).
+const CARD_SOURCE = 'From credit card';
 
 const sourceMeta = (key) =>
   INCOME_SOURCES.find((s) => s.key === key) || INCOME_SOURCES[INCOME_SOURCES.length - 1];
@@ -155,6 +160,7 @@ export default function ExpenditureScreen() {
   const [incomeSource, setIncomeSource] = useState('Salary');
   const [incomeNote, setIncomeNote] = useState('');
   const [incomeAmount, setIncomeAmount] = useState('');
+  const [incomeCardId, setIncomeCardId] = useState(null);
 
   // "How was the shortfall covered?" modal
   const [adjustVisible, setAdjustVisible] = useState(false);
@@ -346,6 +352,7 @@ export default function ExpenditureScreen() {
     setIncomeSource('Salary');
     setIncomeNote('');
     setIncomeAmount('');
+    setIncomeCardId(null);
     setIncomeVisible(true);
   };
 
@@ -354,6 +361,7 @@ export default function ExpenditureScreen() {
     setIncomeSource(income.source);
     setIncomeNote(income.note || '');
     setIncomeAmount(String(income.amount));
+    setIncomeCardId(income.cardId || null);
     setIncomeVisible(true);
   };
 
@@ -364,9 +372,55 @@ export default function ExpenditureScreen() {
   };
   const borrowName = (note) => (note ? `Borrowed from ${note}` : 'Borrowed money');
 
+  // "From credit card": the amount goes on that card's bill for the month
+  // after. Adds to an unpaid bill already there, else creates one, due on
+  // the same day as the card's earlier bills (or today's day). The income
+  // remembers the bill, so editing or deleting it takes the amount back off
+  // while the bill is unpaid.
+  const takeOffCardBill = (list, income) => {
+    if (!income?.cardBillId) return list;
+    const bill = list.find((d) => d.id === income.cardBillId);
+    if (!bill || bill.paid) return list;
+    const left = Math.round(((Number(bill.amount) || 0) - (income.amount || 0)) * 100) / 100;
+    if (left <= 0 && income.createdBill) return list.filter((d) => d.id !== bill.id);
+    return list.map((d) => (d.id === bill.id ? { ...d, amount: Math.max(0, left), updatedAt: new Date().toISOString() } : d));
+  };
+  const putOnCardBill = (list, card, amount, month) => {
+    const billMonthKey = addMonths(month, 1);
+    const cardBills = list.filter((d) => d.section === 'card' && d.cardId === card.id);
+    const open = cardBills.find((d) => !d.paid && (d.month || (d.dueDate || '').slice(0, 7)) === billMonthKey);
+    if (open) {
+      return {
+        list: list.map((d) =>
+          d.id === open.id ? { ...d, amount: (Number(d.amount) || 0) + amount, updatedAt: new Date().toISOString() } : d
+        ),
+        billId: open.id,
+        created: false,
+      };
+    }
+    const lastDue = cardBills.map((d) => d.dueDate).filter(Boolean).sort().pop();
+    const day = Number((lastDue || todayKey()).slice(8, 10));
+    const bill = {
+      id: makeId(),
+      section: 'card',
+      name: savedCardLabel(card),
+      cardId: card.id,
+      cardLast4: (card.number || '').slice(-4),
+      amount,
+      minDue: 0,
+      dueDate: dueDateFor(billMonthKey, day),
+      month: billMonthKey,
+      paid: false,
+      note: 'Includes money taken from the card (added from My Income)',
+      createdAt: new Date().toISOString(),
+    };
+    return { list: [bill, ...list], billId: bill.id, created: true };
+  };
+
   const saveIncome = () => {
     const parsed = parseAmount(incomeAmount);
     if (!parsed || parsed <= 0) return;
+    if (incomeSource === CARD_SOURCE && !incomeCardId) return;
     const previous = editingIncomeId ? incomes.find((i) => i.id === editingIncomeId) : null;
     const note = incomeNote.trim();
     const entry = {
@@ -375,16 +429,15 @@ export default function ExpenditureScreen() {
       note,
       amount: parsed,
     };
+    let nextDebts = debts;
 
     // Borrowed: owe it back in a month, as a 1-month loan in Debts → Other Bills.
     const linked = unpaidBorrowDebt(previous);
     if (incomeSource === 'Borrowed') {
       if (linked) {
         entry.debtId = linked.id;
-        persistDebts(
-          debts.map((d) =>
-            d.id === linked.id ? { ...d, name: borrowName(note), amount: parsed, updatedAt: new Date().toISOString() } : d
-          )
+        nextDebts = nextDebts.map((d) =>
+          d.id === linked.id ? { ...d, name: borrowName(note), amount: parsed, updatedAt: new Date().toISOString() } : d
         );
       } else if (!previous?.debtId) {
         const dueDate = oneMonthAfter(todayKey());
@@ -401,14 +454,35 @@ export default function ExpenditureScreen() {
           createdAt: new Date().toISOString(),
         };
         entry.debtId = debt.id;
-        persistDebts([debt, ...debts]);
+        nextDebts = [debt, ...nextDebts];
       } else {
         entry.debtId = previous.debtId; // already repaid: keep the link
       }
     } else if (linked) {
       // No longer borrowed: drop the unpaid repayment it created.
-      persistDebts(debts.filter((d) => d.id !== linked.id));
+      nextDebts = nextDebts.filter((d) => d.id !== linked.id);
     }
+
+    // From credit card: move the amount onto the card's next bill.
+    nextDebts = takeOffCardBill(nextDebts, previous);
+    const card = incomeSource === CARD_SOURCE ? creditCards.find((c) => c.id === incomeCardId) : null;
+    if (card) {
+      const prevBill = previous?.cardBillId ? debts.find((d) => d.id === previous.cardBillId) : null;
+      if (prevBill?.paid && previous.cardId === card.id && previous.amount === parsed) {
+        // Already paid with that bill and unchanged: keep the link.
+        Object.assign(entry, { cardId: card.id, cardLabel: previous.cardLabel, cardBillId: prevBill.id, createdBill: previous.createdBill });
+      } else {
+        const result = putOnCardBill(nextDebts, card, parsed, selectedMonth);
+        nextDebts = result.list;
+        Object.assign(entry, {
+          cardId: card.id,
+          cardLabel: savedCardLabel(card),
+          cardBillId: result.billId,
+          createdBill: result.created,
+        });
+      }
+    }
+    if (nextDebts !== debts) persistDebts(nextDebts);
 
     saveMonthIncomes(
       selectedMonth,
@@ -422,19 +496,25 @@ export default function ExpenditureScreen() {
     }
   };
 
+  const incomeReady = parseAmount(incomeAmount) > 0 && (incomeSource !== CARD_SOURCE || !!incomeCardId);
+
   const deleteIncome = (income) => {
     const linked = unpaidBorrowDebt(income);
-    confirmDelete(
-      'Delete Income',
-      `Remove ${income.note || income.source}?${linked ? ' Its unpaid repayment in My Debts is removed too.' : ''}`,
-      () => {
-        if (linked) persistDebts(debts.filter((d) => d.id !== linked.id));
-        saveMonthIncomes(
-          selectedMonth,
-          incomes.filter((i) => i.id !== income.id)
-        );
-      }
-    );
+    const cardBill = income.cardBillId ? debts.find((d) => d.id === income.cardBillId && !d.paid) : null;
+    const extra = linked
+      ? ' Its unpaid repayment in My Debts is removed too.'
+      : cardBill
+        ? ` ${formatAmount(income.amount)} comes off the ${income.cardLabel || 'card'} bill too.`
+        : '';
+    confirmDelete('Delete Income', `Remove ${income.note || income.cardLabel || income.source}?${extra}`, () => {
+      let nextDebts = linked ? debts.filter((d) => d.id !== linked.id) : debts;
+      nextDebts = takeOffCardBill(nextDebts, income);
+      if (nextDebts !== debts) persistDebts(nextDebts);
+      saveMonthIncomes(
+        selectedMonth,
+        incomes.filter((i) => i.id !== income.id)
+      );
+    });
   };
 
   // ------- months -------
@@ -718,10 +798,13 @@ export default function ExpenditureScreen() {
               </View>
               <TouchableOpacity style={styles.rowBody} onPress={() => openEditIncome(income)}>
                 <Text style={[styles.rowTitle, { color: theme.text }]} numberOfLines={1}>
-                  {income.note || income.source}
+                  {income.note || income.cardLabel || income.source}
                 </Text>
-                {income.note ? (
-                  <Text style={[styles.rowSub, { color: theme.textSecondary }]}>{income.source}</Text>
+                {income.note || income.cardLabel ? (
+                  <Text style={[styles.rowSub, { color: theme.textSecondary }]} numberOfLines={1}>
+                    {income.source}
+                    {income.cardLabel && income.note ? ` · ${income.cardLabel}` : ''}
+                  </Text>
                 ) : null}
               </TouchableOpacity>
               <Text style={[styles.rowAmount, { color: '#2DA44E' }]}>+{formatAmount(income.amount)}</Text>
@@ -1093,6 +1176,39 @@ export default function ExpenditureScreen() {
                 );
               })}
             </View>
+            {incomeSource === CARD_SOURCE ? (
+              <>
+                <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Which credit card</Text>
+                {creditCards.length ? (
+                  <View style={styles.catRow}>
+                    {creditCards.map((card) => {
+                      const selected = incomeCardId === card.id;
+                      return (
+                        <TouchableOpacity
+                          key={card.id}
+                          style={[
+                            styles.chip,
+                            {
+                              backgroundColor: selected ? '#FF375F' : theme.surfaceAlt,
+                              borderColor: selected ? '#FF375F' : theme.borderNeutral,
+                            },
+                          ]}
+                          onPress={() => setIncomeCardId(card.id)}
+                        >
+                          <Text style={[styles.chipText, { color: selected ? '#FFF' : theme.text }]}>
+                            {savedCardLabel(card)}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <Text style={[styles.modalSub, styles.incomeHint, { color: theme.danger }]}>
+                    No credit cards saved yet. Add yours in Banking &amp; Cards first.
+                  </Text>
+                )}
+              </>
+            ) : null}
             <TextInput
               style={[inputStyle, styles.spaced]}
               placeholder={
@@ -1100,7 +1216,9 @@ export default function ExpenditureScreen() {
                   ? 'From whom (optional, e.g. Ravi)'
                   : incomeSource === 'New loan'
                     ? 'Loan name (e.g. HDFC personal loan)'
-                    : 'Name (optional, e.g. Company name)'
+                    : incomeSource === CARD_SOURCE
+                      ? 'Note (optional, e.g. ATM cash, sent to bank)'
+                      : 'Name (optional, e.g. Company name)'
               }
               placeholderTextColor={theme.textMuted}
               value={incomeNote}
@@ -1119,6 +1237,11 @@ export default function ExpenditureScreen() {
                 Also added to My Debts → Other Bills as a 1-month loan, due {shortDate(oneMonthAfter(todayKey()))}, so you
                 remember to pay it back.
               </Text>
+            ) : incomeSource === CARD_SOURCE ? (
+              <Text style={[styles.modalSub, styles.incomeHint, { color: theme.textMuted }]}>
+                Also added to this card&apos;s {monthLabel(addMonths(selectedMonth, 1), true)} bill in My Debts → Credit
+                Cards, so it&apos;s paid back with the bill.
+              </Text>
             ) : incomeSource === 'New loan' && !editingIncomeId ? (
               <Text style={[styles.modalSub, styles.incomeHint, { color: theme.textMuted }]}>
                 Next, My Debts opens so you can add the loan&apos;s interest rate, tenure and EMI date.
@@ -1135,10 +1258,10 @@ export default function ExpenditureScreen() {
                 style={[
                   styles.saveBtn,
                   { backgroundColor: theme.primary },
-                  !(parseAmount(incomeAmount) > 0) && styles.btnDisabled,
+                  !incomeReady && styles.btnDisabled,
                 ]}
                 onPress={saveIncome}
-                disabled={!(parseAmount(incomeAmount) > 0)}
+                disabled={!incomeReady}
               >
                 <Text style={[styles.saveText, { color: theme.onPrimary }]}>
                   {editingIncomeId ? 'Update' : 'Add'}
