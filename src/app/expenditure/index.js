@@ -453,8 +453,35 @@ export default function ExpenditureScreen() {
 
   // ------- this month's numbers -------
 
+  // Money left at the end of a month opens the next one ("carried forward").
+  // The chain starts at the first month with income, so older months without
+  // tracking don't count; a month that ends short carries nothing (the
+  // shortfall is tallied separately, below).
+  const sumOf = (list) => list.reduce((sum, x) => sum + (x.amount || 0), 0);
+  const spentByMonth = items.reduce((acc, i) => {
+    const key = expenseMonth(i);
+    acc[key] = (acc[key] || 0) + (i.amount || 0);
+    return acc;
+  }, {});
+  const docOf = (key) => months.find((m) => m.month === key);
+  const firstIncomeMonth = months
+    .filter((m) => (m.incomes || []).length)
+    .map((m) => m.month)
+    .sort()[0];
+  const carryInto = (key) => {
+    if (!firstIncomeMonth || key <= firstIncomeMonth) return 0;
+    let carry = 0;
+    for (let m = firstIncomeMonth; m < key; m = addMonths(m, 1)) {
+      const doc = docOf(m);
+      carry = Math.max(0, carry + sumOf(doc?.incomes || []) + sumOf(doc?.adjustments || []) - (spentByMonth[m] || 0));
+    }
+    return carry;
+  };
+
   const monthItems = items.filter((i) => expenseMonth(i) === selectedMonth);
-  const totalIncome = incomes.reduce((sum, i) => sum + (i.amount || 0), 0);
+  const carriedIn = carryInto(selectedMonth);
+  const earnedIncome = sumOf(incomes);
+  const totalIncome = carriedIn + earnedIncome;
   const totalSpent = monthItems.reduce((sum, i) => sum + (i.amount || 0), 0);
   const balance = totalIncome - totalSpent;
   const spentPct = totalIncome > 0 ? Math.min((totalSpent / totalIncome) * 100, 100) : totalSpent > 0 ? 100 : 0;
@@ -483,7 +510,7 @@ export default function ExpenditureScreen() {
   const lastMonth = addMonths(currentMonth, -1);
   const lastMonthGap = (() => {
     const doc = months.find((m) => m.month === lastMonth);
-    const income = (doc?.incomes || []).reduce((sum, i) => sum + (i.amount || 0), 0);
+    const income = carryInto(lastMonth) + (doc?.incomes || []).reduce((sum, i) => sum + (i.amount || 0), 0);
     const spent = items
       .filter((i) => expenseMonth(i) === lastMonth)
       .reduce((sum, i) => sum + (i.amount || 0), 0);
@@ -593,6 +620,9 @@ export default function ExpenditureScreen() {
           <View style={styles.statCol}>
             <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>Income</Text>
             <Text style={[styles.statValue, { color: '#2DA44E' }]}>{formatAmount(totalIncome)}</Text>
+            {carriedIn > 0 ? (
+              <Text style={[styles.summarySub, { color: theme.textMuted }]}>incl. {formatAmount(carriedIn)} carried</Text>
+            ) : null}
           </View>
           <View style={styles.statCol}>
             <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>Spent</Text>
@@ -662,6 +692,20 @@ export default function ExpenditureScreen() {
             <Text style={[styles.smallBtnText, { color: theme.onPrimary }]}>Income</Text>
           </TouchableOpacity>
         </View>
+        {carriedIn > 0 ? (
+          <View style={styles.incomeRow}>
+            <View style={[styles.catIcon, styles.incomeIcon]}>
+              <Ionicons name="arrow-redo-outline" size={17} color="#2E7D32" />
+            </View>
+            <View style={styles.rowBody}>
+              <Text style={[styles.rowTitle, { color: theme.text }]} numberOfLines={1}>
+                Carried from {monthLabel(addMonths(selectedMonth, -1), true)}
+              </Text>
+              <Text style={[styles.rowSub, { color: theme.textSecondary }]}>Left over last month · automatic</Text>
+            </View>
+            <Text style={[styles.rowAmount, { color: '#2DA44E' }]}>+{formatAmount(carriedIn)}</Text>
+          </View>
+        ) : null}
         {incomes.length === 0 ? (
           <Text style={[styles.summarySub, { color: theme.textMuted }]}>
             No income added for {monthLabel(selectedMonth, true)}.
@@ -758,6 +802,9 @@ export default function ExpenditureScreen() {
           ) : null}
         </View>
         <ReportRow label="Income" value={formatAmount(totalIncome)} color="#2DA44E" theme={theme} strong />
+        {carriedIn > 0 ? (
+          <ReportRow label="Carried from last month" value={formatAmount(carriedIn)} theme={theme} indent />
+        ) : null}
         {outflow.map((g) => (
           <ReportRow key={g.key} label={g.label} value={`− ${formatAmount(g.amount)}`} theme={theme} indent />
         ))}
@@ -765,7 +812,7 @@ export default function ExpenditureScreen() {
         <ReportRow label="Total outgoing" value={formatAmount(totalSpent)} color="#E5383B" theme={theme} strong />
         <View style={[styles.reportDivider, { backgroundColor: theme.borderNeutral }]} />
         <ReportRow
-          label={balance < 0 ? 'Shortfall' : 'Saved'}
+          label={balance < 0 ? 'Shortfall' : 'Left over (carried to next month)'}
           value={`${balance < 0 ? '−' : ''}${formatAmount(Math.abs(balance))}`}
           color={balance < 0 ? '#E5383B' : '#2DA44E'}
           theme={theme}
