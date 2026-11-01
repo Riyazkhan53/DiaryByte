@@ -75,8 +75,26 @@ const BILL_TYPES = [
   { key: 'Insurance', icon: 'shield-checkmark-outline', color: '#34C759' },
   { key: 'School Fees', icon: 'school-outline', color: '#AF52DE' },
   { key: 'Subscription', icon: 'tv-outline', color: '#FF375F' },
+  { key: 'One-month loan', icon: 'cash-outline', color: '#30B0C7' },
   { key: 'Other', icon: 'receipt-outline', color: '#8E8E93' },
 ];
+
+// A short loan repaid in one go about a month later (pay-later, salary
+// advance, money borrowed till next month): a one-time bill whose payment
+// counts as an EMI in My Expenditure.
+const ONE_MONTH_LOAN = 'One-month loan';
+
+// Expense category a paid bill is filed under.
+const billCategory = (kind, billType) =>
+  kind === 'card' ? 'Credit Card' : billType === ONE_MONTH_LOAN ? 'EMI' : 'Bills';
+
+// The same day next month (or that month's last day), as YYYY-MM-DD.
+const oneMonthAfter = (dateKey) => {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const last = new Date(y, m + 1, 0).getDate();
+  const next = new Date(y, m, Math.min(d, last));
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`;
+};
 
 const CARD_META = { icon: 'card-outline', color: '#FF9500' };
 
@@ -129,7 +147,7 @@ const oneOffDue = (item) => ({
   amount: Number(item.amount) || 0,
   dueDate: item.dueDate,
   paid: !!item.paid,
-  category: sectionOf(item) === 'card' ? 'Credit Card' : 'Bills',
+  category: billCategory(sectionOf(item), item.billType),
 });
 
 export default function DebtsScreen() {
@@ -350,6 +368,18 @@ export default function DebtsScreen() {
 
   const billValid = bill.name.trim() && toNum(bill.amount) > 0 && !!bill.dueDate;
   const isMonthlyForm = section === 'bill' && bill.recurring;
+  const isLoanForm = section === 'bill' && !bill.recurring && bill.billType === ONE_MONTH_LOAN;
+  // One time / Every month / One-month loan
+  const billKind = bill.recurring ? 'monthly' : bill.billType === ONE_MONTH_LOAN ? 'loan' : 'once';
+  const pickBillKind = (kind) =>
+    setBill((f) => ({
+      ...f,
+      recurring: kind === 'monthly',
+      billType:
+        kind === 'loan' ? ONE_MONTH_LOAN : f.billType === ONE_MONTH_LOAN ? 'Other' : f.billType,
+      // A new loan is due a month from today; an edited one keeps its date.
+      dueDate: kind === 'loan' && !editingId ? oneMonthAfter(today) : f.dueDate,
+    }));
   const editingBill = editingId ? items.find((i) => i.id === editingId) : null;
 
   const saveBill = () => {
@@ -413,7 +443,7 @@ export default function DebtsScreen() {
           title: entry.name,
           amount: entry.amount,
           dueDate: entry.dueDate,
-          category: section === 'card' ? 'Credit Card' : 'Bills',
+          category: billCategory(section, entry.billType),
         },
         nextDebts,
         expenses
@@ -1134,15 +1164,18 @@ export default function DebtsScreen() {
                 <>
                   <View style={[styles.segment, { backgroundColor: theme.surfaceAlt }]}>
                     {[
-                      { key: false, label: 'One time' },
-                      { key: true, label: 'Every month' },
+                      { key: 'once', label: 'One time' },
+                      { key: 'monthly', label: 'Every month' },
+                      { key: 'loan', label: '1-month loan' },
                     ].map((opt) => (
                       <TouchableOpacity
-                        key={String(opt.key)}
-                        style={[styles.segmentItem, bill.recurring === opt.key && { backgroundColor: theme.sheet }]}
-                        onPress={() => setBillField('recurring')(opt.key)}
+                        key={opt.key}
+                        style={[styles.segmentItem, billKind === opt.key && { backgroundColor: theme.sheet }]}
+                        onPress={() => pickBillKind(opt.key)}
                       >
-                        <Text style={[styles.tabText, { color: theme.text }]}>{opt.label}</Text>
+                        <Text style={[styles.tabText, { color: theme.text }]} numberOfLines={1}>
+                          {opt.label}
+                        </Text>
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -1164,7 +1197,7 @@ export default function DebtsScreen() {
                   ) : null}
                   <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Type</Text>
                   <View style={styles.chipWrap}>
-                    {BILL_TYPES.map((t) => {
+                    {BILL_TYPES.filter((t) => t.key !== ONE_MONTH_LOAN || isLoanForm).map((t) => {
                       const selected = bill.billType === t.key;
                       return (
                         <TouchableOpacity
@@ -1188,7 +1221,9 @@ export default function DebtsScreen() {
                         ? 'Usual amount (₹)'
                         : bill.recurring
                           ? 'Monthly amount (₹)'
-                          : 'Amount (₹)'
+                          : isLoanForm
+                            ? 'Amount to repay (₹)'
+                            : 'Amount (₹)'
                   }
                   theme={theme}
                   value={bill.amount}
@@ -1200,10 +1235,17 @@ export default function DebtsScreen() {
                 ) : null}
               </View>
               <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>
-                {isMonthlyForm ? 'First due date' : 'Due date'} ·{' '}
+                {isMonthlyForm ? 'First due date' : isLoanForm ? 'Repay by' : 'Due date'} ·{' '}
                 {bill.dueDate ? `${shortDate(bill.dueDate)} ${bill.dueDate.slice(0, 4)}` : 'pick one'}
               </Text>
-              <DatePicker value={bill.dueDate} onChange={setBillField('dueDate')} />
+              {/* Keyed so the calendar jumps to the new date when the kind changes it. */}
+              <DatePicker key={billKind} value={bill.dueDate} onChange={setBillField('dueDate')} />
+              {isLoanForm ? (
+                <Text style={[styles.formHint, { color: theme.textMuted }]}>
+                  Repaid in one go, a month from when you borrow (change the date if needed). It shows as pending until
+                  you tick it paid, then goes to My Expenditure as an EMI.
+                </Text>
+              ) : null}
               {isMonthlyForm && bill.dueDate ? (
                 <Text style={[styles.formHint, { color: theme.textMuted }]}>
                   Due on day {Number(bill.dueDate.slice(8, 10))} of every month from{' '}
