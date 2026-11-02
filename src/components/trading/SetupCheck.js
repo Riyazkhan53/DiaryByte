@@ -16,7 +16,8 @@ import { confirmDelete } from '../../utils/confirm';
 import { DEFAULT_THRESHOLD, MIN_CHECKS, scoreSetup } from '../../utils/setupScore';
 import { setupInputsFromCandles } from '../../utils/indicators';
 import { MARKETS, searchStocks } from '../../services/stocks';
-import { fetchCandles, fetchStockQuotes } from '../../services/api';
+import { evaluateSymbol, fetchCandles, fetchStockQuotes } from '../../services/api';
+import { combineSetup } from '../../utils/combinedSetup';
 
 const STORAGE_KEY = '@diarybyte_setups';
 const CONFIG_KEY = '@diarybyte_tradingconfig';
@@ -73,7 +74,7 @@ const SECTIONS = [
 const FIELD_KEYS = SECTIONS.flatMap((s) => s.fields.map((f) => f.key));
 const EMPTY_FIELDS = Object.fromEntries(FIELD_KEYS.map((k) => [k, '']));
 
-const SIGNAL_COLORS = { BUY: '#2DA44E', SELL: '#E5383B', WAIT: '#8E8E93' };
+const SIGNAL_COLORS = { BUY: '#2DA44E', SELL: '#E5383B', WAIT: '#FF9500', 'NO TRADE': '#8E8E93' };
 
 const makeId = () => `${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -122,6 +123,8 @@ export default function SetupCheck({ header, onPaperTrade }) {
   const [filling, setFilling] = useState(false);
   const [notice, setNotice] = useState(null);
   const [nowPrices, setNowPrices] = useState({});
+  // Live intraday evaluation for the picked NSE stock: { symbol, ev, loading, error }.
+  const [intraday, setIntraday] = useState({ symbol: null, ev: null, loading: false, error: null });
 
   // First time on this device: fetch the watchlist saved from another one.
   useEffect(() => {
@@ -139,7 +142,13 @@ export default function SetupCheck({ header, onPaperTrade }) {
     });
 
   const result = scoreSetup(fields, threshold);
-  const signalColor = SIGNAL_COLORS[result.signal];
+  // Indian stocks also get the live intraday engine (the Signals tab's rules);
+  // the verdict combines both, with the intraday engine deciding.
+  const intradayFor = symbol && marketOfSymbol(symbol) === 'IN' ? symbol : null;
+  const ev = intraday.symbol === intradayFor ? intraday.ev : null;
+  const combined = combineSetup(result, ev);
+  const signalColor = SIGNAL_COLORS[combined.verdict] || SIGNAL_COLORS.WAIT;
+  const dailyColor = SIGNAL_COLORS[result.signal] || SIGNAL_COLORS.WAIT;
   const setField = (key) => (value) => setFields((f) => ({ ...f, [key]: value }));
 
   // Latest prices for the stocks in the log, to compare with the price then.
@@ -210,8 +219,28 @@ export default function SetupCheck({ header, onPaperTrade }) {
     setNotice(null);
   };
 
+  const loadIntraday = (sym) => {
+    if (!sym || marketOfSymbol(sym) !== 'IN') return;
+    setIntraday({ symbol: sym, ev: null, loading: true, error: null });
+    evaluateSymbol(sym)
+      .then((r) => setIntraday((cur) => (cur.symbol === sym ? { symbol: sym, ev: r, loading: false, error: null } : cur)))
+      .catch((e) =>
+        setIntraday((cur) =>
+          cur.symbol === sym
+            ? {
+                symbol: sym,
+                ev: null,
+                loading: false,
+                error: e?.status === 404 ? 'Your server needs an update for intraday signals.' : "Couldn't reach your server for the intraday signal.",
+              }
+            : cur
+        )
+      );
+  };
+
   const fillFromLiveData = async (sym = symbol) => {
     if (!sym) return;
+    loadIntraday(sym);
     setFilling(true);
     setNotice(null);
     try {
@@ -263,9 +292,13 @@ export default function SetupCheck({ header, onPaperTrade }) {
       price: inputs.price,
       inputs,
       threshold,
-      signal: result.signal,
+      // The combined verdict; the daily reading and the intraday state go in the note.
+      signal: combined.verdict,
       bullPct: result.bullPct,
       bearPct: result.bearPct,
+      note:
+        `Daily ${result.signal} (bull ${result.bullPct}% / bear ${result.bearPct}%)` +
+        (ev ? ` · Intraday ${ev.state} (long ${ev.score.long} / short ${ev.score.short}, ${ev.ruleVersion})` : ' · no intraday reading'),
       createdAt: new Date().toISOString(),
     };
     persist([entry, ...log]);
@@ -273,7 +306,8 @@ export default function SetupCheck({ header, onPaperTrade }) {
     return entry;
   };
 
-  const paperTrade = () => onPaperTrade(saveCheck());
+  // The engine's plan (entry, stop, target, quantity) rides along when there is one.
+  const paperTrade = () => onPaperTrade({ ...saveCheck(), plan: combined.plan });
 
   const loadCheck = (entry) => {
     setFields({
@@ -330,14 +364,74 @@ export default function SetupCheck({ header, onPaperTrade }) {
 
       {/* Signal */}
       <View style={[cardStyle, { borderColor: signalColor + '80' }]}>
-        <Text style={[styles.signal, { color: signalColor }]}>{result.signal}</Text>
+        <View style={styles.verdictRow}>
+          <Text style={[styles.signal, styles.flex, { color: signalColor }]}>{combined.verdict}</Text>
+          {intradayFor ? (
+            <TouchableOpacity
+              onPress={() => loadIntraday(intradayFor)}
+              accessibilityLabel="Refresh intraday signal"
+              style={styles.refreshBtn}
+            >
+              {intraday.loading ? (
+                <ActivityIndicator size="small" color={theme.primary} />
+              ) : (
+                <Ionicons name="refresh" size={20} color={theme.primary} />
+              )}
+            </TouchableOpacity>
+          ) : null}
+        </View>
         <Text style={[styles.stockName, { color: theme.text }]} numberOfLines={1}>
           {name.trim() || symbol || 'No stock yet'}
           {symbol && name.trim() !== symbol ? (
             <Text style={{ color: theme.textMuted }}> · {symbol}</Text>
           ) : null}
         </Text>
-        <Text style={[styles.reason, { color: theme.textSecondary }]}>{result.reason}</Text>
+        <Text style={[styles.reason, { color: theme.textSecondary }]}>{combined.reason}</Text>
+
+        {intradayFor ? (
+          <View style={[styles.explain, { backgroundColor: signalColor + '18' }]}>
+            <Text style={[styles.explainLine, { color: theme.text }]}>
+              <Text style={styles.bold}>Intraday (5-min): </Text>
+              {ev
+                ? `${ev.state} · long ${ev.score.long} / short ${ev.score.short} (needs ${ev.threshold})`
+                : intraday.loading
+                  ? 'checking…'
+                  : intraday.error || '—'}
+            </Text>
+            <Text style={[styles.explainLine, { color: theme.text }]}>
+              <Text style={styles.bold}>Daily setup: </Text>
+              <Text style={{ color: dailyColor }}>{result.signal}</Text> · bullish {result.bullPct}% / bearish{' '}
+              {result.bearPct}%
+            </Text>
+            {combined.failed.length ? (
+              <Text style={[styles.explainLine, { color: theme.text }]}>
+                <Text style={styles.bold}>Failed condition: </Text>
+                {combined.failed.join(', ')}
+              </Text>
+            ) : null}
+            {combined.nextAction ? (
+              <Text style={[styles.explainLine, { color: theme.text }]}>
+                <Text style={styles.bold}>Next action: </Text>
+                {combined.nextAction}
+              </Text>
+            ) : null}
+            {combined.plan ? (
+              <Text style={[styles.explainLine, { color: theme.text }]}>
+                <Text style={styles.bold}>Plan: </Text>
+                {combined.plan.quantity} @ ₹{combined.plan.entry} · stop ₹{combined.plan.stop} · target ₹
+                {combined.plan.target} · max loss ₹{combined.plan.maxLoss}
+              </Text>
+            ) : null}
+          </View>
+        ) : symbol ? (
+          <Text style={[styles.hint, { color: theme.textMuted }]}>
+            Intraday signals cover NSE stocks only, so this is the daily setup alone.
+          </Text>
+        ) : null}
+
+        <Text style={[styles.dailyTitle, { color: theme.textSecondary }]}>
+          Daily setup (daily candles){intradayFor ? ' · used as the trend filter' : ''}
+        </Text>
 
         <View style={[styles.bar, { backgroundColor: theme.surfaceAlt }]}>
           <View
@@ -735,6 +829,12 @@ const styles = StyleSheet.create({
   },
   signal: { fontSize: 34, fontWeight: '800', letterSpacing: 1 },
   stockName: { fontSize: 16, fontWeight: '700', marginTop: 2 },
+  verdictRow: { flexDirection: 'row', alignItems: 'center' },
+  refreshBtn: { padding: 6 },
+  explain: { borderRadius: 10, padding: 10, marginTop: 10, gap: 3 },
+  explainLine: { fontSize: 13, lineHeight: 19 },
+  bold: { fontWeight: '700' },
+  dailyTitle: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', marginTop: 14 },
   reason: { fontSize: 13, marginTop: 6, lineHeight: 18 },
   bar: {
     height: 10,

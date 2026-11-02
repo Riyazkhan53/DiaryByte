@@ -44,15 +44,18 @@ export default function TradingScreen() {
   const showForm = (initial) => setForm((f) => ({ visible: true, initial, key: f.key + 1 }));
   const hideForm = () => setForm((f) => ({ ...f, visible: false }));
 
-  // "Paper trade this" on a Setup Check: long on BUY, short on SELL.
+  // "Paper trade this" on a Setup Check: long on BUY, short on SELL. With the
+  // intraday engine's plan, its entry, stop, target and quantity too.
   const tradeFromCheck = (check) => {
+    const plan = check.plan;
     setTab('open');
     showForm({
       symbol: check.symbol,
       name: check.name,
       market: check.market,
-      side: check.signal === 'SELL' ? 'short' : 'long',
-      entryPrice: check.price,
+      side: plan ? plan.side : check.signal === 'SELL' ? 'short' : 'long',
+      entryPrice: plan ? plan.entry : check.price,
+      ...(plan ? { stopLoss: plan.stop, target: plan.target, quantity: plan.quantity } : {}),
       setupId: check.id,
       setupSignal: check.signal,
       setupBullPct: check.bullPct,
