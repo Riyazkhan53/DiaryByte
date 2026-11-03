@@ -9,6 +9,7 @@
 
 const { getModel } = require('../models');
 const { activeProvider, kiteStatus } = require('./providers');
+const { getQuotes } = require('../quotes');
 
 let engineModule = null;
 // The engine is shared ES-module code; load it once.
@@ -86,6 +87,14 @@ async function evaluate(symbol, { config, context } = {}) {
     },
   });
   result.provider = { id: provider.id, label: provider.label, delayed: provider.delayed, note };
+  // When the candles were fetched, and the latest traded price, to compare with a broker app.
+  const fetched = provider.fetchedAt?.(symbol, 5);
+  result.fetchedAt = new Date(fetched || Date.now()).toISOString();
+  try {
+    result.quote = (await getQuotes([symbol])).quotes[symbol] || null;
+  } catch (_error) {
+    result.quote = null;
+  }
   state.latest[symbol] = result;
   return result;
 }

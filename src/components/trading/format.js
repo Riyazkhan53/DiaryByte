@@ -43,3 +43,12 @@ export const ACTION_COLOR = {
   'EXIT / TRAIL SL': '#FF9500',
   'SQUARE OFF': '#E5383B',
 };
+
+/** A time in IST as "14:02:05" (or "14:02"), whatever the phone's time zone. */
+export function istTime(value, seconds = true) {
+  const ms = typeof value === 'number' ? value : Date.parse(value);
+  if (!Number.isFinite(ms)) return '—';
+  const d = new Date(ms + 330 * 60000);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}${seconds ? `:${pad(d.getUTCSeconds())}` : ''}`;
+}

@@ -26,7 +26,7 @@ import {
   tradePnl,
 } from '../../utils/trades';
 import { fetchStockQuotes } from '../../services/api';
-import { formatDay, formatMoney, formatPct, formatPnl, formatR, pnlColor } from './format';
+import { formatDay, formatMoney, formatPct, formatPnl, formatR, istTime, pnlColor } from './format';
 
 const toNum = (text) => parseFloat(String(text ?? '').replace(/,/g, ''));
 
@@ -235,6 +235,11 @@ export default function OpenTrades({ header, trades, persist, sync, onNew, onEdi
                 <View style={styles.flex}>
                   <Text style={[styles.label, { color: theme.textMuted }]}>Now</Text>
                   <Text style={[styles.value, { color: theme.text }]}>{price ? formatMoney(price, t.market) : '—'}</Text>
+                  {price && prices[t.symbol]?.time ? (
+                    <Text style={[styles.label, { color: theme.textMuted }]}>
+                      {t.market === 'US' ? new Date(prices[t.symbol].time).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : `${istTime(prices[t.symbol].time, false)} IST`}
+                    </Text>
+                  ) : null}
                 </View>
                 <View style={styles.flex}>
                   <Text style={[styles.label, { color: theme.textMuted }]}>P/L</Text>

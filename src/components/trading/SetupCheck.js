@@ -18,6 +18,7 @@ import { setupInputsFromCandles } from '../../utils/indicators';
 import { MARKETS, searchStocks } from '../../services/stocks';
 import { evaluateSymbol, fetchCandles, fetchStockQuotes } from '../../services/api';
 import { combineSetup } from '../../utils/combinedSetup';
+import { istTime } from './format';
 
 const STORAGE_KEY = '@diarybyte_setups';
 const CONFIG_KEY = '@diarybyte_tradingconfig';
@@ -257,7 +258,7 @@ export default function SetupCheck({ header, onPaperTrade }) {
       const lastDay = data.candles[data.candles.length - 1]?.t;
       setNotice({
         error: false,
-        text: `Filled from daily prices up to ${lastDay ? formatWhen(lastDay) : 'today'}. Check them against your chart before acting.`,
+        text: `Filled from daily prices up to ${lastDay ? formatWhen(lastDay) : 'today'}${data.fetchedAt ? ` (fetched ${istTime(data.fetchedAt)} IST)` : ''}. Check them against your chart before acting.`,
       });
     } catch (_error) {
       setNotice({
@@ -393,7 +394,7 @@ export default function SetupCheck({ header, onPaperTrade }) {
             <Text style={[styles.explainLine, { color: theme.text }]}>
               <Text style={styles.bold}>Intraday (5-min): </Text>
               {ev
-                ? `${ev.state} · long ${ev.score.long} / short ${ev.score.short} (needs ${ev.threshold})`
+                ? `${ev.state} · long ${ev.score.long} / short ${ev.score.short} (needs ${ev.threshold})${ev.candle ? ` · price ₹${ev.indicators.price} = ${istTime(ev.candle.t, false)}–${istTime(ev.candle.t + 5 * 60000, false)} candle close, checked ${istTime(ev.evaluatedAt)} IST` : ''}${ev.quote?.price ? ` · last traded ₹${Number(ev.quote.price).toFixed(2)}${ev.quote.time ? ` at ${istTime(ev.quote.time)}` : ''}` : ''}`
                 : intraday.loading
                   ? 'checking…'
                   : intraday.error || '—'}

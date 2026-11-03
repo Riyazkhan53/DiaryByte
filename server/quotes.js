@@ -5,7 +5,8 @@
 
 const CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart/';
 const SEARCH_URL = 'https://query2.finance.yahoo.com/v1/finance/search';
-const QUOTE_CACHE_MS = 10 * 60 * 1000;
+// Short, so prices stay close to the broker's: at most a minute older than Yahoo's.
+const QUOTE_CACHE_MS = 60 * 1000;
 const SEARCH_CACHE_MS = 24 * 60 * 60 * 1000;
 const MAX_SYMBOLS = 40;
 // Yahoo refuses requests without a browser-like User-Agent.
@@ -43,6 +44,8 @@ async function fetchQuote(symbol) {
       price,
       currency: meta.currency || null,
       time: meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : null,
+      // When this server fetched it (time is the exchange's last-trade time).
+      fetchedAt: new Date().toISOString(),
       name: meta.longName || meta.shortName || null,
     };
     quoteCache.set(symbol, { at: Date.now(), quote });
@@ -106,6 +109,7 @@ async function getCandles(symbol) {
     name: result.meta?.longName || result.meta?.shortName || null,
     currency: result.meta?.currency || null,
     candles,
+    fetchedAt: new Date().toISOString(), // when this server got them from Yahoo
   };
   candlesCache.set(key, { at: Date.now(), data });
   return data;
