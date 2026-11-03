@@ -219,6 +219,11 @@ const COLLECTIONS = {
       'watchlist',
       'scannerOn',
       'autoPaper',
+      // your broker's charges (brokeragePct, brokerageCap, brokerageMin, …) and exit rules
+      'charges',
+      'minNetRR',
+      'trailAtR',
+      'weakExit',
       'updatedAt',
     ],
   },
@@ -243,6 +248,8 @@ const COLLECTIONS = {
       'id', 'symbol', 'side', 'signalKey', 'signalTime', 'plan', 'score', 'ruleVersion', 'provider', 'indicators',
       'status', 'entryTime', 'entryPrice', 'stop', 'target', 'quantity', 'exitTime', 'exitPrice', 'exitReason',
       'grossPnl', 'costs', 'netPnl', 'r', 'bothTouched', 'resolvedBy', 'createdAt', 'updatedAt',
+      // source: 'auto' (scanner) | 'demo' (started from the app); exit engine state
+      'source', 'signalState', 'stopMoved', 'finalStop', 'lastPrice', 'openPnl', 'liveAction', 'actionNote',
     ],
   },
   // Paper trades: practice positions, open or closed with a review.

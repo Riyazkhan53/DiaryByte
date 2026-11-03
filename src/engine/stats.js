@@ -24,7 +24,7 @@ export function maxDrawdown(closed) {
  * Returns { trades, wins, losses, winRate (%), netPnl, grossProfit,
  * grossLoss, profitFactor (null with no losses), avgNet, avgWin, avgLoss,
  * avgReturnPct (net P/L ÷ cash used, per trade), avgR, maxDrawdown, best,
- * worst, exits: { target, stop, eod, time } }.
+ * worst, exits: { target, stop, trail, weak, eod, time } }.
  */
 export function performanceStats(trades) {
   const closed = trades.filter((t) => t.status === 'closed' && Number.isFinite(t.netPnl));
@@ -36,7 +36,7 @@ export function performanceStats(trades) {
   const grossLoss = round2(sum(losses, (t) => t.netPnl));
   const withR = closed.filter((t) => t.r != null);
   const withCash = closed.filter((t) => t.plan?.cashUsed > 0);
-  const exits = { target: 0, stop: 0, eod: 0, time: 0 };
+  const exits = { target: 0, stop: 0, trail: 0, weak: 0, eod: 0, time: 0 };
   closed.forEach((t) => {
     if (t.exitReason in exits) exits[t.exitReason] += 1;
   });

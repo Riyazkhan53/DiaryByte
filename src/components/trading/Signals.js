@@ -23,8 +23,20 @@ import {
   fetchEngineStatus,
   fetchKiteLoginUrl,
   runEngineScan,
+  startDemoTrade,
 } from '../../services/api';
-import { LOSS, PROFIT, formatDay, formatMoney, formatPnl, formatR, pnlColor } from './format';
+import {
+  ACTION_COLOR,
+  EXIT_ACTION,
+  LOSS,
+  PROFIT,
+  STATE_LABEL,
+  formatDay,
+  formatMoney,
+  formatPnl,
+  formatR,
+  pnlColor,
+} from './format';
 
 const CONFIG_KEY = '@diarybyte_tradingconfig';
 
@@ -51,6 +63,15 @@ const SETTINGS = [
   { key: 'threshold', label: 'Score needed (of 100)' },
   { key: 'maxDelayMin', label: 'Stale after (minutes)' },
   { key: 'maxHoldMin', label: 'Max hold, minutes (0 = till 15:20)', min: 0, integer: true },
+  { key: 'minNetRR', label: 'Min net reward:risk after charges', min: 0 },
+  { key: 'trailAtR', label: 'Move stop to entry at (× risk, 0 = off)', min: 0 },
+];
+
+// Your broker's charges per order (check a contract note); stored under `charges`.
+const CHARGE_SETTINGS = [
+  { key: 'brokeragePct', label: 'Brokerage per order (%)' },
+  { key: 'brokerageMin', label: 'Minimum brokerage per order (₹)' },
+  { key: 'brokerageCap', label: 'Maximum brokerage per order (₹)' },
 ];
 
 const CHECK_LABEL = {
@@ -106,6 +127,8 @@ export default function Signals({ header, onPaperTrade }) {
   const [selected, setSelected] = useState(null);
   const [evaluation, setEvaluation] = useState(null);
   const [ledger, setLedger] = useState({ trades: [] });
+  // Demo trade request: { busy, message, error }
+  const [demo, setDemo] = useState({ busy: false, message: null, error: false });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [version, setVersion] = useState(0);
@@ -213,8 +236,33 @@ export default function Signals({ header, onPaperTrade }) {
     }
   };
 
+  const charges = { ...DEFAULT_CONFIG.charges, ...configDoc?.charges };
+
+  // "What would happen if I took this now?" — the server simulates it.
+  const startDemo = (side) => {
+    setDemo({ busy: true, message: null, error: false });
+    startDemoTrade(symbol, side)
+      .then(({ trade }) => {
+        setDemo({
+          busy: false,
+          error: false,
+          message: `Demo ${side} started on ${symbol.replace(/\.NS$/, '')}: enters at the next candle's open, then follows the exit plan. Watch it below.`,
+        });
+        return fetchCollection('enginetrades').then((trades) => setLedger({ trades }));
+      })
+      .catch((e) =>
+        setDemo({
+          busy: false,
+          error: true,
+          message: e?.status === 404 ? OUTDATED : e?.serverMessage || "Couldn't start the demo trade. Try again in a minute.",
+        })
+      );
+  };
   const openSettings = () => {
-    setDrafts(Object.fromEntries(SETTINGS.map((s) => [s.key, String(config[s.key])])));
+    setDrafts({
+      ...Object.fromEntries(SETTINGS.map((s) => [s.key, String(config[s.key])])),
+      ...Object.fromEntries(CHARGE_SETTINGS.map((s) => [`charges.${s.key}`, String(charges[s.key])])),
+    });
     setSettingsOpen(true);
   };
 
@@ -227,6 +275,12 @@ export default function Signals({ header, onPaperTrade }) {
       if (s.min != null) changes[s.key] = Math.max(s.min, v);
       else if (v > 0) changes[s.key] = v;
     });
+    const chargeChanges = {};
+    CHARGE_SETTINGS.forEach((s) => {
+      const v = parseFloat(drafts[`charges.${s.key}`]);
+      if (Number.isFinite(v) && v >= 0) chargeChanges[s.key] = v;
+    });
+    if (Object.keys(chargeChanges).length) changes.charges = { ...configDoc?.charges, ...chargeChanges };
     saveConfig(changes);
     setSettingsOpen(false);
   };
@@ -362,7 +416,7 @@ export default function Signals({ header, onPaperTrade }) {
         {symbol ? (
           <View style={[cardStyle, { borderColor: stateColor + '80' }]}>
             <View style={styles.stripRow}>
-              <Text style={[styles.state, { color: stateColor }]}>{ev ? ev.state : '…'}</Text>
+              <Text style={[styles.state, { color: stateColor }]}>{ev ? STATE_LABEL[ev.state] || ev.state : '…'}</Text>
               <View style={styles.flex} />
               <TouchableOpacity onPress={refresh} accessibilityLabel="Refresh signal" style={styles.iconBtn}>
                 {loading ? <ActivityIndicator size="small" color={theme.primary} /> : <Ionicons name="refresh" size={20} color={theme.primary} />}
@@ -477,73 +531,112 @@ export default function Signals({ header, onPaperTrade }) {
           </View>
         ) : null}
 
-        {/* Risk plan */}
+        {/* If you take this trade */}
         {ev?.plan ? (
           <View style={cardStyle}>
             <Text style={[styles.title, { color: theme.text }]}>
-              Risk plan ({ev.plan.side}) · ₹{Math.round((config.capital * config.riskPct) / 100)} risk
+              If you take this trade · {ev.plan.side === 'short' ? 'SHORT' : 'LONG'} · ₹
+              {Math.round((config.capital * config.riskPct) / 100)} risk
               {config.maxQuantity > 0 ? `, max ${config.maxQuantity} share${config.maxQuantity > 1 ? 's' : ''}` : ''}
             </Text>
             {ev.plan.ok ? (
-              <View style={styles.grid}>
+              <>
+                <View style={styles.grid}>
+                  {[
+                    [ev.plan.side === 'short' ? 'Sell (entry) ~' : 'Buy (entry) ~', formatMoney(ev.plan.entry, 'IN')],
+                    ['Stop loss', formatMoney(ev.plan.stop, 'IN'), LOSS],
+                    ['Target', formatMoney(ev.plan.target, 'IN'), PROFIT],
+                    ['Quantity', String(ev.plan.quantity)],
+                    ['Cash used', formatMoney(ev.plan.cashUsed, 'IN')],
+                    ['Est. charges', formatMoney(ev.plan.costsAtTarget ?? ev.plan.costs, 'IN')],
+                    ['Net profit at target', ev.plan.netReward != null ? formatPnl(ev.plan.netReward, 'IN') : '—', PROFIT],
+                    ['Net loss at stop', `−${formatMoney(ev.plan.maxLoss, 'IN')}`, LOSS],
+                    ['Net reward : risk', ev.plan.netRR != null ? `${ev.plan.netRR} : 1` : '—'],
+                  ].map(([label, value, color]) => (
+                    <View key={label} style={styles.cell}>
+                      <Text style={[styles.cellLabel, { color: theme.textMuted }]}>{label}</Text>
+                      <Text style={[styles.cellValue, { color: color || theme.text }]}>{value}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Text style={[styles.subTitle, { color: theme.textSecondary }]}>Exit plan</Text>
                 {[
-                  ['Entry (approx.)', formatMoney(ev.plan.entry, 'IN')],
-                  ['Stop-loss', formatMoney(ev.plan.stop, 'IN')],
-                  ['Target', formatMoney(ev.plan.target, 'IN')],
-                  ['Risk / share', formatMoney(ev.plan.riskPerShare, 'IN')],
-                  ['Quantity', String(ev.plan.quantity)],
-                  ['Cash used', formatMoney(ev.plan.cashUsed, 'IN')],
-                  ['Est. charges', formatMoney(ev.plan.costs, 'IN')],
-                  ['Max loss', formatMoney(ev.plan.maxLoss, 'IN')],
-                  ['Reward at target', formatMoney(ev.plan.reward, 'IN')],
-                ].map(([label, value]) => (
-                  <View key={label} style={styles.cell}>
-                    <Text style={[styles.cellLabel, { color: theme.textMuted }]}>{label}</Text>
-                    <Text style={[styles.cellValue, { color: theme.text }]}>{value}</Text>
-                  </View>
-                ))}
-              </View>
+                  `BOOK PROFIT at ${formatMoney(ev.plan.target, 'IN')} (target, ${ev.plan.rewardRisk ?? config.rewardRisk}× the stop distance)`,
+                  `EXIT NOW if price ${ev.plan.side === 'short' ? 'rises to' : 'falls to'} ${formatMoney(ev.plan.stop, 'IN')} (stop loss, ${config.atrMultiple} × ATR)`,
+                  config.trailAtR > 0
+                    ? `TRAIL SL: once ${config.trailAtR}× the risk in profit, move the stop to the entry price`
+                    : null,
+                  config.weakExit !== false
+                    ? `EXIT if a 5-min candle closes ${ev.plan.side === 'short' ? 'above' : 'below'} VWAP with EMA 9 ${ev.plan.side === 'short' ? 'over' : 'under'} EMA 21 (one indicator flipping isn't enough)`
+                    : null,
+                  'SQUARE OFF by 15:20 whatever happens (intraday)',
+                ]
+                  .filter(Boolean)
+                  .map((line) => (
+                    <Text key={line} style={[styles.reason, { color: theme.text }]}>• {line}</Text>
+                  ))}
+              </>
             ) : (
               <Text style={[styles.reason, { color: LOSS }]}>No trade: {ev.plan.reason}</Text>
             )}
             <Text style={[styles.hint, { color: theme.textMuted }]}>
-              Stop = {config.atrMultiple} × ATR, target = {ev.plan.rewardRisk ?? config.rewardRisk} × risk (never below 1:
-              {MIN_REWARD_RISK}).{ev.plan.capped ? ` The budget allows more, but quantity stays at your max of ${ev.plan.maxQuantity}.` : ''} Max
-              loss includes slippage and estimated charges and never exceeds your risk budget. Charges are estimates; check your broker&apos;s contract note.
+              Net figures include slippage and estimated charges (set your broker&apos;s in settings). They are estimates;
+              your contract note is the final word.
             </Text>
             {ev.plan.ok ? (
-              <TouchableOpacity
-                style={[styles.outlineBtn, { borderColor: theme.secondary }]}
-                onPress={() =>
-                  onPaperTrade({
-                    symbol,
-                    name: symbol.replace(/\.NS$/, ''),
-                    market: 'IN',
-                    side: ev.plan.side,
-                    entryPrice: ev.plan.entry,
-                    quantity: ev.plan.quantity,
-                    stopLoss: ev.plan.stop,
-                    target: ev.plan.target,
-                    setupSignal: ev.state,
-                    setupBullPct: ev.score.long,
-                    setupBearPct: ev.score.short,
-                    plan: `${ev.state} (${ev.ruleVersion}) at ${timeOf(ev.evaluatedAt)}: long ${ev.score.long}, short ${ev.score.short}.`,
-                  })
-                }
-              >
-                <Text style={[styles.outlineText, { color: theme.secondary }]}>Paper trade this plan myself</Text>
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity
+                  style={[styles.demoBtn, { backgroundColor: theme.primary }, (!ev.data.marketOpen || demo.busy) && styles.disabled]}
+                  onPress={() => startDemo(ev.plan.side)}
+                  disabled={!ev.data.marketOpen || demo.busy}
+                >
+                  {demo.busy ? (
+                    <ActivityIndicator size="small" color={theme.onPrimary} />
+                  ) : (
+                    <Text style={[styles.demoText, { color: theme.onPrimary }]}>
+                      Demo trade this {ev.plan.side === 'short' ? 'short' : 'long'}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+                <Text style={[styles.hint, { color: demo.error ? LOSS : theme.textMuted }]}>
+                  {demo.message ||
+                    (ev.data.marketOpen
+                      ? 'Records what would happen if you took it now: entry at the next candle, then the exit plan above, with charges. Results below and in History.'
+                      : 'Demo trades run in market hours (09:15–15:30 IST).')}
+                </Text>
+                <TouchableOpacity
+                  style={[styles.outlineBtn, { borderColor: theme.secondary }]}
+                  onPress={() =>
+                    onPaperTrade({
+                      symbol,
+                      name: symbol.replace(/\.NS$/, ''),
+                      market: 'IN',
+                      side: ev.plan.side,
+                      entryPrice: ev.plan.entry,
+                      quantity: ev.plan.quantity,
+                      stopLoss: ev.plan.stop,
+                      target: ev.plan.target,
+                      setupSignal: ev.state,
+                      setupBullPct: ev.score.long,
+                      setupBearPct: ev.score.short,
+                      plan: `${STATE_LABEL[ev.state] || ev.state} (${ev.ruleVersion}) at ${timeOf(ev.evaluatedAt)}: long ${ev.score.long}, short ${ev.score.short}.`,
+                    })
+                  }
+                >
+                  <Text style={[styles.outlineText, { color: theme.secondary }]}>Paper trade this plan myself</Text>
+                </TouchableOpacity>
+              </>
             ) : null}
           </View>
         ) : null}
 
         {/* Engine ledger */}
         <View style={cardStyle}>
-          <Text style={[styles.title, { color: theme.text }]}>Engine paper trades</Text>
+          <Text style={[styles.title, { color: theme.text }]}>Demo &amp; engine trades</Text>
           <Text style={[styles.hint, { color: theme.textMuted }]}>
             {config.autoPaper !== false
-              ? 'Every BUY/SELL candidate from the scanner is paper-traded automatically: entry at the next candle’s open, conservative stop/target fills, square-off at 15:20, charges deducted.'
-              : 'Automatic paper trading is off in settings.'}
+              ? 'Your demo trades, plus every LONG/SHORT ENTRY from the scanner, are simulated on real candles: entry at the next candle’s open, the exit plan (stop, target, trailing stop, setup break, 15:20 square-off), charges deducted.'
+              : 'Your demo trades are simulated on real candles with the exit plan and charges. Automatic paper trading of scanner signals is off in settings.'}
           </Text>
           <View style={styles.grid}>
             {[
@@ -569,11 +662,31 @@ export default function Signals({ header, onPaperTrade }) {
                 <View style={styles.flex}>
                   <Text style={[styles.ledgerName, { color: theme.text }]}>
                     {t.symbol.replace(/\.NS$/, '')} · {t.plan?.quantity} @ {formatMoney(t.entryPrice ?? t.plan?.entry, 'IN')}
+                    <Text style={{ color: theme.textMuted }}> · {t.source === 'demo' ? 'Demo' : 'Auto'}</Text>
                   </Text>
-                  <Text style={[styles.hint, styles.noTop, { color: theme.textMuted }]}>
-                    {formatDay(new Date(t.signalTime).toISOString())} {timeOf(new Date(t.signalTime).toISOString())} ·{' '}
-                    {t.status === 'closed' ? `${t.exitReason} at ${formatMoney(t.exitPrice, 'IN')}` : t.status === 'pending' ? 'waiting for next candle' : 'open'} · {t.ruleVersion}
-                  </Text>
+                  {t.status === 'closed' ? (
+                    <Text style={[styles.hint, styles.noTop, { color: theme.textMuted }]}>
+                      {formatDay(new Date(t.signalTime).toISOString())} {timeOf(new Date(t.signalTime).toISOString())} ·{' '}
+                      <Text style={[styles.bold, { color: t.exitReason === 'target' ? PROFIT : theme.text }]}>
+                        {EXIT_ACTION[t.exitReason] || t.exitReason}
+                      </Text>{' '}
+                      at {formatMoney(t.exitPrice, 'IN')} · {t.ruleVersion}
+                    </Text>
+                  ) : (
+                    <>
+                      <Text style={[styles.hint, styles.noTop, { color: theme.textMuted }]}>
+                        <Text style={[styles.bold, { color: ACTION_COLOR[t.liveAction] || theme.text }]}>
+                          {t.liveAction || (t.status === 'pending' ? 'ENTRY PENDING' : 'HOLD')}
+                        </Text>
+                        {t.lastPrice != null ? ` · now ${formatMoney(t.lastPrice, 'IN')}` : ''}
+                        {t.stopMoved ? ` · stop at entry ${formatMoney(t.finalStop, 'IN')}` : ` · stop ${formatMoney(t.plan?.stop, 'IN')}`}
+                        {` · target ${formatMoney(t.plan?.target, 'IN')}`}
+                      </Text>
+                      {t.actionNote ? (
+                        <Text style={[styles.hint, styles.noTop, { color: theme.textMuted }]}>{t.actionNote}</Text>
+                      ) : null}
+                    </>
+                  )}
                 </View>
                 {t.status === 'closed' ? (
                   <View style={styles.right}>
@@ -581,6 +694,11 @@ export default function Signals({ header, onPaperTrade }) {
                     <Text style={[styles.hint, styles.noTop, { color: theme.textMuted }]}>
                       {formatR(t.r)} · fees {formatMoney(t.costs, 'IN')}
                     </Text>
+                  </View>
+                ) : t.openPnl != null ? (
+                  <View style={styles.right}>
+                    <Text style={[styles.ledgerPnl, { color: pnlColor(t.openPnl, theme.text) }]}>{formatPnl(t.openPnl, 'IN')}</Text>
+                    <Text style={[styles.hint, styles.noTop, { color: theme.textMuted }]}>open, after charges</Text>
                   </View>
                 ) : null}
               </View>
@@ -620,10 +738,30 @@ export default function Signals({ header, onPaperTrade }) {
                   </View>
                 ))}
               </View>
+              <Text style={[styles.subTitle, { color: theme.textSecondary }]}>Your broker&apos;s charges</Text>
+              <View style={styles.grid}>
+                {CHARGE_SETTINGS.map((s) => (
+                  <View key={s.key} style={styles.field}>
+                    <Text style={[styles.cellLabel, { color: theme.textSecondary }]}>{s.label}</Text>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                      keyboardType="decimal-pad"
+                      value={drafts[`charges.${s.key}`] ?? ''}
+                      onChangeText={(v) => setDrafts((d) => ({ ...d, [`charges.${s.key}`]: v }))}
+                      accessibilityLabel={s.label}
+                    />
+                  </View>
+                ))}
+              </View>
+              <Text style={[styles.hint, { color: theme.textMuted }]}>
+                Match these to a contract note: if a small trade cost you about ₹13 in charges, your broker likely has a
+                minimum brokerage per order. STT, exchange, SEBI, stamp duty and GST are added at the standard rates.
+              </Text>
               {[
                 { key: 'allowShort', label: 'Allow intraday shorts' },
                 { key: 'scannerOn', label: 'Scan watchlist every 5 minutes' },
                 { key: 'autoPaper', label: 'Paper-trade candidates automatically' },
+                { key: 'weakExit', label: 'Exit when the setup breaks (VWAP + EMA 9/21)' },
               ].map((s) => (
                 <View key={s.key} style={styles.switchRow}>
                   <Text style={[styles.flex, { color: theme.text }]}>{s.label}</Text>
@@ -690,6 +828,8 @@ const styles = StyleSheet.create({
   hint: { fontSize: 12, marginTop: 6, lineHeight: 17 },
   noTop: { marginTop: 1 },
   outlineBtn: { borderWidth: 1, borderRadius: 12, paddingVertical: 10, alignItems: 'center', marginTop: 10 },
+  demoBtn: { borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 12 },
+  demoText: { fontSize: 15, fontWeight: '700' },
   outlineText: { fontSize: 14, fontWeight: '700' },
   empty: { fontSize: 14, textAlign: 'center', marginVertical: 20 },
   state: { fontSize: 26, fontWeight: '800' },

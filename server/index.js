@@ -155,6 +155,17 @@ function createApp() {
     }
   });
 
+  // Demo trade: simulate taking the current signal now. POST { symbol, side? }
+  app.post('/api/engine/demo', async (req, res) => {
+    const symbol = String(req.body?.symbol || '').toUpperCase();
+    if (!isSymbol(symbol)) return res.status(400).json({ error: 'Bad symbol' });
+    try {
+      res.json({ trade: await engineService.startDemo(symbol, req.body?.side) });
+    } catch (error) {
+      res.status(error.status || 502).json({ error: error.message });
+    }
+  });
+
   // Signal history and the paper trades behind it.
   // GET /api/engine/history?symbol=DLF.NS&state=WAIT&days=7&timeframe=5m
   app.get('/api/engine/history', async (req, res) => {

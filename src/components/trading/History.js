@@ -5,7 +5,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { performanceStats, statsByScore } from '../../engine/stats.js';
 import { fetchSignalHistory, pushCollection } from '../../services/api';
 import { confirmDelete } from '../../utils/confirm';
-import { LOSS, PROFIT, formatMoney, formatPct, formatPnl, formatR, pnlColor } from './format';
+import { EXIT_ACTION, LOSS, PROFIT, formatMoney, formatPct, formatPnl, formatR, pnlColor } from './format';
 
 const STATE_COLORS = {
   'BUY CANDIDATE': PROFIT,
@@ -15,8 +15,8 @@ const STATE_COLORS = {
   'NO TRADE': '#8E8E93',
 };
 const SHORT_STATE = {
-  'BUY CANDIDATE': 'BUY',
-  'SELL CANDIDATE': 'SELL',
+  'BUY CANDIDATE': 'LONG',
+  'SELL CANDIDATE': 'SHORT',
   WAIT: 'WAIT',
   NEUTRAL: 'NEUTRAL',
   'NO TRADE': 'NO TRADE',
@@ -31,7 +31,7 @@ const DAY_FILTERS = [
 ];
 const PAGE = 100;
 
-const EXIT_LABEL = { target: 'target', stop: 'stop', eod: '15:20 exit', time: 'time exit' };
+const EXIT_LABEL = EXIT_ACTION;
 
 // Candle start time, 24-hour like the NSE session (09:15–15:30).
 const timeLabel = (ms) =>
@@ -235,8 +235,8 @@ export default function History({ header, watchlist = [] }) {
           />
         </View>
         <Text style={[styles.hint, { color: theme.textMuted }]}>
-          Exits: {stats.exits.target} target · {stats.exits.stop} stop · {stats.exits.eod} at 15:20 ·{' '}
-          {stats.exits.time} time. Judged on simulated fills: next-candle entry, stop and target, slippage and
+          Exits: {stats.exits.target} book profit · {stats.exits.stop} stop loss · {stats.exits.trail} trailing stop ·{' '}
+          {stats.exits.weak} setup broke · {stats.exits.eod} squared off · {stats.exits.time} max hold. Judged on simulated fills: next-candle entry, stop and target, slippage and
           estimated charges, not on whether the price moved after the signal.
         </Text>
 
@@ -381,6 +381,7 @@ export default function History({ header, watchlist = [] }) {
                 <Text style={[styles.td, styles.bold, { color: theme.text }]} numberOfLines={1}>
                   {t.symbol.replace(/\.NS$/, '')} · {t.plan?.quantity ?? t.quantity} @{' '}
                   {formatMoney(t.entryPrice ?? t.plan?.entry, 'IN')}
+                  {t.source === 'demo' ? ' · Demo' : ' · Auto'}
                 </Text>
                 <Text style={[styles.detailLine, { color: theme.textMuted }]}>
                   {dayLabel(t.signalTime)} {timeLabel(t.signalTime)} ·{' '}
