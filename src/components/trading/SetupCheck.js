@@ -124,6 +124,8 @@ export default function SetupCheck({ header, onPaperTrade }) {
   const [filling, setFilling] = useState(false);
   const [notice, setNotice] = useState(null);
   const [nowPrices, setNowPrices] = useState({});
+  // The verdict card shows the verdict and stock; the breakdown opens on demand.
+  const [showDetails, setShowDetails] = useState(false);
   // Live intraday evaluation for the picked NSE stock: { symbol, ev, loading, error }.
   const [intraday, setIntraday] = useState({ symbol: null, ev: null, loading: false, error: null });
 
@@ -387,130 +389,146 @@ export default function SetupCheck({ header, onPaperTrade }) {
             <Text style={{ color: theme.textMuted }}> · {symbol}</Text>
           ) : null}
         </Text>
-        <Text style={[styles.reason, { color: theme.textSecondary }]}>{combined.reason}</Text>
-
-        {intradayFor ? (
-          <View style={[styles.explain, { backgroundColor: signalColor + '18' }]}>
-            <Text style={[styles.explainLine, { color: theme.text }]}>
-              <Text style={styles.bold}>Intraday (5-min): </Text>
-              {ev
-                ? `${ev.state} · long ${ev.score.long} / short ${ev.score.short} (needs ${ev.threshold})${ev.candle ? ` · price ₹${ev.indicators.price} = ${istTime(ev.candle.t, false)}–${istTime(ev.candle.t + 5 * 60000, false)} candle close, checked ${istTime(ev.evaluatedAt)} IST` : ''}${ev.quote?.price ? ` · last traded ₹${Number(ev.quote.price).toFixed(2)}${ev.quote.time ? ` at ${istTime(ev.quote.time)}` : ''}` : ''}`
-                : intraday.loading
-                  ? 'checking…'
-                  : intraday.error || '—'}
-            </Text>
-            <Text style={[styles.explainLine, { color: theme.text }]}>
-              <Text style={styles.bold}>Daily setup: </Text>
-              <Text style={{ color: dailyColor }}>{result.signal}</Text> · bullish {result.bullPct}% / bearish{' '}
-              {result.bearPct}%
-            </Text>
-            {combined.failed.length ? (
-              <Text style={[styles.explainLine, { color: theme.text }]}>
-                <Text style={styles.bold}>Failed condition: </Text>
-                {combined.failed.join(', ')}
-              </Text>
-            ) : null}
-            {combined.nextAction ? (
-              <Text style={[styles.explainLine, { color: theme.text }]}>
-                <Text style={styles.bold}>Next action: </Text>
-                {combined.nextAction}
-              </Text>
-            ) : null}
-            {combined.plan ? (
-              <Text style={[styles.explainLine, { color: theme.text }]}>
-                <Text style={styles.bold}>Plan: </Text>
-                {combined.plan.quantity} @ ₹{combined.plan.entry} · stop ₹{combined.plan.stop} · target ₹
-                {combined.plan.target} · max loss ₹{combined.plan.maxLoss}
-              </Text>
-            ) : null}
-          </View>
-        ) : symbol ? (
-          <Text style={[styles.hint, { color: theme.textMuted }]}>
-            Intraday signals cover NSE stocks only, so this is the daily setup alone.
-          </Text>
-        ) : null}
-
-        <Text style={[styles.dailyTitle, { color: theme.textSecondary }]}>
-          Daily setup (daily candles){intradayFor ? ' · used as the trend filter' : ''}
+        <Text style={[styles.reason, { color: theme.textSecondary }]} numberOfLines={showDetails ? undefined : 2}>
+          {combined.reason}
         </Text>
-
-        <View style={[styles.bar, { backgroundColor: theme.surfaceAlt }]}>
-          <View
-            style={[
-              styles.barFill,
-              {
-                width: `${result.bearPct}%`,
-                backgroundColor: SIGNAL_COLORS.SELL,
-              },
-            ]}
-          />
-          <View style={styles.flex} />
-          <View
-            style={[
-              styles.barFill,
-              {
-                width: `${result.bullPct}%`,
-                backgroundColor: SIGNAL_COLORS.BUY,
-              },
-            ]}
-          />
-          <View style={[styles.marker, { left: `${threshold}%`, backgroundColor: theme.text }]} />
-          <View style={[styles.marker, { right: `${threshold}%`, backgroundColor: theme.text }]} />
-        </View>
-        <View style={styles.barLabels}>
-          <Text style={[styles.barLabel, { color: SIGNAL_COLORS.SELL }]}>
-            Bearish {result.bearPct}%
+        <TouchableOpacity
+          style={styles.detailsToggle}
+          onPress={() => setShowDetails((v) => !v)}
+          accessibilityLabel={showDetails ? 'Hide details' : 'Show details'}
+        >
+          <Text style={[styles.detailsToggleText, { color: theme.primary }]}>
+            {showDetails ? 'Hide details' : 'Show details'}
           </Text>
-          <Text style={[styles.barLabel, { color: theme.textMuted }]}>needs {threshold}%</Text>
-          <Text style={[styles.barLabel, { color: SIGNAL_COLORS.BUY }]}>
-            Bullish {result.bullPct}%
-          </Text>
-        </View>
+          <Ionicons name={showDetails ? 'chevron-up' : 'chevron-down'} size={16} color={theme.primary} />
+        </TouchableOpacity>
 
-        {result.checks.length ? (
-          <View style={[styles.checks, { borderTopColor: theme.borderNeutral }]}>
-            {result.checks.map((c) => (
-              <View key={c.id} style={styles.checkRow}>
-                <Ionicons
-                  name={
-                    c.vote > 0
-                      ? 'arrow-up-circle'
-                      : c.vote < 0
-                        ? 'arrow-down-circle'
-                        : 'remove-circle-outline'
-                  }
-                  size={18}
-                  color={
-                    c.vote > 0
-                      ? SIGNAL_COLORS.BUY
-                      : c.vote < 0
-                        ? SIGNAL_COLORS.SELL
-                        : theme.textMuted
-                  }
-                />
-                <View style={styles.flex}>
-                  <Text style={[styles.checkName, { color: theme.text }]}>
-                    {c.name} <Text style={{ color: theme.textMuted }}>· weight {c.weight}</Text>
+        {showDetails ? (
+          <>
+            {intradayFor ? (
+              <View style={[styles.explain, { backgroundColor: signalColor + '18' }]}>
+                <Text style={[styles.explainLine, { color: theme.text }]}>
+                  <Text style={styles.bold}>Intraday (5-min): </Text>
+                  {ev
+                    ? `${ev.state} · long ${ev.score.long} / short ${ev.score.short} (needs ${ev.threshold})${ev.candle ? ` · price ₹${ev.indicators.price} = ${istTime(ev.candle.t, false)}–${istTime(ev.candle.t + 5 * 60000, false)} candle close, checked ${istTime(ev.evaluatedAt)} IST` : ''}${ev.quote?.price ? ` · last traded ₹${Number(ev.quote.price).toFixed(2)}${ev.quote.time ? ` at ${istTime(ev.quote.time)}` : ''}` : ''}`
+                    : intraday.loading
+                      ? 'checking…'
+                      : intraday.error || '—'}
+                </Text>
+                <Text style={[styles.explainLine, { color: theme.text }]}>
+                  <Text style={styles.bold}>Daily setup: </Text>
+                  <Text style={{ color: dailyColor }}>{result.signal}</Text> · bullish {result.bullPct}% / bearish{' '}
+                  {result.bearPct}%
+                </Text>
+                {combined.failed.length ? (
+                  <Text style={[styles.explainLine, { color: theme.text }]}>
+                    <Text style={styles.bold}>Failed condition: </Text>
+                    {combined.failed.join(', ')}
                   </Text>
-                  <Text style={[styles.checkNote, { color: theme.textSecondary }]}>{c.note}</Text>
-                </View>
+                ) : null}
+                {combined.nextAction ? (
+                  <Text style={[styles.explainLine, { color: theme.text }]}>
+                    <Text style={styles.bold}>Next action: </Text>
+                    {combined.nextAction}
+                  </Text>
+                ) : null}
+                {combined.plan ? (
+                  <Text style={[styles.explainLine, { color: theme.text }]}>
+                    <Text style={styles.bold}>Plan: </Text>
+                    {combined.plan.quantity} @ ₹{combined.plan.entry} · stop ₹{combined.plan.stop} · target ₹
+                    {combined.plan.target} · max loss ₹{combined.plan.maxLoss}
+                  </Text>
+                ) : null}
+              </View>
+            ) : symbol ? (
+              <Text style={[styles.hint, { color: theme.textMuted }]}>
+                Intraday signals cover NSE stocks only, so this is the daily setup alone.
+              </Text>
+            ) : null}
+
+            <Text style={[styles.dailyTitle, { color: theme.textSecondary }]}>
+              Daily setup (daily candles){intradayFor ? ' · used as the trend filter' : ''}
+            </Text>
+
+            <View style={[styles.bar, { backgroundColor: theme.surfaceAlt }]}>
+              <View
+                style={[
+                  styles.barFill,
+                  {
+                    width: `${result.bearPct}%`,
+                    backgroundColor: SIGNAL_COLORS.SELL,
+                  },
+                ]}
+              />
+              <View style={styles.flex} />
+              <View
+                style={[
+                  styles.barFill,
+                  {
+                    width: `${result.bullPct}%`,
+                    backgroundColor: SIGNAL_COLORS.BUY,
+                  },
+                ]}
+              />
+              <View style={[styles.marker, { left: `${threshold}%`, backgroundColor: theme.text }]} />
+              <View style={[styles.marker, { right: `${threshold}%`, backgroundColor: theme.text }]} />
+            </View>
+            <View style={styles.barLabels}>
+              <Text style={[styles.barLabel, { color: SIGNAL_COLORS.SELL }]}>
+                Bearish {result.bearPct}%
+              </Text>
+              <Text style={[styles.barLabel, { color: theme.textMuted }]}>needs {threshold}%</Text>
+              <Text style={[styles.barLabel, { color: SIGNAL_COLORS.BUY }]}>
+                Bullish {result.bullPct}%
+              </Text>
+            </View>
+
+            {result.checks.length ? (
+              <View style={[styles.checks, { borderTopColor: theme.borderNeutral }]}>
+                {result.checks.map((c) => (
+                  <View key={c.id} style={styles.checkRow}>
+                    <Ionicons
+                      name={
+                        c.vote > 0
+                          ? 'arrow-up-circle'
+                          : c.vote < 0
+                            ? 'arrow-down-circle'
+                            : 'remove-circle-outline'
+                      }
+                      size={18}
+                      color={
+                        c.vote > 0
+                          ? SIGNAL_COLORS.BUY
+                          : c.vote < 0
+                            ? SIGNAL_COLORS.SELL
+                            : theme.textMuted
+                      }
+                    />
+                    <View style={styles.flex}>
+                      <Text style={[styles.checkName, { color: theme.text }]}>
+                        {c.name} <Text style={{ color: theme.textMuted }}>· weight {c.weight}</Text>
+                      </Text>
+                      <Text style={[styles.checkNote, { color: theme.textSecondary }]}>{c.note}</Text>
+                    </View>
+                  </View>
+                ))}
+                <Text style={[styles.hint, { color: theme.textMuted }]}>
+                  {result.checksUsed} of {result.checksTotal} checks have data.
+                </Text>
+              </View>
+            ) : (
+              <Text style={[styles.hint, { color: theme.textMuted }]}>
+                Fill in at least {MIN_CHECKS} indicators below to get a reading.
+              </Text>
+            )}
+            {result.warnings.map((w) => (
+              <View key={w} style={styles.warning}>
+                <Ionicons name="alert-circle-outline" size={16} color="#FF9500" />
+                <Text style={[styles.warningText, { color: theme.text }]}>{w}</Text>
               </View>
             ))}
-            <Text style={[styles.hint, { color: theme.textMuted }]}>
-              {result.checksUsed} of {result.checksTotal} checks have data.
-            </Text>
-          </View>
-        ) : (
-          <Text style={[styles.hint, { color: theme.textMuted }]}>
-            Fill in at least {MIN_CHECKS} indicators below to get a reading.
-          </Text>
-        )}
-        {result.warnings.map((w) => (
-          <View key={w} style={styles.warning}>
-            <Ionicons name="alert-circle-outline" size={16} color="#FF9500" />
-            <Text style={[styles.warningText, { color: theme.text }]}>{w}</Text>
-          </View>
-        ))}
+          </>
+        ) : null}
       </View>
 
       {/* Inputs */}
@@ -831,6 +849,8 @@ const styles = StyleSheet.create({
   signal: { fontSize: 34, fontWeight: '800', letterSpacing: 1 },
   stockName: { fontSize: 16, fontWeight: '700', marginTop: 2 },
   verdictRow: { flexDirection: 'row', alignItems: 'center' },
+  detailsToggle: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', paddingVertical: 6, marginTop: 4 },
+  detailsToggleText: { fontSize: 14, fontWeight: '600' },
   refreshBtn: { padding: 6 },
   explain: { borderRadius: 10, padding: 10, marginTop: 10, gap: 3 },
   explainLine: { fontSize: 13, lineHeight: 19 },
