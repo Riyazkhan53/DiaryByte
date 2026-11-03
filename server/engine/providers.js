@@ -23,7 +23,7 @@ async function yahooCandles(symbol, intervalMin) {
   if (cached && Date.now() < cached.until) return cached.candles;
   const candles = await getIntradayCandles(symbol, intervalMin);
   const step = intervalMin * 60000;
-  yahooCache.set(key, { candles, until: Math.ceil((Date.now() + 1) / step) * step + 20000 });
+  yahooCache.set(key, { candles, at: Date.now(), until: Math.ceil((Date.now() + 1) / step) * step + 20000 });
   return candles;
 }
 
@@ -32,6 +32,8 @@ const yahoo = {
   label: 'Yahoo Finance (prototype feed, may be delayed)',
   delayed: true,
   getCandles: yahooCandles,
+  /** When these candles were last fetched from Yahoo (ms), or null. */
+  fetchedAt: (symbol, intervalMin) => yahooCache.get(`${symbol}:${intervalMin}`)?.at ?? null,
 };
 
 // ------- Kite Connect -------
@@ -135,7 +137,10 @@ function istString(ms) {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:00`;
 }
 
+const kiteFetched = new Map();
+
 async function kiteCandles(symbol, intervalMin) {
+  kiteFetched.set(`${symbol}:${intervalMin}`, Date.now());
   const token = await instrumentToken(symbol);
   const days = intervalMin === 1 ? 3 : intervalMin <= 5 ? 6 : 25;
   const from = istString(Date.now() - days * 86400000);
@@ -160,6 +165,7 @@ const kite = {
   label: 'Kite Connect (Zerodha)',
   delayed: false,
   getCandles: kiteCandles,
+  fetchedAt: (symbol, intervalMin) => kiteFetched.get(`${symbol}:${intervalMin}`) ?? null,
 };
 
 /** The provider to use now, and why (for the status strip). */

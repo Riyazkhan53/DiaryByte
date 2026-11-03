@@ -70,7 +70,8 @@ export function combineSetup(daily, ev) {
     return {
       verdict: 'NO TRADE',
       source: 'combined',
-      reason: (ev.reasons || [])[0] || 'A safety check failed.',
+      // The safety reason, not the overextension note that can come first.
+      reason: (ev.reasons || []).find((r) => !/score lost/.test(r)) || (ev.reasons || [])[0] || 'A safety check failed.',
       failed,
       nextAction: ev.nextAction,
       plan: null,

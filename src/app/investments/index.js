@@ -222,7 +222,18 @@ export default function InvestmentsScreen() {
     }
   };
 
+  // When a share price was last traded: IST for Indian stocks, the phone's time for US ones.
+  const priceTimeLabel = (item) => {
+    const d = new Date(item.priceTime);
+    if (marketOf(item) === 'US') return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    const ist = new Date(d.getTime() + 330 * 60000);
+    const pad = (n) => String(n).padStart(2, '0');
+    const today = todayKey();
+    const day = ist.toISOString().slice(0, 10);
+    return `${day === today ? '' : `${shortDate(day)} `}${pad(ist.getUTCHours())}:${pad(ist.getUTCMinutes())} IST`;
+  };
   const linkedStocks = items.filter(isLinkedStock);
+  const stocksFetched = linkedStocks.map((i) => i.priceFetchedAt).filter(Boolean).sort().pop();
   const stocksAsOf = linkedStocks.map((i) => i.priceDate).filter(Boolean).sort().pop();
   const usdInrNow = linkedStocks.find((i) => marketOf(i) === 'US' && i.usdInr > 0)?.usdInr;
 
@@ -632,6 +643,9 @@ export default function InvestmentsScreen() {
                 {linkedFunds.length > 0
                   ? `Mutual funds at latest NAV${pricesAsOf ? ` · ${shortDate(pricesAsOf)}` : ''}`
                   : 'Live prices'}
+                {stocksFetched
+                  ? ` · shares fetched ${new Date(stocksFetched).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
+                  : ''}
               </Text>
               <TouchableOpacity
                 onPress={refreshPrices}
@@ -780,7 +794,7 @@ export default function InvestmentsScreen() {
                         : isWeighedGold(item)
                           ? `${item.grams} g · ${money(item.rate)}/g`
                           : isLinkedStock(item)
-                            ? `${MARKETS.find((m) => m.key === marketOf(item)).flag} ${item.symbol} · ${item.quantity} shares @ ${marketOf(item) === 'US' ? `$${item.price}` : money(item.price)}`
+                            ? `${MARKETS.find((m) => m.key === marketOf(item)).flag} ${item.symbol} · ${item.quantity} shares @ ${marketOf(item) === 'US' ? `$${item.price}` : money(item.price)}${item.priceTime ? ` · ${priceTimeLabel(item)}` : ''}`
                             : item.category === 'Stocks'
                               ? `${MARKETS.find((m) => m.key === marketOf(item)).flag} ${item.detail || (marketOf(item) === 'US' ? 'US stock' : 'Indian stock')}`
                               : `${item.category}${item.detail ? ` · ${item.detail}` : ''}`}

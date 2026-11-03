@@ -92,6 +92,8 @@ const COLLECTIONS = {
       'price',
       'priceCurrency',
       'priceDate',
+      'priceTime',
+      'priceFetchedAt',
       'usdInr',
       // US stocks entered in dollars: $ invested, ₹/$ paid, $ value (if typed)
       'investedUsd',

@@ -32,6 +32,7 @@ import {
   PROFIT,
   STATE_LABEL,
   formatDay,
+  istTime,
   formatMoney,
   formatPnl,
   formatR,
@@ -499,6 +500,30 @@ export default function Signals({ header, onPaperTrade }) {
         {ev ? (
           <View style={cardStyle}>
             <Text style={[styles.title, { color: theme.text }]}>Indicators (completed 5-min candles)</Text>
+            {/* Where the price came from and when, to compare with a broker app. */}
+            <View style={[styles.priceCheck, { backgroundColor: theme.surfaceAlt }]}>
+              <Text style={[styles.priceLine, { color: theme.text }]}>
+                <Text style={styles.bold}>Price used {formatMoney(ev.indicators.price, 'IN')}</Text>
+                {ev.candle
+                  ? ` = close of the ${istTime(ev.candle.t, false)}–${istTime(ev.candle.t + 5 * 60000, false)} IST candle`
+                  : ''}
+              </Text>
+              <Text style={[styles.priceLine, { color: theme.textSecondary }]}>
+                Candles fetched {ev.fetchedAt ? istTime(ev.fetchedAt) : '—'} IST · checked {istTime(ev.evaluatedAt)} IST ·{' '}
+                {ev.provider?.id === 'kite' ? 'Kite Connect' : 'Yahoo Finance'}
+              </Text>
+              {ev.quote?.price ? (
+                <Text style={[styles.priceLine, { color: theme.textSecondary }]}>
+                  Last traded {formatMoney(ev.quote.price, 'IN')}
+                  {ev.quote.time ? ` at ${istTime(ev.quote.time)} IST` : ''}
+                  {ev.quote.fetchedAt ? ` (fetched ${istTime(ev.quote.fetchedAt)})` : ''}
+                </Text>
+              ) : null}
+              <Text style={[styles.priceNote, { color: theme.textMuted }]}>
+                Your broker shows the live price; signals use the last completed 5-minute candle, so a small gap is
+                normal. Compare the times: Yahoo can also run a few minutes behind.
+              </Text>
+            </View>
             <View style={styles.grid}>
               {[
                 ['Price', ev.indicators.price],
@@ -828,6 +853,9 @@ const styles = StyleSheet.create({
   hint: { fontSize: 12, marginTop: 6, lineHeight: 17 },
   noTop: { marginTop: 1 },
   outlineBtn: { borderWidth: 1, borderRadius: 12, paddingVertical: 10, alignItems: 'center', marginTop: 10 },
+  priceCheck: { borderRadius: 10, padding: 10, marginTop: 8, gap: 3 },
+  priceLine: { fontSize: 13, lineHeight: 18 },
+  priceNote: { fontSize: 11, lineHeight: 15, marginTop: 2 },
   demoBtn: { borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 12 },
   demoText: { fontSize: 15, fontWeight: '700' },
   outlineText: { fontSize: 14, fontWeight: '700' },

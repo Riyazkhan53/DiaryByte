@@ -85,13 +85,19 @@ export function applyStockPrices(items, { quotes, usdInr }, dateKey) {
     const fx = market === 'US' ? usdInr || item.usdInr : undefined;
     const current = stockValueInr(item.quantity, quote.price, market, fx);
     if (current == null) return item;
-    if (item.price === quote.price && item.current === current && item.usdInr === fx) return item;
+    const priceTime = quote.time || undefined;
+    if (item.price === quote.price && item.current === current && item.usdInr === fx && item.priceTime === priceTime) {
+      return item;
+    }
     updated += 1;
     return {
       ...item,
       price: quote.price,
       priceCurrency: quote.currency || (market === 'US' ? 'USD' : 'INR'),
       priceDate: dateKey,
+      // The exchange's last-trade time for this price, and when it was fetched.
+      priceTime,
+      priceFetchedAt: quote.fetchedAt || new Date().toISOString(),
       usdInr: fx,
       current,
     };
