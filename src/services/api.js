@@ -37,6 +37,11 @@ async function request(path, options = {}) {
     const error = new Error(`API request failed (${response.status})`);
     // Lets screens tell "server is out of date" (404) from other failures.
     error.status = response.status;
+    // The server's own explanation, when it sent one ({ error: '…' }).
+    error.serverMessage = await response
+      .json()
+      .then((body) => (typeof body?.error === 'string' ? body.error : null))
+      .catch(() => null);
     throw error;
   }
   return response.json();
@@ -111,6 +116,11 @@ export function evaluateSymbol(symbol) {
 
 export function runEngineScan() {
   return request('/api/engine/scan', { method: 'POST' });
+}
+
+// Demo trade: simulate taking the signal now (side 'long' | 'short'): { trade }.
+export function startDemoTrade(symbol, side) {
+  return request('/api/engine/demo', { method: 'POST', body: JSON.stringify({ symbol, side }) });
 }
 
 // Logged signals (newest first) and their paper trades: { signals, trades }.

@@ -37,6 +37,8 @@ async function getConfig() {
     Object.keys(DEFAULT_CONFIG).forEach((k) => {
       if (k !== 'charges' && doc[k] != null) cfg[k] = doc[k];
     });
+    // Your broker's charges, set in the app, over the estimates.
+    if (doc.charges && typeof doc.charges === 'object') cfg.charges = { ...DEFAULT_CONFIG.charges, ...doc.charges };
   }
   cfg.watchlist = (doc?.watchlist || []).filter((s) => typeof s === 'string').slice(0, MAX_WATCHLIST);
   cfg.scannerOn = doc?.scannerOn !== false;
@@ -111,7 +113,8 @@ async function updateOpenTrades() {
           // Keep the conservative result (stop first).
         }
       }
-      if (sim.status !== t.status || sim.exitPrice !== t.exitPrice) {
+      const moved = ['status', 'exitPrice', 'lastPrice', 'liveAction', 'stopMoved'].some((k) => sim[k] !== t[k]);
+      if (moved) {
         await Trades.updateOne({ id: t.id }, { $set: { ...sim, updatedAt: new Date().toISOString() } });
         changed += 1;
       }
@@ -181,6 +184,52 @@ async function history({ symbol, state: wanted, days, timeframe, limit = 500 } =
   return { signals: signals.map(strip), trades: trades.map(strip) };
 }
 
+/**
+ * Demo trade: "what if I took this now?" Evaluates the symbol, plans the
+ * given side (default: the engine's side) from the live price and ATR with
+ * your risk settings, and opens an engine paper trade that the scanner
+ * simulates like the automatic ones (next-candle entry, stop, target,
+ * trailing stop, weak-setup exit, 15:20 square-off, charges). It does not
+ * need a BUY/SELL candidate, so any signal can be tested.
+ */
+async function startDemo(symbol, side) {
+  const E = await engine();
+  const cfg = await getConfig();
+  const ctx = await ledgerContext();
+  const r = await evaluate(symbol, { config: cfg, context: ctx });
+  if (!r.data.marketOpen) throw Object.assign(new Error('NSE is closed: demo trades run in market hours (09:15–15:30 IST)'), { status: 400 });
+  if (!r.candle) throw Object.assign(new Error('No completed candle yet'), { status: 400 });
+  const chosen = side === 'long' || side === 'short' ? side : r.side;
+  const plan = E.planTrade({
+    side: chosen,
+    entry: r.candle.close,
+    atr: r.indicators.atr,
+    // A what-if on its own: the full practice capital, not what other trades use.
+    cash: cfg.capital,
+    config: cfg,
+  });
+  if (!plan.ok) throw Object.assign(new Error(plan.reason), { status: 400 });
+  const trade = {
+    id: newId(),
+    source: 'demo',
+    symbol,
+    side: chosen,
+    signalKey: `${symbol}:${r.candle.t}:${chosen}:demo`,
+    signalTime: r.candle.t,
+    signalState: r.state,
+    plan,
+    score: r.score,
+    ruleVersion: r.ruleVersion,
+    provider: r.provider.id,
+    indicators: r.indicators,
+    status: 'pending',
+    liveAction: 'ENTRY PENDING',
+    createdAt: new Date().toISOString(),
+  };
+  await getModel('enginetrades').create(trade);
+  return trade;
+}
+
 /** One scan: evaluate the watchlist, log every decision, open paper trades. */
 async function scan() {
   if (state.scanning) return { skipped: true };
@@ -203,6 +252,7 @@ async function scan() {
         if (tradeId) {
           await getModel('enginetrades').create({
             id: tradeId,
+            source: 'auto',
             symbol,
             side: r.side,
             signalKey: r.key,
@@ -276,4 +326,4 @@ async function status() {
   };
 }
 
-module.exports = { evaluate, scan, startScanner, status, updateOpenTrades, getConfig, history };
+module.exports = { evaluate, scan, startScanner, status, updateOpenTrades, getConfig, history, startDemo };

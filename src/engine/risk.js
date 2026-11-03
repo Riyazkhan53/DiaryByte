@@ -8,6 +8,7 @@
 export const DEFAULT_CHARGES = {
   brokeragePct: 0.03, // per order, capped below
   brokerageCap: 20, // ₹ per order
+  brokerageMin: 0, // ₹ per order (some brokers charge a minimum)
   sttSellPct: 0.025, // on the sell side
   exchangePct: 0.00297, // NSE transaction charge, both sides
   sebiPerCrore: 10, // ₹ per ₹1 crore turnover
@@ -23,11 +24,14 @@ export const DEFAULT_CONFIG = {
   maxQuantity: 1, // shares per trade, even when the budget and cash allow more (0 = no cap)
   atrMultiple: 1.5, // stop distance = ATR × this
   rewardRisk: 2, // target = entry ± reward:risk × stop distance (never below MIN_REWARD_RISK)
+  minNetRR: 1.2, // after charges, the target must pay at least this × the max loss
   slippagePct: 0.05, // per side, on fills
   threshold: 65, // score needed for a candidate
   maxDelayMin: 20, // data older than this (during the session) is stale
   breakoutLookback: 12, // 5-minute candles = 1 hour
   maxHoldMin: 0, // paper trades exit after this many minutes (0 = hold until 15:20)
+  trailAtR: 1, // once a trade is this many R in profit, move the stop to entry (0 = off)
+  weakExit: true, // exit when a 5-min candle closes back across VWAP with EMA 9/21 flipped
   allowShort: true, // intraday shorts (MIS) only
   charges: DEFAULT_CHARGES,
 };
@@ -39,15 +43,16 @@ const round2 = (n) => Math.round(n * 100) / 100;
 
 /** Estimated charges for one round trip (buy and sell). */
 export function estimateCosts(buyValue, sellValue, charges = DEFAULT_CHARGES) {
-  const brokerage =
-    Math.min((buyValue * charges.brokeragePct) / 100, charges.brokerageCap) +
-    Math.min((sellValue * charges.brokeragePct) / 100, charges.brokerageCap);
+  const c = { ...DEFAULT_CHARGES, ...charges };
+  const perOrder = (value) =>
+    value > 0 ? Math.min(Math.max((value * c.brokeragePct) / 100, c.brokerageMin || 0), c.brokerageCap) : 0;
+  const brokerage = perOrder(buyValue) + perOrder(sellValue);
   const turnover = buyValue + sellValue;
-  const exchange = (turnover * charges.exchangePct) / 100;
-  const sebi = (turnover / 1e7) * charges.sebiPerCrore;
-  const stt = (sellValue * charges.sttSellPct) / 100;
-  const stamp = (buyValue * charges.stampBuyPct) / 100;
-  const gst = ((brokerage + exchange + sebi) * charges.gstPct) / 100;
+  const exchange = (turnover * c.exchangePct) / 100;
+  const sebi = (turnover / 1e7) * c.sebiPerCrore;
+  const stt = (sellValue * c.sttSellPct) / 100;
+  const stamp = (buyValue * c.stampBuyPct) / 100;
+  const gst = ((brokerage + exchange + sebi) * c.gstPct) / 100;
   return round2(brokerage + exchange + sebi + stt + stamp + gst);
 }
 
@@ -96,7 +101,9 @@ export function sizeForStop({ side = 'long', entry, stop, cash, config = DEFAULT
       reason:
         maxByCash < 1
           ? `One share costs more than the ₹${round2(available)} available`
-          : `Stop is too wide: one share risks ₹${round2(lossAt(1))}, over the ₹${riskBudget} budget`,
+          : riskPerShare <= riskBudget
+            ? `Charges are too high for this trade: one share's stop loss ₹${round2(riskPerShare)} + est. charges ₹${round2(lossAt(1) - riskPerShare)} = ₹${round2(lossAt(1))}, over the ₹${riskBudget} budget`
+            : `Stop is too wide: one share risks ₹${round2(lossAt(1))}, over the ₹${riskBudget} budget`,
     };
   }
   return { ...result, ok: true };
@@ -105,8 +112,9 @@ export function sizeForStop({ side = 'long', entry, stop, cash, config = DEFAULT
 /**
  * Plan a trade before entry: stop from ATR, target from reward:risk, size
  * from sizeForStop. Returns { ok, reason?, side, entry, stop, target,
- * rewardRisk, riskPerShare, quantity, costs, maxLoss, reward, cashUsed, riskBudget }.
- * `ok` false means NO TRADE.
+ * rewardRisk, riskPerShare, quantity, costs, maxLoss, reward, cashUsed,
+ * riskBudget, costsAtTarget, netReward, netRR }. maxLoss and netReward are
+ * after slippage and estimated charges. `ok` false means NO TRADE.
  */
 export function planTrade({ side = 'long', entry, atr, cash, config = DEFAULT_CONFIG }) {
   const cfg = { ...DEFAULT_CONFIG, ...config };
@@ -121,12 +129,21 @@ export function planTrade({ side = 'long', entry, atr, cash, config = DEFAULT_CO
   const target = round2(entry + d * distance * rewardRisk);
   if (!(stop > 0)) return { ...base, ok: false, reason: 'Stop would be at or below zero' };
   const size = sizeForStop({ side, entry, stop, cash, config: cfg });
+  // What the target pays after slippage on both fills and charges.
+  const q = size.quantity || 0;
+  const charges = { ...DEFAULT_CHARGES, ...cfg.charges };
+  const slip = (entry * cfg.slippagePct) / 100;
+  const costsAtTarget = q ? estimateCosts(d > 0 ? entry * q : target * q, d > 0 ? target * q : entry * q, charges) : 0;
+  const netReward = q ? round2(q * (Math.abs(target - entry) - 2 * slip) - costsAtTarget) : 0;
   return {
     ...base,
     ...size,
     stop,
     target,
     rewardRisk,
-    reward: size.quantity ? round2(size.quantity * Math.abs(target - entry)) : 0,
+    reward: q ? round2(q * Math.abs(target - entry)) : 0,
+    costsAtTarget,
+    netReward,
+    netRR: q && size.maxLoss > 0 ? round2(netReward / size.maxLoss) : null,
   };
 }

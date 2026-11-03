@@ -25,3 +25,21 @@ export const formatDay = (key) => {
   const [y, m, d] = key.slice(0, 10).split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 };
+
+// Signal states as entry actions, and how engine/demo trades ended.
+export const STATE_LABEL = { 'BUY CANDIDATE': 'LONG ENTRY', 'SELL CANDIDATE': 'SHORT ENTRY' };
+export const EXIT_ACTION = {
+  target: 'BOOK PROFIT',
+  stop: 'EXIT · stop loss',
+  trail: 'EXIT · trailing stop',
+  weak: 'EXIT · setup broke',
+  eod: 'SQUARED OFF',
+  time: 'EXIT · max hold',
+};
+export const ACTION_COLOR = {
+  'ENTRY PENDING': '#8E8E93',
+  HOLD: '#007AFF',
+  'TRAIL SL': '#2DA44E',
+  'EXIT / TRAIL SL': '#FF9500',
+  'SQUARE OFF': '#E5383B',
+};
