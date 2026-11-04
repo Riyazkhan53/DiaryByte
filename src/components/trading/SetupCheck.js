@@ -265,6 +265,11 @@ export default function SetupCheck({ header, onPaperTrade }) {
       // Picked by symbol alone (watchlist): show the company name.
       if (data.name) setName((n) => (!n || n === shortSymbol(sym) ? data.name : n));
       const inputs = setupInputsFromCandles(data.candles);
+      // The live price and the official previous close (last session's close),
+      // when the server has them, over the values read off the daily bars.
+      const q = data.quote;
+      if (q?.price > 0) inputs.price = Math.round(q.price * 100) / 100;
+      if (q?.previousClose > 0) inputs.prevClose = Math.round(q.previousClose * 100) / 100;
       setFields((f) => ({
         ...f,
         ...Object.fromEntries(Object.entries(inputs).map(([k, v]) => [k, String(v)])),
@@ -274,7 +279,12 @@ export default function SetupCheck({ header, onPaperTrade }) {
       const lastDay = data.candles[data.candles.length - 1]?.t;
       setNotice({
         error: false,
-        text: `Filled from daily prices up to ${lastDay ? formatWhen(lastDay) : 'today'}${data.fetchedAt ? ` (fetched ${istTime(data.fetchedAt)} IST)` : ''}. Check them against your chart before acting.`,
+        text:
+          `Filled from daily prices up to ${lastDay ? formatWhen(lastDay) : 'today'}` +
+          `${data.fetchedAt ? ` (fetched ${istTime(data.fetchedAt)} IST)` : ''}.` +
+          `${q?.price > 0 ? ` Current price ₹${inputs.price}${q.time ? ` traded at ${istTime(q.time, false)} IST` : ''}.` : ''}` +
+          `${q?.previousClose > 0 ? ` Previous close ₹${inputs.prevClose} = the last session's closing price.` : ''}` +
+          ' Check them against your chart before acting.',
       });
     } catch (_error) {
       setNotice({
