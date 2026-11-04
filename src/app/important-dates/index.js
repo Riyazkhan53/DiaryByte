@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   SafeAreaView,
   Modal,
-  Alert,
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +25,7 @@ import {
   sortDates,
   dateSection,
 } from '../../utils/importantDates';
+import { confirmDelete } from '../../utils/confirm';
 
 const EMPTY_FORM = {
   title: '',
@@ -100,10 +100,7 @@ export default function ImportantDatesScreen() {
   };
 
   const deleteDate = (id) => {
-    Alert.alert('Delete Date', 'Remove this entry?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => persist(items.filter((i) => i.id !== id)) },
-    ]);
+    confirmDelete('Delete date', 'Remove this entry?', () => persist(items.filter((i) => i.id !== id)));
   };
 
   const setField = (field) => (value) => setForm((prev) => ({ ...prev, [field]: value }));

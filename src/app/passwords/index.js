@@ -8,7 +8,6 @@ import {
   FlatList,
   SafeAreaView,
   Modal,
-  Alert,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +15,7 @@ import Header from '../../components/Header';
 import SyncRow from '../../components/SyncRow';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
+import { confirmDelete } from '../../utils/confirm';
 
 const STORAGE_KEY = '@diarybyte_passwords';
 
@@ -89,14 +89,10 @@ export default function PasswordsScreen() {
   };
 
   const deleteItem = (id) => {
-    Alert.alert('Delete Password', 'Remove this saved password?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => persist(items.filter((i) => i.id !== id)),
-      },
-    ]);
+    const item = items.find((i) => i.id === id);
+    confirmDelete('Delete password', `Remove the saved password${item?.site ? ` for ${item.site}` : ''}?`, () =>
+      persist(items.filter((i) => i.id !== id))
+    );
   };
 
   const maskPassword = (pwd) => '•'.repeat(Math.min(pwd.length, 12));

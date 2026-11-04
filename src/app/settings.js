@@ -18,6 +18,8 @@ import Header from '../components/Header';
 import { useTheme } from '../hooks/useTheme';
 import { pullAllFromServer, SYNCED_COLLECTIONS } from '../services/sync';
 import { AppUpdatesSection } from '../components/AppUpdates';
+import { DeleteProtectionSection } from '../components/DeleteProtectionSection';
+import { confirmDelete } from '../utils/confirm';
 
 export default function SettingsScreen() {
   const { theme, isDark, toggleTheme, themeMode, updateThemeMode, userName, updateUserName } =
@@ -68,30 +70,19 @@ export default function SettingsScreen() {
   };
 
   const clearAllData = () => {
-    Alert.alert(
-      'Reset All Data',
-      'This will permanently delete all diary entries, movies, passwords, banking details, cards, to-dos, expenses, total spends, setup checks, paper trades, income, investments, debts, autopays and vault items. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete Everything',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await AsyncStorage.multiRemove(
-                SYNCED_COLLECTIONS.flatMap(({ storageKey }) => [
-                  storageKey,
-                  `${storageKey}_pending`,
-                  `${storageKey}_deleted`,
-                ])
-              );
-              Alert.alert('Done', 'All data has been cleared.');
-            } catch (error) {
-              console.error('Failed to clear data', error);
-            }
-          },
-        },
-      ]
+    confirmDelete(
+      'Reset all data',
+      'This will permanently delete all diary entries, movies, passwords, banking details, cards, to-dos, expenses, total spends, setup checks, paper trades, income, investments, debts, autopays and vault items on this device. This cannot be undone.',
+      async () => {
+        try {
+          await AsyncStorage.multiRemove(
+            SYNCED_COLLECTIONS.flatMap(({ storageKey }) => [storageKey, `${storageKey}_pending`, `${storageKey}_deleted`])
+          );
+          Alert.alert('Done', 'All data has been cleared.');
+        } catch (error) {
+          console.error('Failed to clear data', error);
+        }
+      }
     );
   };
 
@@ -183,6 +174,19 @@ export default function SettingsScreen() {
               : 'Using your chosen theme. Turn Auto on to follow the time of day.'}
           </Text>
         </View>
+
+        <DeleteProtectionSection
+          sectionStyle={[
+            styles.section,
+            {
+              backgroundColor: theme.surface,
+              borderColor: theme.border,
+              shadowColor: theme.shadow,
+            },
+          ]}
+          titleStyle={[styles.sectionTitle, { color: theme.text }]}
+          hintStyle={styles.hint}
+        />
 
         <AppUpdatesSection
           sectionStyle={[

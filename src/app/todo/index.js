@@ -8,13 +8,13 @@ import {
   FlatList,
   SafeAreaView,
   Modal,
-  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import SyncRow from '../../components/SyncRow';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
+import { confirmDelete } from '../../utils/confirm';
 
 const STORAGE_KEY = '@diarybyte_todo';
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -86,20 +86,18 @@ export default function TodoScreen() {
   };
 
   const deleteItem = (id) => {
-    persist(items.filter((i) => i.id !== id));
+    const item = items.find((i) => i.id === id);
+    confirmDelete('Delete task', `Remove ${item ? `"${item.title}"` : 'this task'}?`, () =>
+      persist(items.filter((i) => i.id !== id))
+    );
   };
 
   const clearCompleted = () => {
     const doneCount = items.filter((i) => i.done).length;
     if (doneCount === 0) return;
-    Alert.alert('Clear Completed', `Remove ${doneCount} completed task${doneCount === 1 ? '' : 's'}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: () => persist(items.filter((i) => !i.done)),
-      },
-    ]);
+    confirmDelete('Clear completed', `Remove ${doneCount} completed task${doneCount === 1 ? '' : 's'}?`, () =>
+      persist(items.filter((i) => !i.done))
+    );
   };
 
   const doneCount = items.filter((i) => i.done).length;
@@ -206,7 +204,7 @@ export default function TodoScreen() {
                   </Text>
                 ) : null}
               </View>
-              <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteItem(item.id)}>
+              <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteItem(item.id)} accessibilityLabel={`Delete ${item.title}`}>
                 <Ionicons name="trash-outline" size={19} color={theme.danger} />
               </TouchableOpacity>
             </View>

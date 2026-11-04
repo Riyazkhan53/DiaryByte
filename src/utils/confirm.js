@@ -13,6 +13,18 @@ export function confirmAction(title, message, actionLabel, onConfirm) {
   ]);
 }
 
+// Every delete goes through confirmDelete. The app mounts DeleteConfirmHost,
+// which registers itself here and shows one popup for all of them (asking
+// for the delete password when that is turned on in Settings).
+let deleteHost = null;
+export function registerDeleteHost(show) {
+  deleteHost = show;
+  return () => {
+    if (deleteHost === show) deleteHost = null;
+  };
+}
+
 export function confirmDelete(title, message, onConfirm) {
-  confirmAction(title, message, 'Delete', onConfirm);
+  if (deleteHost) deleteHost({ title, message, onConfirm });
+  else confirmAction(title, message, 'Delete', onConfirm);
 }

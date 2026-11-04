@@ -9,6 +9,7 @@ import DebtReminderService from '../components/DebtReminderService';
 import SipService from '../components/SipService';
 import ShareIntentHandler from '../components/ShareIntentHandler';
 import AnimatedSplash from '../components/AnimatedSplash';
+import DeleteConfirmHost from '../components/DeleteConfirmHost';
 
 // Keep the native splash up until the launch animation has drawn over it.
 SplashScreen.preventAutoHideAsync();
@@ -53,6 +54,7 @@ export default function RootLayout() {
     <ShareIntentProvider>
       <ThemeProvider>
         <GlassRoot />
+        <DeleteConfirmHost />
         <AnimatedSplash />
       </ThemeProvider>
     </ShareIntentProvider>

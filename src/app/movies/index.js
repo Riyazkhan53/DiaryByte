@@ -8,7 +8,6 @@ import {
   FlatList,
   SafeAreaView,
   Modal,
-  Alert,
   Image,
   ScrollView,
   ActivityIndicator,
@@ -30,7 +29,7 @@ import {
 import JustAdded from '../../components/movies/JustAdded';
 import { SA_KEY_STORAGE, fetchStreamingLinks } from '../../services/streamingAvailability';
 import { pickLink, watchTarget } from '../../services/ottLinks';
-import { confirmAction } from '../../utils/confirm';
+import { confirmAction, confirmDelete } from '../../utils/confirm';
 
 const STORAGE_KEY = '@diarybyte_movies';
 
@@ -319,14 +318,10 @@ export default function MoviesScreen() {
   };
 
   const deleteMovie = (id) => {
-    Alert.alert('Delete Movie', 'Remove this from your list?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => persist(movies.filter((m) => m.id !== id)),
-      },
-    ]);
+    const movie = movies.find((m) => m.id === id);
+    confirmDelete('Delete title', `Remove ${movie ? `"${movie.title}"` : 'this'} from your list?`, () =>
+      persist(movies.filter((m) => m.id !== id))
+    );
   };
 
   const saveApiKey = async () => {
