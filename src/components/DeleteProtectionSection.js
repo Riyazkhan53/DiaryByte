@@ -25,8 +25,9 @@ export function DeleteProtectionSection({ sectionStyle, titleStyle, hintStyle })
   const [notice, setNotice] = useState(null);
 
   useEffect(() => {
-    loadDeleteGuard();
-    return subscribeDeleteGuard(() => setEnabled(deleteGuardEnabled()));
+    const unsubscribe = subscribeDeleteGuard(() => setEnabled(deleteGuardEnabled()));
+    loadDeleteGuard().then(() => setEnabled(deleteGuardEnabled()));
+    return unsubscribe;
   }, []);
 
   const open = (m) => {
