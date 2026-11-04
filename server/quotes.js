@@ -16,7 +16,15 @@ const HEADERS = {
   Accept: 'application/json',
 };
 
-const CANDLES_CACHE_MS = 15 * 60 * 1000;
+// Daily candles: today's bar moves during market hours, so refetch after a
+// minute then; outside them (nothing changes) keep them for 15 minutes.
+const nseOpenNow = () => {
+  const ist = new Date(Date.now() + 330 * 60000);
+  const day = ist.getUTCDay();
+  const min = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+  return day >= 1 && day <= 5 && min >= 9 * 60 + 15 && min < 15 * 60 + 30;
+};
+const candlesCacheMs = () => (nseOpenNow() ? 60 * 1000 : 15 * 60 * 1000);
 
 const quoteCache = new Map();
 const searchCache = new Map();
@@ -89,7 +97,7 @@ async function getCandles(symbol) {
   if (!isSymbol(symbol)) throw new Error('Bad symbol');
   const key = symbol.toUpperCase();
   const cached = candlesCache.get(key);
-  if (cached && Date.now() - cached.at < CANDLES_CACHE_MS) return cached.data;
+  if (cached && Date.now() - cached.at < candlesCacheMs()) return cached.data;
   const body = await getJson(`${CHART_URL}${encodeURIComponent(key)}?range=6mo&interval=1d`);
   const result = body?.chart?.result?.[0];
   const q = result?.indicators?.quote?.[0] || {};
