@@ -169,6 +169,20 @@ export default function SetupCheck({ header, onPaperTrade }) {
     };
   }, [logSymbols]);
 
+  // While an NSE stock is picked and the market is open, re-check the intraday
+  // signal every minute (the server refetches candles as each 5-min candle
+  // closes, and the last traded price every minute).
+  const marketLive = !!intraday.ev?.data?.marketOpen;
+  useEffect(() => {
+    if (!intradayFor || !marketLive) return undefined;
+    const timer = setInterval(() => {
+      evaluateSymbol(intradayFor)
+        .then((r) => setIntraday((cur) => (cur.symbol === intradayFor ? { ...cur, ev: r, error: null } : cur)))
+        .catch(() => {});
+    }, 60000);
+    return () => clearInterval(timer);
+  }, [intradayFor, marketLive]);
+
   // ------- stock search and live fill -------
 
   const runSearch = async () => {
