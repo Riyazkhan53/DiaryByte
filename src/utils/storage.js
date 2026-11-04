@@ -33,6 +33,13 @@ export async function deleteEntry(id) {
   return updated;
 }
 
+export async function updateEntry(entry) {
+  const entries = await loadEntries();
+  const updated = entries.map((e) => (e.id === entry.id ? { ...e, ...entry } : e));
+  await saveEntries(updated);
+  return updated;
+}
+
 export async function getEntry(id) {
   const entries = await loadEntries();
   return entries.find((entry) => entry.id === id) || null;
