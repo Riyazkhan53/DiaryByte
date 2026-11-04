@@ -8,7 +8,6 @@ import {
   FlatList,
   SafeAreaView,
   Modal,
-  Alert,
   ScrollView,
   Platform,
 } from 'react-native';
@@ -21,6 +20,7 @@ import CardScanner from '../../components/CardScanner';
 import CardGridEditor from '../../components/CardGridEditor';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
+import { confirmDelete } from '../../utils/confirm';
 
 const STORAGE_KEY = '@diarybyte_banking';
 const CARDS_STORAGE_KEY = '@diarybyte_cards';
@@ -142,14 +142,7 @@ export default function BankingScreen() {
   };
 
   const deleteItem = (id) => {
-    Alert.alert('Delete Account', 'Remove this banking detail?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => persist(items.filter((i) => i.id !== id)),
-      },
-    ]);
+    confirmDelete('Delete account', 'Remove this banking detail?', () => persist(items.filter((i) => i.id !== id)));
   };
 
   const maskAccount = (num) => {
@@ -219,14 +212,7 @@ export default function BankingScreen() {
   };
 
   const deleteCard = (id) => {
-    Alert.alert('Delete Card', 'Remove this card?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => persistCards(cards.filter((c) => c.id !== id)),
-      },
-    ]);
+    confirmDelete('Delete card', 'Remove this card?', () => persistCards(cards.filter((c) => c.id !== id)));
   };
 
   const copyCardField = async (card, key, value) => {

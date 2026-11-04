@@ -36,6 +36,7 @@ import {
 } from '../../utils/tickets';
 import { linkLabel, parseBookingText } from '../../utils/ticketShare';
 import { ticketFromShare } from '../../services/sharedTicket';
+import { confirmDelete } from '../../utils/confirm';
 
 const FILTERS = [
   { key: 'upcoming', label: 'Upcoming' },
@@ -160,17 +161,10 @@ export default function TicketsScreen() {
   };
 
   const deleteTicket = (ticket) => {
-    Alert.alert('Delete Ticket', `Remove "${ticket.title}" from your tickets?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => {
-          setViewing(null);
-          persist(items.filter((t) => t.id !== ticket.id));
-        },
-      },
-    ]);
+    confirmDelete('Delete ticket', `Remove "${ticket.title}" from your tickets?`, () => {
+      setViewing(null);
+      persist(items.filter((t) => t.id !== ticket.id));
+    });
   };
 
   // Fill the form from a booking message copied from SMS, email or WhatsApp.

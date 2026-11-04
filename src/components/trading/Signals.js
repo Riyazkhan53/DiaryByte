@@ -16,6 +16,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 import { DEFAULT_CONFIG, MIN_REWARD_RISK } from '../../engine/risk.js';
 import { maxDrawdown } from '../../engine/stats.js';
+import { confirmDelete } from '../../utils/confirm';
 import { searchStocks } from '../../services/stocks';
 import {
   evaluateSymbol,
@@ -199,7 +200,9 @@ export default function Signals({ header, onPaperTrade }) {
     setQuery('');
   };
 
-  const removeSymbol = (s) => {
+  const removeSymbol = (s) =>
+    confirmDelete('Remove from watchlist', `Stop scanning ${s.replace(/\.NS$/, '')}?`, () => removeSymbolNow(s));
+  const removeSymbolNow = (s) => {
     saveConfig({ watchlist: watchlist.filter((x) => x !== s) });
     if (selected === s) setSelected(null);
   };

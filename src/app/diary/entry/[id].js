@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   SafeAreaView,
   Image,
-  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -15,6 +14,7 @@ import Header from '../../../components/Header';
 import { useTheme } from '../../../hooks/useTheme';
 import { getEntry, deleteEntry } from '../../../utils/storage';
 import { CATEGORIES } from '../../../constants/theme';
+import { confirmDelete } from '../../../utils/confirm';
 
 export default function EntryDetailScreen() {
   const { id } = useLocalSearchParams();
@@ -34,22 +34,11 @@ export default function EntryDetailScreen() {
   }, [fetchEntry]);
 
   const handleDelete = () => {
-    Alert.alert(
-      'Delete Entry',
-      'Are you sure you want to delete this entry?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            await deleteEntry(id);
-            if (router.canGoBack()) router.back();
-            else router.replace('/diary');
-          },
-        },
-      ]
-    );
+    confirmDelete('Delete entry', 'Are you sure you want to delete this entry?', async () => {
+      await deleteEntry(id);
+      if (router.canGoBack()) router.back();
+      else router.replace('/diary');
+    });
   };
 
   if (!entry) {

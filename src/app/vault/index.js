@@ -8,13 +8,13 @@ import {
   FlatList,
   SafeAreaView,
   Modal,
-  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import SyncRow from '../../components/SyncRow';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
+import { confirmDelete } from '../../utils/confirm';
 
 const STORAGE_KEY = '@diarybyte_vault';
 
@@ -44,14 +44,7 @@ export default function VaultScreen() {
   };
 
   const deleteItem = (id) => {
-    Alert.alert('Delete Item', 'Remove this from your vault?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => persist(items.filter((i) => i.id !== id)),
-      },
-    ]);
+    confirmDelete('Delete item', 'Remove this from your vault?', () => persist(items.filter((i) => i.id !== id)));
   };
 
   const formatDate = (iso) =>
