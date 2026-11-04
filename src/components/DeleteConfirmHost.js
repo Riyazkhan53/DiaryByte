@@ -3,7 +3,7 @@ import { Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'reac
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../hooks/useTheme';
 import { registerDeleteHost } from '../utils/confirm';
-import { checkDeletePassword, deleteGuardEnabled, subscribeDeleteGuard } from '../utils/deleteGuard';
+import { checkDeletePassword, deleteGuardEnabled, loadDeleteGuard, subscribeDeleteGuard } from '../utils/deleteGuard';
 
 /**
  * The one delete confirmation for the whole app (mounted in the root
@@ -17,20 +17,30 @@ export default function DeleteConfirmHost() {
   const [wrong, setWrong] = useState(false);
   const [guarded, setGuarded] = useState(deleteGuardEnabled());
 
-  useEffect(() => subscribeDeleteGuard(() => setGuarded(deleteGuardEnabled())), []);
+  useEffect(() => {
+    const unsubscribe = subscribeDeleteGuard(() => setGuarded(deleteGuardEnabled()));
+    loadDeleteGuard().then(() => setGuarded(deleteGuardEnabled()));
+    return unsubscribe;
+  }, []);
   useEffect(
     () =>
       registerDeleteHost((req) => {
         setPassword('');
         setWrong(false);
         setRequest(req);
+        // Make sure the password setting is loaded before the popup decides.
+        loadDeleteGuard().then(() => setGuarded(deleteGuardEnabled()));
       }),
     []
   );
 
   const close = () => setRequest(null);
-  const confirm = () => {
-    if (guarded && !checkDeletePassword(password)) {
+  const confirm = async () => {
+    // Read the saved setting now, not a possibly stale copy.
+    await loadDeleteGuard();
+    const needsPassword = deleteGuardEnabled();
+    setGuarded(needsPassword);
+    if (needsPassword && !checkDeletePassword(password)) {
       setWrong(true);
       return;
     }

@@ -19,6 +19,7 @@ import { useTheme } from '../hooks/useTheme';
 import { pullAllFromServer, SYNCED_COLLECTIONS } from '../services/sync';
 import { AppUpdatesSection } from '../components/AppUpdates';
 import { DeleteProtectionSection } from '../components/DeleteProtectionSection';
+import { VaultCodeSection } from '../components/VaultCodeSection';
 import { confirmDelete } from '../utils/confirm';
 
 export default function SettingsScreen() {
@@ -174,6 +175,19 @@ export default function SettingsScreen() {
               : 'Using your chosen theme. Turn Auto on to follow the time of day.'}
           </Text>
         </View>
+
+        <VaultCodeSection
+          sectionStyle={[
+            styles.section,
+            {
+              backgroundColor: theme.surface,
+              borderColor: theme.border,
+              shadowColor: theme.shadow,
+            },
+          ]}
+          titleStyle={[styles.sectionTitle, { color: theme.text }]}
+          hintStyle={styles.hint}
+        />
 
         <DeleteProtectionSection
           sectionStyle={[

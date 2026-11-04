@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -10,7 +10,9 @@ import {
   Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { router, useFocusEffect } from 'expo-router';
 import Header from '../../components/Header';
+import VaultDoor from '../../components/vault/VaultDoor';
 import SyncRow from '../../components/SyncRow';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
@@ -28,6 +30,17 @@ export default function VaultScreen() {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [revealed, setRevealed] = useState({});
+  // Locked behind the vault door every time you come back to this screen.
+  const [unlocked, setUnlocked] = useState(false);
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        setUnlocked(false);
+        setRevealed({});
+      },
+      []
+    )
+  );
 
   const addItem = () => {
     if (!title.trim() || !content.trim()) return;
@@ -54,12 +67,38 @@ export default function VaultScreen() {
       year: 'numeric',
     });
 
+  if (!unlocked) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
+        <Header title="Personal Vault" subtitle="Enter the combination to open" />
+        <View style={styles.doorArea}>
+          <VaultDoor onOpen={() => setUnlocked(true)} onSetCode={() => router.push('/settings')} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
       <Header title="Personal Vault" subtitle="Keep your secrets safe" />
 
       <View style={styles.content}>
-        <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} />
+        <View style={styles.topRow}>
+          <View style={styles.flex}>
+            <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} />
+          </View>
+          <TouchableOpacity
+            style={[styles.lockBtn, { backgroundColor: theme.surfaceAlt }]}
+            onPress={() => {
+              setUnlocked(false);
+              setRevealed({});
+            }}
+            accessibilityLabel="Lock the vault"
+          >
+            <Ionicons name="lock-closed" size={16} color={theme.text} />
+            <Text style={[styles.lockText, { color: theme.text }]}>Lock</Text>
+          </TouchableOpacity>
+        </View>
 
         <FlatList
           data={items}
@@ -178,6 +217,11 @@ export default function VaultScreen() {
 }
 
 const styles = StyleSheet.create({
+  doorArea: { flex: 1, padding: 16, paddingBottom: 28 },
+  topRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  flex: { flex: 1 },
+  lockBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, marginBottom: 8 },
+  lockText: { fontSize: 13, fontWeight: '600' },
   container: { flex: 1 },
   content: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
   list: { paddingBottom: 90 },
