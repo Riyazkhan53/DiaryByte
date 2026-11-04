@@ -98,6 +98,11 @@ const COLLECTIONS = {
       // US stocks entered in dollars: $ invested, ₹/$ paid, $ value (if typed)
       'investedUsd',
       'investRate',
+      // FD that grows daily: rate % a year, interest earned as of fdAsOf, optional maturity
+      'fdRate',
+      'fdInterest',
+      'fdAsOf',
+      'fdMaturity',
       'currentUsd',
       // monthly SIP: sip { amount, day, startMonth, endMonth? }, custom
       // amounts per month and the installments already recorded

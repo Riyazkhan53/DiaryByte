@@ -25,6 +25,8 @@ import {
   searchFunds,
 } from '../../services/mutualFunds';
 import { applyGoldRate, fetchGoldRate } from '../../services/goldRate';
+import { applyFdGrowth, fdMatured, fdPerDay, fdValue, isGrowingFd } from '../../utils/fd';
+import DatePicker from '../../components/DatePicker';
 import {
   MARKETS,
   applyStockPrices,
@@ -71,7 +73,7 @@ const DETAIL_PLACEHOLDERS = {
   'Mutual Funds': 'Folio number (optional)',
   Stocks: 'Quantity (e.g. 10 shares)',
   'Digital Gold': 'Weight (e.g. 2.5 g)',
-  FD: 'Rate & maturity (e.g. 7.1%, 2027)',
+  FD: 'Account / note (optional)',
 };
 
 const CURRENT_LABELS = {
@@ -118,6 +120,11 @@ export default function InvestmentsScreen() {
   const [current, setCurrent] = useState('');
   const [detail, setDetail] = useState('');
   const [note, setNote] = useState('');
+  // FD: rate (% a year), interest earned so far, optional maturity date.
+  const [fdRate, setFdRate] = useState('');
+  const [fdInterest, setFdInterest] = useState('');
+  const [fdMaturityOn, setFdMaturityOn] = useState(false);
+  const [fdMaturity, setFdMaturity] = useState(null);
   const [filter, setFilter] = useState('all');
 
   // Mutual fund linked to a scheme (units × NAV)
@@ -205,6 +212,13 @@ export default function InvestmentsScreen() {
     fetchGoldRate().then(applyGold).catch(() => {});
     fetchStockPrices(itemsRef.current).then(applyStocks).catch(() => {});
   }, [loaded, applyPrices, applyGold, applyStocks]);
+
+  // FDs with a rate grow by a day's interest every day.
+  useEffect(() => {
+    if (!loaded) return;
+    const { items: next, updated } = applyFdGrowth(items, todayKey());
+    if (updated) persist(next);
+  }, [loaded, items, persist]);
 
   const refreshPrices = async () => {
     setRefreshing(true);
@@ -390,6 +404,10 @@ export default function InvestmentsScreen() {
     setFxRate(usdInrNow || null);
     setInUsd(true);
     setInvestRate(usdInrNow ? String(usdInrNow) : '');
+    setFdRate('');
+    setFdInterest('');
+    setFdMaturityOn(false);
+    setFdMaturity(null);
     setModalVisible(true);
   };
 
@@ -427,6 +445,12 @@ export default function InvestmentsScreen() {
       setCurrent(item.currentUsd ? String(item.currentUsd) : '');
     }
     if (marketOf(item) === 'US' && !item.usdInr && !usdInrNow) ensureFxRate();
+    // A growing FD opens with today's interest earned, which becomes the new starting point.
+    const fdNow = isGrowingFd(item) ? fdValue(item, todayKey()) : null;
+    setFdRate(item.fdRate ? String(item.fdRate) : '');
+    setFdInterest(fdNow != null ? String(round2(fdNow - (Number(item.invested) || 0))) : '');
+    setFdMaturityOn(!!item.fdMaturity);
+    setFdMaturity(item.fdMaturity || null);
     setModalVisible(true);
   };
 
@@ -437,16 +461,23 @@ export default function InvestmentsScreen() {
   const unitsNum = toNum(units);
   const gramsNum = toNum(grams);
   const rateNum = toNum(rate);
+  // FD with a rate: worth the amount invested + interest earned so far, and grows daily.
+  const fdRateNum = toNum(fdRate);
+  const fdGrowing = category === 'FD' && fdRateNum > 0;
+  const fdInterestNum = toNum(fdInterest) || 0;
   // Value worked out for the holding, or null when it's entered by hand.
-  const autoCurrent =
-    fundLinked && unitsNum > 0 && nav > 0
+  const autoCurrent = fdGrowing
+    ? toNum(invested) > 0
+      ? round2(toNum(invested) + fdInterestNum)
+      : null
+    : fundLinked && unitsNum > 0 && nav > 0
       ? round2(unitsNum * nav)
       : category === 'Digital Gold' && gramsNum > 0 && rateNum > 0
         ? round2(gramsNum * rateNum)
         : stockLinked
           ? stockValueInr(quantityNum, sharePrice, market, fxRate)
           : null;
-  const manualCurrent = !(fundLinked || stockLinked || (category === 'Digital Gold' && gramsNum > 0));
+  const manualCurrent = !(fundLinked || stockLinked || fdGrowing || (category === 'Digital Gold' && gramsNum > 0));
   // US stock with amounts typed in dollars: convert to ₹ for the totals.
   const usdMode = category === 'Stocks' && market === 'US' && inUsd;
   const investRateNum = toNum(investRate);
@@ -504,6 +535,10 @@ export default function InvestmentsScreen() {
       investedUsd: usdMode ? toNum(invested) : undefined,
       investRate: usdMode ? investRateNum : undefined,
       currentUsd: usdMode && manualCurrent ? toNum(current) : undefined,
+      fdRate: fdGrowing ? fdRateNum : undefined,
+      fdInterest: fdGrowing ? fdInterestNum : undefined,
+      fdAsOf: fdGrowing ? todayKey() : undefined,
+      fdMaturity: fdGrowing && fdMaturityOn && fdMaturity ? fdMaturity : undefined,
       sip,
       createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -788,7 +823,7 @@ export default function InvestmentsScreen() {
                     <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
                       {item.name}
                     </Text>
-                    <Text style={[styles.cardSub, { color: theme.textSecondary }]} numberOfLines={1}>
+                    <Text style={[styles.cardSub, { color: theme.textSecondary }]} numberOfLines={isGrowingFd(item) ? 2 : 1}>
                       {isLinkedFund(item)
                         ? `${item.units} units${item.nav ? ` · NAV ₹${item.nav}` : ''}${item.navDate ? ` (${shortDate(item.navDate)})` : ''}`
                         : isWeighedGold(item)
@@ -797,7 +832,13 @@ export default function InvestmentsScreen() {
                             ? `${MARKETS.find((m) => m.key === marketOf(item)).flag} ${item.symbol} · ${item.quantity} shares @ ${marketOf(item) === 'US' ? `$${item.price}` : money(item.price)}${item.priceTime ? ` · ${priceTimeLabel(item)}` : ''}`
                             : item.category === 'Stocks'
                               ? `${MARKETS.find((m) => m.key === marketOf(item)).flag} ${item.detail || (marketOf(item) === 'US' ? 'US stock' : 'Indian stock')}`
-                              : `${item.category}${item.detail ? ` · ${item.detail}` : ''}`}
+                              : isGrowingFd(item)
+                                ? `${item.fdRate}% a year · ${
+                                    fdMatured(item, todayKey())
+                                      ? `matured ${shortDate(item.fdMaturity)}`
+                                      : `+${money(fdPerDay(item))}/day${item.fdMaturity ? ` · matures ${shortDate(item.fdMaturity)} ${item.fdMaturity.slice(0, 4)}` : ''}`
+                                  }`
+                                : `${item.category}${item.detail ? ` · ${item.detail}` : ''}`}
                     </Text>
                   </View>
                   <TouchableOpacity style={styles.iconBtn} onPress={() => openEdit(item)}>
@@ -818,7 +859,7 @@ export default function InvestmentsScreen() {
                   <Ionicons name="arrow-forward" size={14} color={theme.textMuted} />
                   <View style={styles.amountCol}>
                     <Text style={[styles.amountLabel, { color: theme.textMuted }]}>
-                      {item.category === 'FD' ? 'Maturity' : 'Current'}
+                      {item.category === 'FD' && !isGrowingFd(item) ? 'Maturity' : 'Current'}
                     </Text>
                     <Text style={[styles.amountValue, { color: theme.text }]}>
                       {money(item.current)}
@@ -1179,6 +1220,50 @@ export default function InvestmentsScreen() {
                   />
                 ) : null}
               </View>
+              {category === 'FD' ? (
+                <>
+                  <View style={styles.amountRow}>
+                    <TextInput
+                      style={[styles.input, styles.smallInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                      placeholder="Interest rate (% a year)"
+                      placeholderTextColor={theme.textMuted}
+                      keyboardType="decimal-pad"
+                      value={fdRate}
+                      onChangeText={setFdRate}
+                      accessibilityLabel="FD interest rate"
+                    />
+                    <TextInput
+                      style={[styles.input, styles.smallInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                      placeholder="Interest earned so far (₹)"
+                      placeholderTextColor={theme.textMuted}
+                      keyboardType="decimal-pad"
+                      value={fdInterest}
+                      onChangeText={setFdInterest}
+                      accessibilityLabel="FD interest earned so far"
+                    />
+                  </View>
+                  <Text style={[styles.formHint, { color: theme.textMuted }]}>
+                    {fdGrowing && toNum(invested) > 0
+                      ? `Worth ${money(autoCurrent)} today, then grows by ${money(fdPerDay({ invested: toNum(invested), fdRate: fdRateNum }))} a day${fdMaturityOn && fdMaturity ? ` until ${shortDate(fdMaturity)} ${fdMaturity.slice(0, 4)}` : ''}. Leave "interest earned" blank for a new FD.`
+                      : 'Enter the rate to have it grow every day on its own, or leave it blank and type the current value.'}
+                  </Text>
+                  {fdGrowing ? (
+                    <>
+                      <TouchableOpacity
+                        style={styles.fdToggle}
+                        onPress={() => setFdMaturityOn((v) => !v)}
+                        accessibilityLabel="FD has a maturity date"
+                      >
+                        <Ionicons name={fdMaturityOn ? 'checkbox' : 'square-outline'} size={20} color={theme.primary} />
+                        <Text style={[styles.fdToggleText, { color: theme.text }]}>
+                          Maturity date{fdMaturityOn && fdMaturity ? ` · ${shortDate(fdMaturity)} ${fdMaturity.slice(0, 4)}` : ' (optional)'}
+                        </Text>
+                      </TouchableOpacity>
+                      {fdMaturityOn ? <DatePicker value={fdMaturity} onChange={setFdMaturity} /> : null}
+                    </>
+                  ) : null}
+                </>
+              ) : null}
               {usdMode ? (
                 <>
                   <TextInput
@@ -1548,6 +1633,8 @@ const styles = StyleSheet.create({
   result: { borderWidth: 1, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 6 },
   resultText: { fontSize: 13 },
   formHint: { fontSize: 12, marginTop: -4, marginBottom: 12, lineHeight: 17 },
+  fdToggle: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, marginBottom: 6 },
+  fdToggleText: { fontSize: 14, fontWeight: '600' },
   linkedFund: {
     flexDirection: 'row',
     alignItems: 'center',
