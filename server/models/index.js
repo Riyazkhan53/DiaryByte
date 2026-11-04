@@ -40,7 +40,8 @@ const COLLECTIONS = {
     fields: ['id', 'title', 'content', 'mood', 'date', 'createdAt'],
   },
   vault: {
-    fields: ['id', 'title', 'content', 'createdAt'],
+    // photos: JPEG data URIs (shrunk to 1600 px wide in the app)
+    fields: ['id', 'title', 'content', 'photos', 'createdAt'],
   },
   todo: {
     fields: ['id', 'title', 'note', 'done', 'createdAt', 'completedAt'],
