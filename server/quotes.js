@@ -39,7 +39,11 @@ async function getJson(url) {
   return response.json();
 }
 
-/** Latest price of one symbol: { price, currency, time, name }. */
+/**
+ * Latest price of one symbol: { price, previousClose, currency, time,
+ * fetchedAt, name }. previousClose is the last session's official close
+ * (what brokers show as "prev close").
+ */
 async function fetchQuote(symbol) {
   const cached = quoteCache.get(symbol);
   if (cached && Date.now() - cached.at < QUOTE_CACHE_MS) return cached.quote;
@@ -48,8 +52,10 @@ async function fetchQuote(symbol) {
     const meta = body?.chart?.result?.[0]?.meta;
     const price = Number(meta?.regularMarketPrice);
     if (!(price > 0)) throw new Error('No price');
+    const prev = Number(meta.previousClose ?? meta.chartPreviousClose);
     const quote = {
       price,
+      previousClose: prev > 0 ? prev : null,
       currency: meta.currency || null,
       time: meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : null,
       // When this server fetched it (time is the exchange's last-trade time).
@@ -93,6 +99,9 @@ async function getQuotes(symbols) {
  * { symbol, name, currency, candles: [{ t, open, high, low, close, volume }] }.
  * Enough for EMA 50, RSI 14, MACD and 20-day volume and swing levels.
  */
+/** The exchange's calendar day of a time (gmtoffset in seconds, e.g. 19800 for IST). */
+const exchangeDay = (iso, gmtoffset = 0) => new Date(Date.parse(iso) + (gmtoffset || 0) * 1000).toISOString().slice(0, 10);
+
 async function getCandles(symbol) {
   if (!isSymbol(symbol)) throw new Error('Bad symbol');
   const key = symbol.toUpperCase();
@@ -112,11 +121,20 @@ async function getCandles(symbol) {
     }))
     .filter((c) => c.close > 0);
   if (!candles.length) throw new Error('No price history');
+  // Yahoo sometimes sends today twice (an early bar and the live one): keep
+  // the last bar of each exchange day, so "previous close" really is the
+  // previous session.
+  const byDay = new Map();
+  candles.forEach((c) => byDay.set(exchangeDay(c.t, result.meta?.gmtoffset), c));
+  const daily = [...byDay.values()];
+  // The live price and the official previous close, when Yahoo has them.
+  const quote = await fetchQuote(key).catch(() => null);
   const data = {
     symbol: key,
     name: result.meta?.longName || result.meta?.shortName || null,
     currency: result.meta?.currency || null,
-    candles,
+    candles: daily,
+    quote: quote ? { price: quote.price, previousClose: quote.previousClose, time: quote.time } : null,
     fetchedAt: new Date().toISOString(), // when this server got them from Yahoo
   };
   candlesCache.set(key, { at: Date.now(), data });
