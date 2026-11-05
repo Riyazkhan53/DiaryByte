@@ -6,6 +6,13 @@
 // A spend can also be counted in the month's expenses ("Add to expenses").
 // That expense is linked back with `sourceId: 'spend:<id>'`, so editing the
 // spend updates it and unticking or deleting the spend removes it.
+//
+// A spend paid by credit card is added to that card's bill for the next
+// month in Debts (created if there isn't one yet). The bill remembers what
+// each spend added in `spendAmounts`, so editing or deleting the spend
+// changes the bill to match.
+
+import { addMonths, billMonth, dueDateFor, isRecurringBill, sectionOf } from './debts';
 
 export const SPEND_SOURCES = [
   { key: 'card', label: 'Credit card', icon: 'card-outline', color: '#FF9500' },
@@ -86,4 +93,101 @@ export function spendBreakdown(spends) {
     avoidableCount: avoidableSpends.length,
     groups: [...groups.values()].sort((a, b) => b.amount - a.amount),
   };
+}
+
+// ------- credit card spends → next month's card bill -------
+
+const round2 = (n) => Math.round(n * 100) / 100;
+const makeId = () => `${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`;
+const norm = (text) => (text || '').trim().toLowerCase();
+
+/** The month whose card bill a spend made in `month` goes on. */
+export const cardBillMonth = (month) => addMonths(month, 1);
+
+const isCardBill = (item) => sectionOf(item) === 'card' && !isRecurringBill(item);
+
+// Same card: by the saved card's id, or by name for a card typed in by hand.
+function sameCard(bill, spend) {
+  if (spend.cardId) return bill.cardId === spend.cardId;
+  return !bill.cardId && norm(bill.name) === norm(spend.cardLabel);
+}
+
+/**
+ * Bring the Debts list in line with one spend: take back whatever it added
+ * to a card bill before, then (if it was paid by card) add its amount to that
+ * card's bill for the next month, creating the bill if needed. Pass
+ * `spend` null when it was deleted (with its id as `spendId`).
+ * Returns `debts` itself when nothing changed.
+ */
+export function syncSpendCardBill(debts, spend, spendId = spend?.id) {
+  const now = new Date().toISOString();
+  let changed = false;
+
+  // 1. Undo this spend's earlier share.
+  let next = debts.map((bill) => {
+    const share = bill.spendAmounts?.[spendId];
+    if (share == null) return bill;
+    changed = true;
+    const { [spendId]: _gone, ...rest } = bill.spendAmounts;
+    return {
+      ...bill,
+      amount: round2(Math.max(0, (Number(bill.amount) || 0) - share)),
+      spendAmounts: rest,
+      updatedAt: now,
+    };
+  });
+  // A bill made only from spends goes away once none are left on it.
+  next = next.filter(
+    (bill) =>
+      !(bill.fromSpends && !bill.paid && !Object.keys(bill.spendAmounts || {}).length && !(Number(bill.amount) > 0))
+  );
+
+  // 2. Add it to next month's bill for that card.
+  const amount = Number(spend?.amount) || 0;
+  if (!spend || spend.source !== 'card' || amount <= 0 || !spend.month) return changed ? next : debts;
+  const month = cardBillMonth(spend.month);
+  const bills = next.filter((bill) => isCardBill(bill) && sameCard(bill, spend));
+  const target = bills.find((bill) => billMonth(bill) === month);
+  if (target) {
+    return next.map((bill) =>
+      bill.id === target.id
+        ? {
+            ...bill,
+            amount: round2((Number(bill.amount) || 0) + amount),
+            spendAmounts: { ...(bill.spendAmounts || {}), [spend.id]: amount },
+            updatedAt: now,
+          }
+        : bill
+    );
+  }
+  // No bill yet: due on the same day as this card's latest bill, else the 1st.
+  const latest = bills
+    .filter((bill) => bill.dueDate)
+    .sort((a, b) => b.dueDate.localeCompare(a.dueDate))[0];
+  const dueDate = dueDateFor(month, latest ? Number(latest.dueDate.slice(8, 10)) : 1);
+  const last4 = /(\d{4})\s*$/.exec(spend.cardLabel || '')?.[1];
+  const bill = {
+    id: makeId(),
+    section: 'card',
+    name: spend.cardLabel || 'Credit card',
+    amount: round2(amount),
+    minDue: 0,
+    cardId: spend.cardId || undefined,
+    cardLast4: last4 || undefined,
+    dueDate,
+    month,
+    paid: false,
+    note: 'From Total Spend',
+    fromSpends: true,
+    spendAmounts: { [spend.id]: amount },
+    createdAt: now,
+    updatedAt: now,
+  };
+  return [bill, ...next];
+}
+
+/** Total a card bill got from Total Spend entries, and how many. */
+export function spendShare(bill) {
+  const shares = Object.values(bill.spendAmounts || {});
+  return { amount: round2(shares.reduce((sum, n) => sum + (Number(n) || 0), 0)), count: shares.length };
 }

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -22,12 +22,19 @@ import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 import { confirmDelete } from '../../utils/confirm';
 import { MAX_PHOTOS, pickVaultPhotos } from '../../services/vaultPhotos';
+import { VAULT_STORAGE_KEY, sealPlainItems, vaultLock } from '../../utils/vaultLock';
+import { decryptItem, encryptItem, isEncryptedItem } from '../../utils/vaultCrypto';
 
-const STORAGE_KEY = '@diarybyte_vault';
+const STORAGE_KEY = VAULT_STORAGE_KEY;
+
+// Decrypted items by ciphertext, only while the vault is open (decrypting
+// photos is slow, so each sealed item is decrypted once). Cleared on locking.
+const opened = new Map();
 
 export default function VaultScreen() {
   const { theme } = useTheme();
-  const { items, synced, persist, pulling, pullInfo, pullNow } = useSyncedCollection(
+  // `stored` is what's saved and synced: encrypted when a vault code is set.
+  const { items: stored, synced, persist, pulling, pullInfo, pullNow } = useSyncedCollection(
     'vault',
     STORAGE_KEY
   );
@@ -45,6 +52,8 @@ export default function VaultScreen() {
   useFocusEffect(
     useCallback(
       () => () => {
+        vaultLock.lock();
+        opened.clear();
         setUnlocked(false);
         setRevealed({});
         setViewer(null);
@@ -52,6 +61,49 @@ export default function VaultScreen() {
       []
     )
   );
+
+  // Readable items, only while the vault is open.
+  const items = useMemo(() => {
+    if (!unlocked) {
+      opened.clear();
+      return [];
+    }
+    const key = vaultLock.key();
+    return stored.map((raw) => {
+      if (!isEncryptedItem(raw)) return raw;
+      if (!opened.has(raw.enc)) opened.set(raw.enc, decryptItem(key, raw));
+      return opened.get(raw.enc) || { id: raw.id, createdAt: raw.createdAt, unreadable: true };
+    });
+  }, [stored, unlocked]);
+
+  // Items saved before the code was set: encrypt them now.
+  useEffect(() => {
+    if (!unlocked) return;
+    const sealed = sealPlainItems(stored);
+    if (sealed) persist(sealed);
+  }, [unlocked, stored, persist]);
+
+  // Items this device can't open were probably re-encrypted on another
+  // device after a code change: fetch the server's copies, once.
+  const refetched = useRef(false);
+  const unreadable = items.some((item) => item.unreadable);
+  useEffect(() => {
+    if (!unlocked) {
+      refetched.current = false;
+      return;
+    }
+    if (unreadable && !refetched.current) {
+      refetched.current = true;
+      pullNow();
+    }
+  }, [unlocked, unreadable, pullNow]);
+
+  const lockVault = () => {
+    vaultLock.lock();
+    opened.clear();
+    setUnlocked(false);
+    setRevealed({});
+  };
 
   const openAdd = () => {
     setEditingId(null);
@@ -62,6 +114,7 @@ export default function VaultScreen() {
     setModalVisible(true);
   };
   const openEdit = (item) => {
+    if (item.unreadable) return;
     setEditingId(item.id);
     setTitle(item.title || '');
     setContent(item.content || '');
@@ -97,12 +150,14 @@ export default function VaultScreen() {
       photos: photos.length ? photos : undefined,
       createdAt: existing?.createdAt || new Date().toISOString(),
     };
-    persist(editingId ? items.map((i) => (i.id === editingId ? entry : i)) : [entry, ...items]);
+    const key = vaultLock.key();
+    const toStore = key ? encryptItem(key, entry) : entry;
+    persist(editingId ? stored.map((i) => (i.id === editingId ? toStore : i)) : [toStore, ...stored]);
     setModalVisible(false);
   };
 
   const deleteItem = (id) => {
-    confirmDelete('Delete item', 'Remove this from your vault?', () => persist(items.filter((i) => i.id !== id)));
+    confirmDelete('Delete item', 'Remove this from your vault?', () => persist(stored.filter((i) => i.id !== id)));
   };
 
   const formatDate = (iso) =>
@@ -134,10 +189,7 @@ export default function VaultScreen() {
           </View>
           <TouchableOpacity
             style={[styles.lockBtn, { backgroundColor: theme.surfaceAlt }]}
-            onPress={() => {
-              setUnlocked(false);
-              setRevealed({});
-            }}
+            onPress={lockVault}
             accessibilityLabel="Lock the vault"
           >
             <Ionicons name="lock-closed" size={16} color={theme.text} />
@@ -158,7 +210,19 @@ export default function VaultScreen() {
               </Text>
             </View>
           }
-          renderItem={({ item }) => (
+          renderItem={({ item }) => item.unreadable ? (
+            <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow }]}>
+              <View style={styles.cardHeader}>
+                <Ionicons name="alert-circle-outline" size={18} color={theme.textMuted} />
+                <Text style={[styles.flex, styles.cardTitle, { color: theme.textMuted }]} numberOfLines={2}>
+                  Can&apos;t open this item: it was locked with a different code
+                </Text>
+                <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteItem(item.id)}>
+                  <Ionicons name="trash-outline" size={19} color={theme.danger} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
             <View
               style={[
                 styles.card,

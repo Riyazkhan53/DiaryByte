@@ -40,8 +40,16 @@ const COLLECTIONS = {
     fields: ['id', 'title', 'content', 'mood', 'date', 'createdAt'],
   },
   vault: {
-    // photos: JPEG data URIs (shrunk to 1600 px wide in the app)
-    fields: ['id', 'title', 'content', 'photos', 'createdAt'],
+    // photos: JPEG data URIs (shrunk to 1600 px wide in the app).
+    // With a vault code set, items are only { id, enc, createdAt }: enc is
+    // the AES-GCM-sealed title, content and photos.
+    fields: ['id', 'title', 'content', 'photos', 'enc', 'createdAt'],
+  },
+  // The Personal Vault's lock (one document, id 'vault-code'): the PBKDF2
+  // salt and round count and a sealed check value — never the code itself —
+  // so every device asks for the same code. `hash` is from older app versions.
+  vaultlock: {
+    fields: ['id', 'enabled', 'salt', 'iterations', 'verifier', 'hash', 'updatedAt'],
   },
   todo: {
     fields: ['id', 'title', 'note', 'done', 'createdAt', 'completedAt'],
@@ -151,6 +159,10 @@ const COLLECTIONS = {
       // credit card bill linked to a card saved in "cards" (no full number)
       'cardId',
       'cardLast4',
+      // card bills: what each Total Spend entry (by id) added to `amount`,
+      // and whether the bill was created from spends
+      'spendAmounts',
+      'fromSpends',
     ],
   },
   autopays: {

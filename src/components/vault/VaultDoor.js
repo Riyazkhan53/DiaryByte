@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Animated, Easing, PanResponder, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { VAULT_CODE_LENGTH, vaultCode } from '../../utils/vaultLock';
+import { VAULT_CODE_LENGTH, vaultLock } from '../../utils/vaultLock';
 
 const useNativeDriver = Platform.OS !== 'web';
 const RIVETS = [
@@ -59,11 +59,12 @@ function Dial({ value, onTurn, index }) {
  * The Personal Vault's door: set the six dials to the code (from Settings)
  * and turn the handle. Right code: the handle spins, the bolts pull back and
  * the door swings open on its hinges, then `onOpen`. Wrong code: the door
- * shakes. With no code set, the handle opens it straight away.
+ * shakes. With no code set, the handle opens it straight away. The code
+ * also unlocks the key that decrypts the vault's items.
  */
 export default function VaultDoor({ onOpen, onSetCode }) {
   const [digits, setDigits] = useState(() => Array(VAULT_CODE_LENGTH).fill(0));
-  const [hasCode, setHasCode] = useState(vaultCode.enabled());
+  const [hasCode, setHasCode] = useState(vaultLock.enabled());
   const [message, setMessage] = useState(null);
   const [width, setWidth] = useState(340);
   const [busy, setBusy] = useState(false);
@@ -75,19 +76,26 @@ export default function VaultDoor({ onOpen, onSetCode }) {
   }));
 
   useEffect(() => {
-    const unsubscribe = vaultCode.subscribe(() => setHasCode(vaultCode.enabled()));
+    const unsubscribe = vaultLock.subscribe(() => setHasCode(vaultLock.enabled()));
     // The saved code may finish loading before or after this subscribes.
-    vaultCode.load().then(() => setHasCode(vaultCode.enabled()));
+    // Then pick up a code set (or changed) on another device.
+    vaultLock.refresh().then(() => setHasCode(vaultLock.enabled()));
     return unsubscribe;
   }, []);
 
   const turnHandle = async () => {
     if (busy) return;
+    setBusy(true);
     // Never open on a not-yet-loaded setting: read the saved code first.
-    await vaultCode.load();
-    const locked = vaultCode.enabled();
+    await vaultLock.load();
+    // No code here yet: ask the server first, in case another device set one.
+    if (!vaultLock.enabled()) await vaultLock.refresh();
+    const locked = vaultLock.enabled();
     setHasCode(locked);
-    if (locked && !vaultCode.check(digits.join(''))) {
+    if (locked) setMessage('Checking…');
+    const opened = await vaultLock.unlock(digits.join(''));
+    setBusy(false);
+    if (!opened) {
       setMessage('Wrong combination');
       Animated.sequence(
         [10, -10, 8, -8, 4, 0].map((x) => Animated.timing(shake, { toValue: x, duration: 55, useNativeDriver }))
