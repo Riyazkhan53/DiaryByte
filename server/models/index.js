@@ -43,6 +43,11 @@ const COLLECTIONS = {
     // photos: JPEG data URIs (shrunk to 1600 px wide in the app)
     fields: ['id', 'title', 'content', 'photos', 'createdAt'],
   },
+  // The Personal Vault's 6-digit code, as a salted SHA-256 hash (one
+  // document, id 'vault-code'), so every device asks for the same code.
+  vaultlock: {
+    fields: ['id', 'enabled', 'salt', 'hash', 'updatedAt'],
+  },
   todo: {
     fields: ['id', 'title', 'note', 'done', 'createdAt', 'completedAt'],
   },

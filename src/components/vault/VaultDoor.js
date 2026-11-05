@@ -77,7 +77,8 @@ export default function VaultDoor({ onOpen, onSetCode }) {
   useEffect(() => {
     const unsubscribe = vaultCode.subscribe(() => setHasCode(vaultCode.enabled()));
     // The saved code may finish loading before or after this subscribes.
-    vaultCode.load().then(() => setHasCode(vaultCode.enabled()));
+    // Then pick up a code set (or changed) on another device.
+    vaultCode.refresh().then(() => setHasCode(vaultCode.enabled()));
     return unsubscribe;
   }, []);
 
@@ -85,6 +86,12 @@ export default function VaultDoor({ onOpen, onSetCode }) {
     if (busy) return;
     // Never open on a not-yet-loaded setting: read the saved code first.
     await vaultCode.load();
+    // No code here yet: ask the server first, in case another device set one.
+    if (!vaultCode.enabled()) {
+      setBusy(true);
+      await vaultCode.refresh();
+      setBusy(false);
+    }
     const locked = vaultCode.enabled();
     setHasCode(locked);
     if (locked && !vaultCode.check(digits.join(''))) {

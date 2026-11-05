@@ -17,7 +17,7 @@ export function VaultCodeSection({ sectionStyle, titleStyle, hintStyle }) {
 
   useEffect(() => {
     const unsubscribe = vaultCode.subscribe(() => setHasCode(vaultCode.enabled()));
-    vaultCode.load().then(() => setHasCode(vaultCode.enabled()));
+    vaultCode.refresh().then(() => setHasCode(vaultCode.enabled()));
     return unsubscribe;
   }, []);
 
@@ -128,8 +128,8 @@ export function VaultCodeSection({ sectionStyle, titleStyle, hintStyle }) {
 
       {notice ? <Text style={[styles.notice, { color: '#2DA44E' }]}>{notice}</Text> : null}
       <Text style={[hintStyle, { color: theme.textMuted }]}>
-        The Personal Vault opens behind a safe door: turn its six dials to this code and turn the handle. Kept only on
-        this device, as a hash. There&apos;s no reset: changing or removing it needs the current code.
+        The Personal Vault opens behind a safe door: turn its six dials to this code and turn the handle. Saved as a hash
+        and synced, so all your devices use the same code. There&apos;s no reset: changing or removing it needs the current code.
       </Text>
     </View>
   );
