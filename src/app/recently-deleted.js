@@ -42,6 +42,7 @@ const SECTIONS = Object.keys(SECTION_LABELS).filter((key) =>
 
 // A readable name for any item, whatever section it came from.
 function itemTitle(item) {
+  if (item.enc) return 'Encrypted vault item';
   return (
     item.title || item.site || item.name || item.bankName || item.month || item.category || 'Item'
   );

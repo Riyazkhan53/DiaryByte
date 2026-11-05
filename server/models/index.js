@@ -40,13 +40,16 @@ const COLLECTIONS = {
     fields: ['id', 'title', 'content', 'mood', 'date', 'createdAt'],
   },
   vault: {
-    // photos: JPEG data URIs (shrunk to 1600 px wide in the app)
-    fields: ['id', 'title', 'content', 'photos', 'createdAt'],
+    // photos: JPEG data URIs (shrunk to 1600 px wide in the app).
+    // With a vault code set, items are only { id, enc, createdAt }: enc is
+    // the AES-GCM-sealed title, content and photos.
+    fields: ['id', 'title', 'content', 'photos', 'enc', 'createdAt'],
   },
-  // The Personal Vault's 6-digit code, as a salted SHA-256 hash (one
-  // document, id 'vault-code'), so every device asks for the same code.
+  // The Personal Vault's lock (one document, id 'vault-code'): the PBKDF2
+  // salt and round count and a sealed check value — never the code itself —
+  // so every device asks for the same code. `hash` is from older app versions.
   vaultlock: {
-    fields: ['id', 'enabled', 'salt', 'hash', 'updatedAt'],
+    fields: ['id', 'enabled', 'salt', 'iterations', 'verifier', 'hash', 'updatedAt'],
   },
   todo: {
     fields: ['id', 'title', 'note', 'done', 'createdAt', 'completedAt'],

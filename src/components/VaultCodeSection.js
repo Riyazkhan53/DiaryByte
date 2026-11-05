@@ -1,23 +1,24 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../hooks/useTheme';
-import { VAULT_CODE_LENGTH, isVaultCode, vaultCode } from '../utils/vaultLock';
+import { VAULT_CODE_LENGTH, isVaultCode, vaultLock } from '../utils/vaultLock';
 
 /** Settings: the Personal Vault's 6-digit combination — set, change or remove it. */
 export function VaultCodeSection({ sectionStyle, titleStyle, hintStyle }) {
   const { theme } = useTheme();
-  const [hasCode, setHasCode] = useState(vaultCode.enabled());
+  const [hasCode, setHasCode] = useState(vaultLock.enabled());
   const [mode, setMode] = useState(null); // 'set' | 'change' | 'remove'
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [again, setAgain] = useState('');
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = vaultCode.subscribe(() => setHasCode(vaultCode.enabled()));
-    vaultCode.refresh().then(() => setHasCode(vaultCode.enabled()));
+    const unsubscribe = vaultLock.subscribe(() => setHasCode(vaultLock.enabled()));
+    vaultLock.refresh().then(() => setHasCode(vaultLock.enabled()));
     return unsubscribe;
   }, []);
 
@@ -31,27 +32,45 @@ export function VaultCodeSection({ sectionStyle, titleStyle, hintStyle }) {
   };
 
   const submit = async () => {
-    if ((mode === 'change' || mode === 'remove') && !vaultCode.check(current)) {
-      setError('Current code is wrong.');
-      return;
+    if (busy) return;
+    if (mode !== 'remove') {
+      if (!isVaultCode(next)) {
+        setError(`The code must be exactly ${VAULT_CODE_LENGTH} digits.`);
+        return;
+      }
+      if (next !== again) {
+        setError("The two codes don't match.");
+        return;
+      }
     }
-    if (mode === 'remove') {
-      await vaultCode.clear();
+    setBusy(true);
+    try {
+      // Checking the code and re-encrypting the vault takes a moment.
+      if (mode === 'remove') {
+        if (!(await vaultLock.removeCode(current))) {
+          setError('Current code is wrong.');
+          return;
+        }
+        setMode(null);
+        setNotice('Vault code removed. The vault door now opens without a code, and its items are no longer encrypted.');
+        return;
+      }
+      if (!(await vaultLock.setCode(next, mode === 'change' ? current : null))) {
+        setError('Current code is wrong.');
+        return;
+      }
+      vaultLock.lock();
       setMode(null);
-      setNotice('Vault code removed. The vault door now opens without a code.');
-      return;
+      setNotice(
+        mode === 'change'
+          ? 'Vault code changed. Vault items are now encrypted with the new code.'
+          : 'Vault code set. Vault items are now encrypted; turn the dials to it to open the vault.'
+      );
+    } catch (_error) {
+      setError("Couldn't update the vault. Check your connection and try again.");
+    } finally {
+      setBusy(false);
     }
-    if (!isVaultCode(next)) {
-      setError(`The code must be exactly ${VAULT_CODE_LENGTH} digits.`);
-      return;
-    }
-    if (next !== again) {
-      setError("The two codes don't match.");
-      return;
-    }
-    await vaultCode.set(next);
-    setMode(null);
-    setNotice(mode === 'change' ? 'Vault code changed.' : 'Vault code set. Turn the dials to it to open the vault.');
   };
 
   const input = (label, value, onChange) => (
@@ -98,9 +117,14 @@ export function VaultCodeSection({ sectionStyle, titleStyle, hintStyle }) {
             <TouchableOpacity
               style={[styles.btn, { backgroundColor: mode === 'remove' ? '#E5383B' : theme.primary }]}
               onPress={submit}
+              disabled={busy}
               accessibilityLabel={mode === 'remove' ? 'Remove vault code' : 'Save vault code'}
             >
-              <Text style={[styles.btnText, { color: '#FFF' }]}>{mode === 'remove' ? 'Remove' : 'Save'}</Text>
+              {busy ? (
+                <ActivityIndicator size="small" color="#FFF" />
+              ) : (
+                <Text style={[styles.btnText, { color: '#FFF' }]}>{mode === 'remove' ? 'Remove' : 'Save'}</Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -128,8 +152,9 @@ export function VaultCodeSection({ sectionStyle, titleStyle, hintStyle }) {
 
       {notice ? <Text style={[styles.notice, { color: '#2DA44E' }]}>{notice}</Text> : null}
       <Text style={[hintStyle, { color: theme.textMuted }]}>
-        The Personal Vault opens behind a safe door: turn its six dials to this code and turn the handle. Saved as a hash
-        and synced, so all your devices use the same code. There&apos;s no reset: changing or removing it needs the current code.
+        The Personal Vault opens behind a safe door: turn its six dials to this code and turn the handle. Vault items
+        are encrypted with it, so the server only holds scrambled data, and all your devices use the same code. There&apos;s no reset: changing or removing it needs the current code, and if you forget it the
+        vault&apos;s items can&apos;t be recovered.
       </Text>
     </View>
   );
