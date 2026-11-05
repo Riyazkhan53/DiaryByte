@@ -20,6 +20,7 @@ import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 import { confirmDelete } from '../../utils/confirm';
 import { todayKey } from '../../utils/autopay';
 import { savedCardLabel } from '../../utils/cards';
+import { spendShare } from '../../utils/spends';
 import {
   requestWebNotificationPermission,
   webNotificationPermission,
@@ -729,6 +730,12 @@ export default function DebtsScreen() {
             {section === 'bill' && item.billType ? ` · ${item.billType}` : ''}
             {section === 'card' && item.minDue ? ` · min ${money(item.minDue)}` : ''}
           </Text>
+          {section === 'card' && spendShare(item).count ? (
+            <Text style={[styles.cardSub, { color: theme.textMuted }]} numberOfLines={1}>
+              Includes {money(spendShare(item).amount)} from {spendShare(item).count} spend
+              {spendShare(item).count === 1 ? '' : 's'} in Total Spend
+            </Text>
+          ) : null}
         </TouchableOpacity>
         <Text style={[styles.billAmount, { color: due.paid ? theme.textMuted : theme.text }]}>
           {recurring && item.variable && !due.paid ? '~' : ''}

@@ -159,6 +159,10 @@ const COLLECTIONS = {
       // credit card bill linked to a card saved in "cards" (no full number)
       'cardId',
       'cardLast4',
+      // card bills: what each Total Spend entry (by id) added to `amount`,
+      // and whether the bill was created from spends
+      'spendAmounts',
+      'fromSpends',
     ],
   },
   autopays: {

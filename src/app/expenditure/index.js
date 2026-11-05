@@ -1002,6 +1002,8 @@ export default function ExpenditureScreen() {
           persistSpends={persistSpends}
           expenses={items}
           persistExpenses={persist}
+          debts={debts}
+          persistDebts={persistDebts}
           creditCards={creditCards}
           categories={CATEGORIES}
           categoryMeta={categoryMeta}

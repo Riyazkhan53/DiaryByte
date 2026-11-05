@@ -7,9 +7,11 @@ import { savedCardLabel } from '../utils/cards';
 import { addMonths } from '../utils/debts';
 import {
   SPEND_SOURCES,
+  cardBillMonth,
   spendBreakdown,
   spendSourceLabel,
   spendSourceMeta,
+  syncSpendCardBill,
   syncSpendExpense,
 } from '../utils/spends';
 
@@ -35,7 +37,8 @@ const EMPTY_FORM = {
 /**
  * "Total Spend" tab of My Expenditure: everything spent in the selected
  * month and what it was paid from, with the option to count each spend in
- * the month's expenses too.
+ * the month's expenses too. Spends paid by credit card are added to that
+ * card's bill for the next month in Debts.
  *
  * Shares the parent screen's styles, categories and month helpers so both
  * tabs look and behave alike.
@@ -47,6 +50,8 @@ export default function TotalSpend({
   persistSpends,
   expenses,
   persistExpenses,
+  debts,
+  persistDebts,
   creditCards,
   categories,
   categoryMeta,
@@ -105,6 +110,10 @@ export default function TotalSpend({
     setForm((f) => ({ ...f, cardId: card.id, cardLabel: savedCardLabel(card) }));
 
   const amountNum = parseAmount(form.amount);
+  // A card spend goes on that card's bill for the month after it.
+  const nextBillMonth = cardBillMonth(
+    (editingId && spends.find((s) => s.id === editingId)?.month) || selectedMonth
+  );
   const valid =
     form.title.trim() &&
     amountNum > 0 &&
@@ -134,19 +143,26 @@ export default function TotalSpend({
     persistSpends(existing ? spends.map((s) => (s.id === spend.id ? spend : s)) : [spend, ...spends]);
     const nextExpenses = syncSpendExpense(expenses, spend);
     if (nextExpenses !== expenses) persistExpenses(nextExpenses);
+    const nextDebts = syncSpendCardBill(debts, spend);
+    if (nextDebts !== debts) persistDebts(nextDebts);
     setVisible(false);
   };
 
   const remove = (spend) => {
+    const onBill = debts.some((d) => d.spendAmounts?.[spend.id] != null);
+    const also = [
+      spend.addToExpenses ? "removed from this month's expenses" : null,
+      onBill ? 'taken off the card bill' : null,
+    ].filter(Boolean);
     confirmDelete(
       'Delete Spend',
-      spend.addToExpenses
-        ? `Remove ${spend.title}? It will be removed from this month's expenses too.`
-        : `Remove ${spend.title}?`,
+      also.length ? `Remove ${spend.title}? It will be ${also.join(' and ')} too.` : `Remove ${spend.title}?`,
       () => {
         persistSpends(spends.filter((s) => s.id !== spend.id));
         const nextExpenses = syncSpendExpense(expenses, null, spend.id);
         if (nextExpenses !== expenses) persistExpenses(nextExpenses);
+        const nextDebts = syncSpendCardBill(debts, null, spend.id);
+        if (nextDebts !== debts) persistDebts(nextDebts);
       }
     );
   };
@@ -415,6 +431,11 @@ export default function TotalSpend({
                     </Text>
                   </>
                 )
+              ) : null}
+              {form.source === 'card' ? (
+                <Text style={[styles.hint, { color: theme.textMuted }]}>
+                  Adds this amount to the card&apos;s {monthLabel(nextBillMonth, true)} bill in Debts.
+                </Text>
               ) : null}
 
               {form.source === 'other' ? (
