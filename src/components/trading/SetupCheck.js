@@ -18,7 +18,7 @@ import { setupInputsFromCandles } from '../../utils/indicators';
 import { MARKETS, searchStocks } from '../../services/stocks';
 import { evaluateSymbol, fetchCandles, fetchStockQuotes } from '../../services/api';
 import { combineSetup } from '../../utils/combinedSetup';
-import { istTime } from './format';
+import { WARN, istTime } from './format';
 
 const STORAGE_KEY = '@diarybyte_setups';
 const CONFIG_KEY = '@diarybyte_tradingconfig';
@@ -416,6 +416,11 @@ export default function SetupCheck({ header, onPaperTrade }) {
         <Text style={[styles.reason, { color: theme.textSecondary }]} numberOfLines={showDetails ? undefined : 2}>
           {combined.reason}
         </Text>
+        {combined.warnings?.map((w) => (
+          <Text key={w} style={[styles.reason, { color: WARN }]}>
+            ⚠ {w}
+          </Text>
+        ))}
         <TouchableOpacity
           style={styles.detailsToggle}
           onPress={() => setShowDetails((v) => !v)}
