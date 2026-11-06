@@ -58,7 +58,7 @@ const SETTINGS = [
   { key: 'capital', label: 'Practice capital (₹)' },
   { key: 'riskPct', label: 'Risk per trade (%)', rupees: true },
   { key: 'dailyLossPct', label: 'Daily loss stop (%)', rupees: true },
-  { key: 'maxOpenPositions', label: 'Open positions at once' },
+  { key: 'maxOpenPositions', label: 'Open positions at once (when limited)' },
   { key: 'maxQuantity', label: 'Max shares per trade (0 = no cap)', min: 0, integer: true },
   { key: 'atrMultiple', label: 'Stop distance (× ATR)' },
   { key: 'rewardRisk', label: `Target (× risk, at least ${MIN_REWARD_RISK})`, min: MIN_REWARD_RISK },
@@ -791,6 +791,7 @@ export default function Signals({ header, onPaperTrade }) {
               </Text>
               {[
                 { key: 'allowShort', label: 'Allow intraday shorts' },
+                { key: 'limitPositions', label: 'Block new trades while positions are open' },
                 { key: 'scannerOn', label: 'Scan watchlist every 5 minutes' },
                 { key: 'autoPaper', label: 'Paper-trade candidates automatically' },
                 { key: 'weakExit', label: 'Exit when the setup breaks (VWAP + EMA 9/21)' },
@@ -798,7 +799,7 @@ export default function Signals({ header, onPaperTrade }) {
                 <View key={s.key} style={styles.switchRow}>
                   <Text style={[styles.flex, { color: theme.text }]}>{s.label}</Text>
                   <Switch
-                    value={configDoc?.[s.key] ?? (s.key === 'allowShort' ? DEFAULT_CONFIG.allowShort : true)}
+                    value={configDoc?.[s.key] ?? DEFAULT_CONFIG[s.key] ?? true}
                     onValueChange={(v) => saveConfig({ [s.key]: v })}
                   />
                 </View>

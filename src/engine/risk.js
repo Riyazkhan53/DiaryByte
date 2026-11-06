@@ -20,6 +20,7 @@ export const DEFAULT_CONFIG = {
   capital: 2000, // ₹, set by you, never read from a broker
   riskPct: 1, // per trade
   dailyLossPct: 2, // stop opening new trades after this
+  limitPositions: false, // when on, no new trade while maxOpenPositions are open
   maxOpenPositions: 1,
   maxQuantity: 1, // shares per trade, even when the budget and cash allow more (0 = no cap)
   atrMultiple: 1.5, // stop distance = ATR × this
