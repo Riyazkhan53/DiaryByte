@@ -198,7 +198,7 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
   };
   const dailyLimit = round((cfg.capital * cfg.dailyLossPct) / 100);
   const limitHit = (context.dayPnl ?? 0) <= -dailyLimit;
-  const tooMany = (context.openPositions ?? 0) >= cfg.maxOpenPositions;
+  const tooMany = !!cfg.limitPositions && (context.openPositions ?? 0) >= cfg.maxOpenPositions;
   const lateEntry = data.marketOpen && istParts(typeof now === 'number' ? now : Date.parse(now)).minutes >= istMinutes(LAST_ENTRY);
   const sideGates = (side) => {
     const isLong = side === 'long';
@@ -231,7 +231,7 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
           : plan.reason,
       },
       { id: 'dailyLimit', pass: !limitHit, note: limitHit ? `Daily loss limit of ₹${dailyLimit} reached` : `Daily loss so far within ₹${dailyLimit}` },
-      { id: 'positions', pass: !tooMany, note: tooMany ? `Already ${context.openPositions} open position(s) (max ${cfg.maxOpenPositions})` : 'Room for a position' },
+      { id: 'positions', pass: !tooMany, note: tooMany ? `Already ${context.openPositions} open position(s) (max ${cfg.maxOpenPositions})` : cfg.limitPositions ? 'Room for a position' : 'Open-position limit is off in settings' },
       {
         id: 'entryTime',
         pass: !lateEntry,

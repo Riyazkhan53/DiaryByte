@@ -226,6 +226,7 @@ const COLLECTIONS = {
       'capital',
       'riskPct',
       'dailyLossPct',
+      'limitPositions',
       'maxOpenPositions',
       'maxQuantity',
       'atrMultiple',
