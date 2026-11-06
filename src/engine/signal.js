@@ -9,7 +9,7 @@ import { DEFAULT_CONFIG, planTrade } from './risk.js';
 import { istMinutes, istParts } from './time.js';
 
 // Bump when checks, weights or gates change, so past results stay traceable.
-export const RULE_VERSION = 'intraday-v3';
+export const RULE_VERSION = 'intraday-v4';
 
 export const STATES = {
   BUY: 'BUY CANDIDATE',
@@ -56,7 +56,6 @@ const GATE_INFO = {
   positions: { label: 'Open positions', action: () => 'Manage or close the open position first' },
   duplicate: { label: 'Already signalled', action: () => 'Already signalled on this candle; wait for the next one' },
   shortAllowed: { label: 'Shorts allowed', action: () => 'Shorts are turned off in settings' },
-  netProfit: { label: 'Profit after charges', action: () => 'Skip this one: after charges the target pays too little for the risk' },
   entryTime: { label: 'Entry time', action: () => 'No new trades now: square off open positions by 15:20' },
 };
 const withInfo = (gate, long = true) => ({
@@ -234,13 +233,6 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
       { id: 'dailyLimit', pass: !limitHit, note: limitHit ? `Daily loss limit of ₹${dailyLimit} reached` : `Daily loss so far within ₹${dailyLimit}` },
       { id: 'positions', pass: !tooMany, note: tooMany ? `Already ${context.openPositions} open position(s) (max ${cfg.maxOpenPositions})` : 'Room for a position' },
       {
-        id: 'netProfit',
-        pass: !plan.ok || (plan.netReward > 0 && (plan.netRR ?? 0) >= cfg.minNetRR),
-        note: plan.ok
-          ? `After est. charges: target pays ₹${plan.netReward}, stop loses ₹${plan.maxLoss} (${plan.netRR ?? 0}× — needs ${cfg.minNetRR}×)`
-          : 'No plan to check charges against',
-      },
-      {
         id: 'entryTime',
         pass: !lateEntry,
         note: lateEntry ? `No new entries after ${LAST_ENTRY} IST (square-off at 15:20)` : `Entries allowed until ${LAST_ENTRY} IST`,
@@ -273,7 +265,7 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
     const best = score[side];
     const sideFails = failed(gates[side]);
     const safety = sideFails.filter((g) =>
-      ['risk', 'netProfit', 'entryTime', 'dailyLimit', 'positions', 'shortAllowed'].includes(g.id)
+      ['risk', 'entryTime', 'dailyLimit', 'positions', 'shortAllowed'].includes(g.id)
     );
     const scoreShort = best < cfg.threshold;
     // The checks agree but the move is stretched: say so rather than "score".
@@ -292,9 +284,8 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
       state = STATES.WAIT;
       if (scoreShort) reasons.push(`${Side} score ${best}/100 is close to ${cfg.threshold}`);
       reasons.push(...sideFails.map((g) => g.note));
-      // A mandatory gate first: no score helps while one fails.
       // A required setup gate first (no score helps while one fails), then
-      // chasing, then anything else (charges, time).
+      // chasing, then anything else (time, limits).
       const setupFail = sideFails.find((g) => ['vwap', 'volume', 'trend15'].includes(g.id));
       nextAction = setupFail
         ? setupFail.action
@@ -310,6 +301,17 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
     }
   }
 
+  // Warnings never change the state: they are for you to weigh.
+  const warnings = [];
+  const plan = plans[side];
+  if (plan?.ok && (plan.netReward <= 0 || (plan.netRR ?? 0) < cfg.minNetRR)) {
+    warnings.push(
+      plan.netReward <= 0
+        ? `Charges eat the profit: after est. charges the target pays ₹${plan.netReward} while the stop loses ₹${plan.maxLoss}`
+        : `Low profit after charges: target pays ₹${plan.netReward}, stop loses ₹${plan.maxLoss} (${plan.netRR ?? 0}× — below ${cfg.minNetRR}×)`
+    );
+  }
+
   return {
     ruleVersion: RULE_VERSION,
     symbol,
@@ -323,6 +325,7 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
     checks,
     gates,
     reasons,
+    warnings,
     failedConditions,
     nextAction,
     indicators: {

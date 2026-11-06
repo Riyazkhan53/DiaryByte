@@ -24,7 +24,7 @@ export const DEFAULT_CONFIG = {
   maxQuantity: 1, // shares per trade, even when the budget and cash allow more (0 = no cap)
   atrMultiple: 1.5, // stop distance = ATR × this
   rewardRisk: 2, // target = entry ± reward:risk × stop distance (never below MIN_REWARD_RISK)
-  minNetRR: 1.2, // after charges, the target must pay at least this × the max loss
+  minNetRR: 1.2, // warn when, after charges, the target pays less than this × the max loss
   slippagePct: 0.05, // per side, on fills
   threshold: 65, // score needed for a candidate
   maxDelayMin: 20, // data older than this (during the session) is stale

@@ -31,6 +31,7 @@ import {
   EXIT_ACTION,
   LOSS,
   PROFIT,
+  WARN,
   STATE_LABEL,
   formatDay,
   istTime,
@@ -65,7 +66,7 @@ const SETTINGS = [
   { key: 'threshold', label: 'Score needed (of 100)' },
   { key: 'maxDelayMin', label: 'Stale after (minutes)' },
   { key: 'maxHoldMin', label: 'Max hold, minutes (0 = till 15:20)', min: 0, integer: true },
-  { key: 'minNetRR', label: 'Min net reward:risk after charges', min: 0 },
+  { key: 'minNetRR', label: 'Warn below net reward:risk after charges', min: 0 },
   { key: 'trailAtR', label: 'Move stop to entry at (× risk, 0 = off)', min: 0 },
 ];
 
@@ -461,6 +462,9 @@ export default function Signals({ header, onPaperTrade }) {
                 </Text>
                 {ev.reasons.map((r) => (
                   <Text key={r} style={[styles.reason, { color: theme.text }]}>• {r}</Text>
+                ))}
+                {ev.warnings?.map((w) => (
+                  <Text key={w} style={[styles.reason, { color: WARN }]}>⚠ {w} (a warning only: it doesn&apos;t block the trade)</Text>
                 ))}
 
                 <Text style={[styles.subTitle, { color: theme.textSecondary }]}>Must pass (data)</Text>

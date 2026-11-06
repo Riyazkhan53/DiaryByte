@@ -12,7 +12,9 @@ const STATE_SIDE = { 'BUY CANDIDATE': 'long', 'SELL CANDIDATE': 'short' };
  * `ev`: engine evaluation from /api/engine/evaluate, or null when there is
  * none (US stocks, server unreachable).
  * Returns { verdict: 'BUY' | 'SELL' | 'WAIT' | 'NO TRADE', source:
- * 'combined' | 'daily', reason, failed: [labels], nextAction, plan }.
+ * 'combined' | 'daily', reason, failed: [labels], nextAction, plan,
+ * warnings: [text] } — warnings (e.g. low profit after charges) never change
+ * the verdict.
  */
 export function combineSetup(daily, ev) {
   if (!ev) {
@@ -23,6 +25,7 @@ export function combineSetup(daily, ev) {
       failed: [],
       nextAction: null,
       plan: null,
+      warnings: [],
     };
   }
   const side = STATE_SIDE[ev.state];
@@ -39,6 +42,7 @@ export function combineSetup(daily, ev) {
         failed: ['Daily trend'],
         nextAction: 'Skip it, or wait until the daily setup stops pointing the other way',
         plan: null,
+        warnings: [],
       };
     }
     const verdict = side === 'long' ? 'BUY' : 'SELL';
@@ -52,6 +56,7 @@ export function combineSetup(daily, ev) {
       failed: [],
       nextAction: ev.nextAction || 'Review the plan; paper trade it only if you agree',
       plan: ev.plan?.ok ? ev.plan : null,
+      warnings: ev.warnings || [],
     };
   }
 
@@ -64,6 +69,7 @@ export function combineSetup(daily, ev) {
       failed,
       nextAction: 'Check again after 09:15 IST, once a few 5-minute candles have closed',
       plan: null,
+      warnings: [],
     };
   }
   if (ev.state === 'NO TRADE') {
@@ -75,6 +81,7 @@ export function combineSetup(daily, ev) {
       failed,
       nextAction: ev.nextAction,
       plan: null,
+      warnings: [],
     };
   }
   return {
@@ -87,5 +94,6 @@ export function combineSetup(daily, ev) {
     failed,
     nextAction: ev.nextAction,
     plan: null,
+    warnings: [],
   };
 }

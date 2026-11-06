@@ -17,6 +17,7 @@ export const formatR = (r) => (r == null ? null : `${r > 0 ? '+' : r < 0 ? '−'
 
 export const PROFIT = '#2DA44E';
 export const LOSS = '#E5383B';
+export const WARN = '#D97706';
 
 export const pnlColor = (n, fallback) => (n > 0 ? PROFIT : n < 0 ? LOSS : fallback);
 
