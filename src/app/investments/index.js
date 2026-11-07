@@ -67,6 +67,7 @@ const CATEGORIES = [
   { key: 'Stocks', icon: 'trending-up-outline', color: '#32ADE6' },
   { key: 'Digital Gold', icon: 'diamond-outline', color: '#FFCC00' },
   { key: 'Digital Silver', icon: 'ellipse-outline', color: '#A8A9AD' },
+  { key: 'Digital Platinum', icon: 'sparkles-outline', color: '#8E9AAF' },
   { key: 'FD', icon: 'lock-closed-outline', color: '#34C759' },
 ];
 
@@ -75,6 +76,7 @@ const DETAIL_PLACEHOLDERS = {
   Stocks: 'Quantity (e.g. 10 shares)',
   'Digital Gold': 'Weight (e.g. 2.5 g)',
   'Digital Silver': 'Weight (e.g. 100 g)',
+  'Digital Platinum': 'Weight (e.g. 5 g)',
   FD: 'Account / note (optional)',
 };
 
@@ -104,7 +106,7 @@ const shortDate = (key) => {
 // Fund linked to a scheme: valued as units × latest NAV.
 const isLinkedFund = (item) => item.category === 'Mutual Funds' && !!item.schemeCode && item.units > 0;
 
-// Gold/silver locker with grams: valued as grams × the rate per gram.
+// Gold/silver/platinum locker with grams: valued as grams × the rate per gram.
 const isWeighedMetal = (item) => isMetal(item.category) && item.grams > 0 && item.rate > 0;
 
 export default function InvestmentsScreen() {
@@ -139,7 +141,7 @@ export default function InvestmentsScreen() {
   const [searching, setSearching] = useState(false);
   const [lookupError, setLookupError] = useState(null);
 
-  // Digital gold / silver (grams × rate)
+  // Digital gold / silver / platinum (grams × rate)
   const [grams, setGrams] = useState('');
   const [rate, setRate] = useState('');
   const [rateVisible, setRateVisible] = useState(false);
@@ -819,7 +821,7 @@ export default function InvestmentsScreen() {
             <View style={styles.empty}>
               <Ionicons name="trending-up-outline" size={56} color={theme.textMuted} />
               <Text style={[styles.emptyText, { color: theme.textMuted }]}>
-                No investments yet. Tap + to add mutual funds, stocks, gold, silver or FDs.
+                No investments yet. Tap + to add mutual funds, stocks, gold, silver, platinum or FDs.
               </Text>
             </View>
           }
@@ -1153,6 +1155,8 @@ export default function InvestmentsScreen() {
                         ? 'Locker (e.g. PhonePe Gold, GPay Gold)'
                         : category === 'Digital Silver'
                           ? 'Locker (e.g. PhonePe Silver, Jar Silver)'
+                          : category === 'Digital Platinum'
+                            ? 'Locker (e.g. your platinum app)'
                         : 'Bank / FD name'
                   }
                   placeholderTextColor={theme.textMuted}
@@ -1188,7 +1192,7 @@ export default function InvestmentsScreen() {
                 <View style={styles.amountRow}>
                   <TextInput
                     style={[styles.input, styles.smallInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-                    placeholder={category === 'Digital Silver' ? 'Grams (e.g. 100)' : 'Grams (e.g. 2.5)'}
+                    placeholder={`Grams (e.g. ${METALS[category].grams})`}
                     placeholderTextColor={theme.textMuted}
                     keyboardType="decimal-pad"
                     value={grams}
@@ -1508,7 +1512,7 @@ export default function InvestmentsScreen() {
         </View>
       </Modal>
 
-      {/* Today's gold or silver rate, applied to every locker of that metal */}
+      {/* Today's rate for one metal, applied to every locker of it */}
       <Modal visible={rateVisible} transparent animationType="fade" onRequestClose={() => setRateVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modal, { backgroundColor: theme.sheet }]}>

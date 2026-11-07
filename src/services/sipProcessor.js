@@ -20,7 +20,7 @@ let running = null;
 
 /**
  * Record every SIP installment whose date has come: add it to the holding
- * (units at that day's NAV, grams at today's gold/silver buy rate) and add an
+ * (units at that day's NAV, grams at today's gold/silver/platinum buy rate) and add an
  * Investment expense to My Expenditure. Safe to call often; only one run
  * happens at a time. Resolves to the number of installments recorded.
  */
