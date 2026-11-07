@@ -9,9 +9,11 @@ import { useSyncedCollection } from '../hooks/useSyncedCollection';
 import { AUTOPAY_STORAGE_KEY } from '../services/autopayReminders';
 import { UpdateReadyBanner } from '../components/AppUpdates';
 import { GlassIconButton } from '../components/Header';
-import { activeReminder, dueLabel, formatDate, money } from '../utils/autopay';
+import { activeReminder, dueLabel, formatDate, money, todayKey } from '../utils/autopay';
 import { TICKETS_STORAGE_KEY, ticketType, countdownLabel, daysUntil, sortTickets } from '../utils/tickets';
 import { DATES_STORAGE_KEY, sortDates, daysUntil as daysUntilDate } from '../utils/importantDates';
+import { currentMonthKey } from '../utils/debts';
+import { netWorth, upcomingItems } from '../utils/dashboard';
 
 const TABS = [
   {
@@ -154,6 +156,14 @@ export default function Dashboard() {
   const { items: dates } = useSyncedCollection('dates', DATES_STORAGE_KEY);
   const soonDates = sortDates(dates).upcoming.filter((d) => daysUntilDate(d) <= 7);
 
+  // Dashboard card: net worth and how much is coming up.
+  const { items: investments } = useSyncedCollection('investments', '@diarybyte_investments');
+  const { items: debts } = useSyncedCollection('debts', '@diarybyte_debts');
+  const { items: expenses } = useSyncedCollection('expenditure', '@diarybyte_expenditure');
+  const { items: months } = useSyncedCollection('months', '@diarybyte_months');
+  const worth = netWorth({ investments, debts, expenses, months }, currentMonthKey()).total;
+  const comingUp = upcomingItems({ autopays, investments, debts, tickets, dates }, 5, todayKey()).length;
+
   const stopReminders = (item, due) => {
     persistAutopays(autopays.map((i) => (i.id === item.id ? { ...i, ackDue: due } : i)));
   };
@@ -212,6 +222,33 @@ export default function Dashboard() {
           showsVerticalScrollIndicator={false}
         >
           <UpdateReadyBanner />
+          <TouchableOpacity
+            style={styles.dashWrap}
+            onPress={() => router.push('/dashboard')}
+            activeOpacity={0.85}
+            accessibilityLabel="Open dashboard"
+          >
+            <LinearGradient
+              colors={worth >= 0 ? ['#11998E', '#38B26B'] : ['#CB2D3E', '#EF473A']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.dash}
+            >
+              <View style={styles.dashIcon}>
+                <Ionicons name="speedometer" size={22} color="#FFF" />
+              </View>
+              <View style={styles.reminderText}>
+                <Text style={styles.dashLabel}>DASHBOARD · NET WORTH</Text>
+                <Text style={styles.dashValue} numberOfLines={1} adjustsFontSizeToFit>
+                  {worth < 0 ? '−' : '+'}₹{Math.round(Math.abs(worth)).toLocaleString('en-IN')}
+                </Text>
+                <Text style={styles.dashSub}>
+                  {comingUp ? `${comingUp} thing${comingUp === 1 ? '' : 's'} in the next 5 days` : 'Nothing due in the next 5 days'}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color="#FFF" />
+            </LinearGradient>
+          </TouchableOpacity>
           {reminders.map(({ item, reminder }) => (
             <View
               key={item.id}
@@ -397,6 +434,19 @@ const styles = StyleSheet.create({
   reminderSub: { fontSize: 12, marginTop: 2 },
   reminderDismiss: { padding: 14 },
   ticketBannerWrap: { width: '100%' },
+  dashWrap: { width: '100%' },
+  dash: { flexDirection: 'row', alignItems: 'center', gap: 14, borderRadius: 22, padding: 16 },
+  dashIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF33',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dashLabel: { color: '#FFFFFFCC', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
+  dashValue: { color: '#FFF', fontSize: 26, fontWeight: '800', marginTop: 2 },
+  dashSub: { color: '#FFFFFFD9', fontSize: 12, marginTop: 2 },
   ticketBanner: {
     flexDirection: 'row',
     alignItems: 'center',
