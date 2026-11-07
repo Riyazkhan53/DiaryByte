@@ -88,7 +88,7 @@ const COLLECTIONS = {
       'units',
       'nav',
       'navDate',
-      // digital gold: current = grams × rate (₹/g, set by the user)
+      // digital gold/silver: current = grams × rate (₹/g)
       'grams',
       'rate',
       'rateDate',

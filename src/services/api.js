@@ -85,7 +85,7 @@ export function pushCollection(collection, items, deleted = []) {
   });
 }
 
-// Live digital gold rate, cached by the server: { buy, sell, gst, timestamp }.
+// Live digital gold rate, cached by the server: { buy, sell, gst, timestamp, silver: { buy, sell, gst } | null }.
 export function fetchGoldRateFromServer() {
   return request('/api/gold-rate');
 }

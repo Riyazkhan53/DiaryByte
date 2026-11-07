@@ -11,7 +11,7 @@
 
 import { addMonths, dueDateFor } from './debts';
 
-export const SIP_CATEGORIES = ['Mutual Funds', 'Digital Gold', 'Stocks'];
+export const SIP_CATEGORIES = ['Mutual Funds', 'Digital Gold', 'Digital Silver', 'Stocks'];
 
 export const EXPENSE_CATEGORY = 'Investment';
 
@@ -75,7 +75,7 @@ export function sipHistory(item) {
 
 /**
  * Record one installment on the holding. `price` is { nav } for a mutual
- * fund valued by units, { rate } for gold valued by grams, { sharePrice }
+ * fund valued by units, { rate } for gold or silver valued by grams, { sharePrice }
  * (₹ per share) for a stock valued by quantity; otherwise the amount is
  * simply added to the current value. A zero amount marks the month skipped.
  */
@@ -90,7 +90,7 @@ export function applyInstallment(item, month, amount, price = {}, date = sipDueD
     record.units = round4(amount / price.nav);
     next.units = round4(item.units + record.units);
     next.current = round2(next.units * (item.nav || price.nav));
-  } else if (item.category === 'Digital Gold' && item.grams > 0 && price.rate > 0) {
+  } else if ((item.category === 'Digital Gold' || item.category === 'Digital Silver') && item.grams > 0 && price.rate > 0) {
     record.rate = price.rate;
     record.grams = round4(amount / price.rate);
     next.grams = round4(item.grams + record.grams);
