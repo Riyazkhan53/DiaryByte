@@ -50,6 +50,29 @@ export function usdFigures(item) {
   return currentUsd > 0 ? { investedUsd: item.investedUsd, currentUsd } : null;
 }
 
+/**
+ * A US stock's value in dollars: shares × price when linked, the $ value you
+ * typed, else the ₹ value at its ₹/$ rate. Null for other holdings.
+ */
+export function usdValues(item) {
+  if (item.category !== 'Stocks' || marketOf(item) !== 'US') return null;
+  const rate = item.usdInr > 0 ? item.usdInr : null;
+  const currentUsd = isLinkedStock(item)
+    ? round2(item.quantity * item.price)
+    : item.currentUsd > 0
+      ? item.currentUsd
+      : rate && item.current > 0
+        ? round2(item.current / rate)
+        : null;
+  const investedUsd =
+    item.investedUsd > 0
+      ? item.investedUsd
+      : item.investRate > 0 && item.invested > 0
+        ? round2(item.invested / item.investRate)
+        : null;
+  return currentUsd || investedUsd ? { currentUsd, investedUsd } : null;
+}
+
 /** Today's ₹ per $ (through our server). */
 export async function fetchUsdInr() {
   const body = await fetchStockQuotes([]);
