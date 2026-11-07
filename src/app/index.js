@@ -73,7 +73,7 @@ const TABS = [
   {
     key: 'investments',
     label: 'My Investments',
-    description: 'Mutual funds, stocks, gold, silver & FDs',
+    description: 'Mutual funds, stocks, metals & FDs',
     icon: 'trending-up-outline',
     route: '/investments',
     gradient: ['#4FD8C8', '#00A99D'],
