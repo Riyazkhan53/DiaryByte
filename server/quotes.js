@@ -141,6 +141,35 @@ async function getCandles(symbol) {
   return data;
 }
 
+const fxDayCache = new Map();
+
+/**
+ * ₹ per $ on a past date ('YYYY-MM-DD'): that day's closing USD→INR rate,
+ * or the last trading day's before it (weekends, holidays):
+ * { date, rate, rateDate }.
+ */
+async function getUsdInrOn(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) throw new Error('Bad date');
+  const cached = fxDayCache.get(date);
+  if (cached) return cached;
+  const day = Date.parse(`${date}T00:00:00Z`);
+  if (!Number.isFinite(day) || day > Date.now()) throw new Error('Bad date');
+  const period1 = Math.floor((day - 10 * 86400000) / 1000);
+  const period2 = Math.floor((day + 86400000) / 1000);
+  const body = await getJson(`${CHART_URL}USDINR%3DX?period1=${period1}&period2=${period2}&interval=1d`);
+  const result = body?.chart?.result?.[0];
+  const closes = result?.indicators?.quote?.[0]?.close || [];
+  const bars = (result?.timestamp || [])
+    .map((t, i) => ({ day: new Date(t * 1000).toISOString().slice(0, 10), close: closes[i] }))
+    .filter((b) => b.close > 0 && b.day <= date);
+  const bar = bars[bars.length - 1];
+  if (!bar) throw new Error('No rate for that date');
+  const out = { date, rate: Math.round(bar.close * 100) / 100, rateDate: bar.day };
+  // Past days don't change; today's can, so only cache older ones.
+  if (date < new Date().toISOString().slice(0, 10)) fxDayCache.set(date, out);
+  return out;
+}
+
 const US_EXCHANGES = new Set(['NMS', 'NGM', 'NCM', 'NYQ', 'ASE', 'PCX', 'BTS', 'NAS', 'NYS', 'CBOE']);
 
 /** Stocks/ETFs matching `query` in one market: [{ symbol, name, exchange }]. */
@@ -195,4 +224,4 @@ async function getIntradayCandles(symbol, intervalMin) {
   }));
 }
 
-module.exports = { getQuotes, getCandles, getIntradayCandles, searchSymbols, isSymbol };
+module.exports = { getQuotes, getCandles, getIntradayCandles, searchSymbols, isSymbol, getUsdInrOn };

@@ -91,6 +91,11 @@ export function fetchGoldRateFromServer() {
 }
 
 // Stock prices for symbols (e.g. TCS.NS, AAPL) and USD→INR: { quotes, usdInr }.
+// ₹ per $ on a past date: { date, rate, rateDate } (rateDate = the trading day used).
+export function fetchUsdInrOn(date) {
+  return request(`/api/usdinr?date=${encodeURIComponent(date)}`);
+}
+
 export function fetchStockQuotes(symbols) {
   return request(`/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`);
 }
