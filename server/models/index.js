@@ -111,6 +111,8 @@ const COLLECTIONS = {
       'boughtOn',
       // stocks added more than once: each purchase { date, quantity, invested, investedUsd?, investRate? }
       'lots',
+      // purchases recorded as spent: { id, via: 'expense' | 'card', amount, month, cardId?, cardLabel? }
+      'payments',
       // FD that grows daily: rate % a year, interest earned as of fdAsOf, optional maturity
       'fdRate',
       'fdInterest',

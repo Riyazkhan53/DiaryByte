@@ -1051,7 +1051,9 @@ export default function ExpenditureScreen() {
                     ? ' · from Total Spend'
                     : parseSipSourceId(item.sourceId)
                       ? ' · SIP'
-                      : item.sourceId
+                      : (item.sourceId || '').startsWith('invest:')
+                        ? ' · from My Investments'
+                        : item.sourceId
                         ? ' · from My Debts'
                         : ''}
                     </Text>

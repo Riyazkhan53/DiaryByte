@@ -41,7 +41,9 @@ import {
 } from '../../services/stocks';
 import { fetchStockQuotes, fetchUsdInrOn } from '../../services/api';
 import { findSameStock, mergeStock } from '../../utils/stockMerge';
-import { addMonths, dueDateFor, monthLabel } from '../../utils/debts';
+import { addMonths, currentMonthKey, dueDateFor, monthLabel } from '../../utils/debts';
+import { isCreditCard, savedCardLabel } from '../../utils/cards';
+import { syncSpendCardBill } from '../../utils/spends';
 import {
   SIP_CATEGORIES,
   hasSip,
@@ -120,6 +122,12 @@ export default function InvestmentsScreen() {
     STORAGE_KEY
   );
   const { items: expenses, persist: persistExpenses } = useSyncedCollection('expenditure', EXPENSES_KEY);
+  const { items: debts, persist: persistDebts } = useSyncedCollection('debts', '@diarybyte_debts');
+  const { items: savedCards } = useSyncedCollection('cards', '@diarybyte_cards');
+  const creditCards = savedCards.filter(isCreditCard);
+  // New purchase: also record it in this month's expenses or on a credit card bill.
+  const [payFrom, setPayFrom] = useState('none'); // 'none' | 'expense' | 'card'
+  const [payCardId, setPayCardId] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [category, setCategory] = useState('Mutual Funds');
@@ -461,6 +469,8 @@ export default function InvestmentsScreen() {
     setBoughtOpen(false);
     setBoughtFx(null);
     boughtRef.current = null;
+    setPayFrom('none');
+    setPayCardId(null);
     setModalVisible(true);
   };
 
@@ -608,13 +618,46 @@ export default function InvestmentsScreen() {
     };
     // The same stock again: add this purchase to the holding you have.
     const same = editingId ? null : findSameStock(items, entry);
+    // Paid for now: put it in this month's expenses or on the card's next bill.
+    const payment = editingId ? null : recordPayment(entry.name, investedNum);
+    if (payment) entry.payments = [...(entry.payments || []), payment];
     if (same) {
       const merged = mergeStock(same, entry);
+      if (payment) merged.payments = [...(same.payments || []), payment];
       persist(items.map((i) => (i.id === same.id ? merged : i)));
     } else {
       persist(editingId ? items.map((i) => (i.id === editingId ? entry : i)) : [entry, ...items]);
     }
     setModalVisible(false);
+  };
+
+  // Record a new purchase as spent: an Investment expense this month, or on
+  // the credit card's bill for next month (as card spends are). Returns what
+  // was recorded, or null.
+  const recordPayment = (title, amount) => {
+    if (payFrom === 'none' || !(amount > 0)) return null;
+    const month = currentMonthKey();
+    const id = `invest:${makeId()}`;
+    if (payFrom === 'expense') {
+      const now = new Date().toISOString();
+      persistExpenses([
+        { id: makeId(), title: `${title} (investment)`, amount, category: 'Investment', month, date: now, createdAt: now, sourceId: id },
+        ...expenses,
+      ]);
+      return { id, via: 'expense', amount, month };
+    }
+    const card = creditCards.find((c) => c.id === payCardId);
+    if (!card) return null;
+    const cardLabel = savedCardLabel(card);
+    persistDebts(
+      syncSpendCardBill(
+        debts,
+        { id, source: 'card', amount, month, cardId: card.id, cardLabel },
+        id,
+        'Includes an investment (added from My Investments)'
+      )
+    );
+    return { id, via: 'card', amount, month, cardId: card.id, cardLabel };
   };
 
   // ------- SIP plan sheet -------
@@ -706,7 +749,8 @@ export default function InvestmentsScreen() {
     (!fundLinked || unitsNum > 0) &&
     (!stockLinked || quantityNum > 0) &&
     (!isMetal(category) || !(gramsNum > 0) || rateNum > 0) &&
-    (!sipAllowed || !sipOn || toNum(sipAmount) > 0);
+    (!sipAllowed || !sipOn || toNum(sipAmount) > 0) &&
+    (editingId || payFrom !== 'card' || !!payCardId);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
@@ -1460,6 +1504,64 @@ export default function InvestmentsScreen() {
                   value={detail}
                   onChangeText={setDetail}
                 />
+              ) : null}
+              {!editingId ? (
+                <>
+                  <Text style={[styles.fieldLabelText, { color: theme.textSecondary }]}>Paid for it from</Text>
+                  <View style={[styles.segment, { backgroundColor: theme.surfaceAlt }]}>
+                    {[
+                      { key: 'none', label: 'Don’t record' },
+                      { key: 'expense', label: 'Expenses' },
+                      { key: 'card', label: 'Credit card' },
+                    ].map((opt) => (
+                      <TouchableOpacity
+                        key={opt.key}
+                        style={[styles.segmentItem, payFrom === opt.key && { backgroundColor: theme.sheet }]}
+                        onPress={() => setPayFrom(opt.key)}
+                        accessibilityLabel={`Paid from: ${opt.label}`}
+                      >
+                        <Text style={[styles.segmentText, { color: theme.text }]}>{opt.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  {payFrom === 'card' ? (
+                    creditCards.length ? (
+                      <View style={styles.catRow}>
+                        {creditCards.map((card) => {
+                          const selected = payCardId === card.id;
+                          return (
+                            <TouchableOpacity
+                              key={card.id}
+                              style={[
+                                styles.chip,
+                                {
+                                  backgroundColor: selected ? theme.primary : theme.surfaceAlt,
+                                  borderColor: selected ? theme.primary : theme.borderNeutral,
+                                },
+                              ]}
+                              onPress={() => setPayCardId(card.id)}
+                            >
+                              <Text style={[styles.chipText, { color: selected ? theme.onPrimary : theme.text }]}>
+                                {savedCardLabel(card)}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    ) : (
+                      <Text style={[styles.formHint, { color: theme.danger }]}>
+                        No credit cards saved yet. Add yours in Banking &amp; Cards first.
+                      </Text>
+                    )
+                  ) : null}
+                  {payFrom !== 'none' ? (
+                    <Text style={[styles.formHint, { color: theme.textMuted }]}>
+                      {payFrom === 'expense'
+                        ? `${investedInr > 0 ? money(investedInr) : 'The amount invested'} is added to My Expenditure for ${monthLabel(currentMonthKey(), true)} as an Investment.`
+                        : `${investedInr > 0 ? money(investedInr) : 'The amount invested'} is added to this card’s ${monthLabel(addMonths(currentMonthKey(), 1), true)} bill in My Debts.`}
+                    </Text>
+                  ) : null}
+                </>
               ) : null}
               {sipAllowed ? (
                 <>

@@ -20,7 +20,7 @@ import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 import { confirmDelete } from '../../utils/confirm';
 import { todayKey } from '../../utils/autopay';
 import { savedCardLabel } from '../../utils/cards';
-import { spendShare } from '../../utils/spends';
+import { investShare, spendShare } from '../../utils/spends';
 import {
   requestWebNotificationPermission,
   webNotificationPermission,
@@ -734,6 +734,12 @@ export default function DebtsScreen() {
             <Text style={[styles.cardSub, { color: theme.textMuted }]} numberOfLines={1}>
               Includes {money(spendShare(item).amount)} from {spendShare(item).count} spend
               {spendShare(item).count === 1 ? '' : 's'} in Total Spend
+            </Text>
+          ) : null}
+          {section === 'card' && investShare(item).count ? (
+            <Text style={[styles.cardSub, { color: theme.textMuted }]} numberOfLines={1}>
+              Includes {money(investShare(item).amount)} for {investShare(item).count} investment
+              {investShare(item).count === 1 ? '' : 's'}
             </Text>
           ) : null}
         </TouchableOpacity>
