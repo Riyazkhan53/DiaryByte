@@ -38,7 +38,8 @@ import {
   stockValueInr,
   usdFigures,
 } from '../../services/stocks';
-import { fetchStockQuotes } from '../../services/api';
+import { fetchStockQuotes, fetchUsdInrOn } from '../../services/api';
+import { findSameStock, mergeStock } from '../../utils/stockMerge';
 import { addMonths, dueDateFor, monthLabel } from '../../utils/debts';
 import {
   SIP_CATEGORIES,
@@ -162,6 +163,11 @@ export default function InvestmentsScreen() {
   // US stocks: amounts typed in dollars, and ₹ per $ when bought
   const [inUsd, setInUsd] = useState(true);
   const [investRate, setInvestRate] = useState('');
+  // US stock: the day you bought, and the ₹/$ looked up for it
+  const [boughtOn, setBoughtOn] = useState(null);
+  const [boughtOpen, setBoughtOpen] = useState(false);
+  const [boughtFx, setBoughtFx] = useState(null); // { rate, rateDate } | { loading } | { error }
+  const boughtRef = useRef(null);
 
   // SIP (form) and the SIP plan sheet
   const [sipOn, setSipOn] = useState(false);
@@ -359,6 +365,28 @@ export default function InvestmentsScreen() {
       .catch(() => {});
   };
 
+  // Pick the day you bought: fill in that day's ₹/$ (closing rate).
+  const pickBoughtOn = (date) => {
+    setBoughtOn(date);
+    setBoughtOpen(false);
+    boughtRef.current = date;
+    if (date > todayKey()) {
+      setBoughtFx({ error: 'Pick a day that has already passed.' });
+      return;
+    }
+    setBoughtFx({ loading: true });
+    fetchUsdInrOn(date)
+      .then((r) => {
+        if (boughtRef.current !== date) return;
+        if (!(r?.rate > 0)) throw new Error('no rate');
+        setInvestRate(String(r.rate));
+        setBoughtFx(r);
+      })
+      .catch(() => {
+        if (boughtRef.current === date) setBoughtFx({ error: "Couldn't get that day's dollar rate. Type it in, or try again." });
+      });
+  };
+
   const unlinkStock = () => {
     setSymbol(null);
     setExchange(null);
@@ -424,6 +452,10 @@ export default function InvestmentsScreen() {
     setFdInterest('');
     setFdMaturityOn(false);
     setFdMaturity(null);
+    setBoughtOn(null);
+    setBoughtOpen(false);
+    setBoughtFx(null);
+    boughtRef.current = null;
     setModalVisible(true);
   };
 
@@ -467,6 +499,10 @@ export default function InvestmentsScreen() {
     setFdInterest(fdNow != null ? String(round2(fdNow - (Number(item.invested) || 0))) : '');
     setFdMaturityOn(!!item.fdMaturity);
     setFdMaturity(item.fdMaturity || null);
+    setBoughtOn(item.boughtOn || null);
+    setBoughtOpen(false);
+    setBoughtFx(null);
+    boughtRef.current = item.boughtOn || null;
     setModalVisible(true);
   };
 
@@ -502,6 +538,11 @@ export default function InvestmentsScreen() {
       ? round2(toNum(invested) * investRateNum)
       : NaN
     : toNum(invested);
+  // Adding a stock you already hold: shown in the form, merged on save.
+  const sameStock =
+    !editingId && category === 'Stocks' && (stockLinked || name.trim())
+      ? findSameStock(items, { category, market, symbol: stockLinked ? symbol : null, name: name.trim() })
+      : null;
   const manualCurrentInr =
     usdMode && manualCurrent ? (fxRate > 0 ? round2(toNum(current) * fxRate) : NaN) : toNum(current);
 
@@ -550,6 +591,7 @@ export default function InvestmentsScreen() {
       usdInr: category === 'Stocks' && market === 'US' ? fxRate || undefined : undefined,
       investedUsd: usdMode ? toNum(invested) : undefined,
       investRate: usdMode ? investRateNum : undefined,
+      boughtOn: usdMode ? boughtOn || undefined : undefined,
       currentUsd: usdMode && manualCurrent ? toNum(current) : undefined,
       fdRate: fdGrowing ? fdRateNum : undefined,
       fdInterest: fdGrowing ? fdInterestNum : undefined,
@@ -559,7 +601,14 @@ export default function InvestmentsScreen() {
       createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    persist(editingId ? items.map((i) => (i.id === editingId ? entry : i)) : [entry, ...items]);
+    // The same stock again: add this purchase to the holding you have.
+    const same = editingId ? null : findSameStock(items, entry);
+    if (same) {
+      const merged = mergeStock(same, entry);
+      persist(items.map((i) => (i.id === same.id ? merged : i)));
+    } else {
+      persist(editingId ? items.map((i) => (i.id === editingId ? entry : i)) : [entry, ...items]);
+    }
     setModalVisible(false);
   };
 
@@ -855,7 +904,7 @@ export default function InvestmentsScreen() {
                         : isWeighedMetal(item)
                           ? `${item.grams} g · ${money(item.rate)}/g`
                           : isLinkedStock(item)
-                            ? `${MARKETS.find((m) => m.key === marketOf(item)).flag} ${item.symbol} · ${item.quantity} shares @ ${marketOf(item) === 'US' ? `$${item.price}` : money(item.price)}${item.priceTime ? ` · ${priceTimeLabel(item)}` : ''}`
+                            ? `${MARKETS.find((m) => m.key === marketOf(item)).flag} ${item.symbol} · ${item.quantity} shares @ ${marketOf(item) === 'US' ? `$${item.price}` : money(item.price)}${item.lots?.length > 1 ? ` · ${item.lots.length} buys` : ''}${item.priceTime ? ` · ${priceTimeLabel(item)}` : ''}`
                             : item.category === 'Stocks'
                               ? `${MARKETS.find((m) => m.key === marketOf(item)).flag} ${item.detail || (marketOf(item) === 'US' ? 'US stock' : 'Indian stock')}`
                               : isGrowingFd(item)
@@ -1166,10 +1215,17 @@ export default function InvestmentsScreen() {
               )}
               {lookupError ? <Text style={[styles.formHint, { color: theme.danger }]}>{lookupError}</Text> : null}
 
+              {sameStock ? (
+                <Text style={[styles.formHint, { color: theme.primary }]}>
+                  You already hold {sameStock.name}
+                  {sameStock.quantity ? ` (${sameStock.quantity} shares, ${money(sameStock.invested)} invested)` : ` (${money(sameStock.invested)} invested)`}.
+                  Saving adds this purchase to it{stockLinked ? ': enter only the shares and amount of this buy' : ''}.
+                </Text>
+              ) : null}
               {stockLinked ? (
                 <TextInput
                   style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-                  placeholder="Shares held (e.g. 25)"
+                  placeholder={sameStock ? 'Shares bought this time (e.g. 5)' : 'Shares held (e.g. 25)'}
                   placeholderTextColor={theme.textMuted}
                   keyboardType="decimal-pad"
                   value={quantity}
@@ -1297,6 +1353,30 @@ export default function InvestmentsScreen() {
               ) : null}
               {usdMode ? (
                 <>
+                  <TouchableOpacity
+                    style={styles.fdToggle}
+                    onPress={() => setBoughtOpen((v) => !v)}
+                    accessibilityLabel="Date you bought"
+                  >
+                    <Ionicons name="calendar-outline" size={20} color={theme.primary} />
+                    <Text style={[styles.fdToggleText, { color: theme.text }]}>
+                      {boughtOn
+                        ? `Bought on ${shortDate(boughtOn)} ${boughtOn.slice(0, 4)}`
+                        : 'Bought on… (pick the date to fill in that day’s ₹/$)'}
+                    </Text>
+                  </TouchableOpacity>
+                  {boughtOpen ? <DatePicker value={boughtOn} onChange={pickBoughtOn} /> : null}
+                  {boughtFx?.loading ? (
+                    <Text style={[styles.formHint, { color: theme.textMuted }]}>Looking up that day’s dollar rate…</Text>
+                  ) : boughtFx?.error ? (
+                    <Text style={[styles.formHint, { color: theme.danger }]}>{boughtFx.error}</Text>
+                  ) : boughtFx?.rate ? (
+                    <Text style={[styles.formHint, { color: theme.textMuted }]}>
+                      ₹{boughtFx.rate}/$ on {shortDate(boughtFx.rateDate)} {boughtFx.rateDate.slice(0, 4)} (closing rate
+                      {boughtFx.rateDate !== boughtFx.date ? ', the last trading day before' : ''}). Change it below if your
+                      broker charged a different rate.
+                    </Text>
+                  ) : null}
                   <TextInput
                     style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
                     placeholder="₹ per $ when you invested (e.g. 83.5)"

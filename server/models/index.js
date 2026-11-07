@@ -107,6 +107,10 @@ const COLLECTIONS = {
       // US stocks entered in dollars: $ invested, ₹/$ paid, $ value (if typed)
       'investedUsd',
       'investRate',
+      // US stocks: the day you bought (its ₹/$ fills investRate)
+      'boughtOn',
+      // stocks added more than once: each purchase { date, quantity, invested, investedUsd?, investRate? }
+      'lots',
       // FD that grows daily: rate % a year, interest earned as of fdAsOf, optional maturity
       'fdRate',
       'fdInterest',

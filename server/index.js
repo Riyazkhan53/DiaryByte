@@ -7,7 +7,7 @@ const {
   sanitize,
   toItem,
 } = require('./models');
-const { getQuotes, getCandles, searchSymbols, isSymbol } = require('./quotes');
+const { getQuotes, getCandles, searchSymbols, isSymbol, getUsdInrOn } = require('./quotes');
 const engineService = require('./engine/service');
 const { kiteConfigured, kiteCreateSession, kiteLoginUrl } = require('./engine/providers');
 
@@ -164,6 +164,18 @@ function createApp() {
     } catch (error) {
       console.error('[api] GET /api/quotes failed', error.message);
       res.status(502).json({ error: 'Stock prices unavailable' });
+    }
+  });
+
+  // ₹ per $ on a past date (closing rate, or the last trading day's before it).
+  // GET /api/usdinr?date=2025-03-12 → { date, rate, rateDate }
+  app.get('/api/usdinr', async (req, res) => {
+    try {
+      res.json(await getUsdInrOn(String(req.query.date || '')));
+    } catch (error) {
+      const bad = /Bad date/.test(error.message);
+      if (!bad) console.error('[api] GET /api/usdinr failed', error.message);
+      res.status(bad ? 400 : 502).json({ error: bad ? 'Give a past date as YYYY-MM-DD' : 'Dollar rate unavailable' });
     }
   });
 
