@@ -37,6 +37,7 @@ import {
   searchStocks,
   stockValueInr,
   usdFigures,
+  usdValues,
 } from '../../services/stocks';
 import { fetchStockQuotes, fetchUsdInrOn } from '../../services/api';
 import { findSameStock, mergeStock } from '../../utils/stockMerge';
@@ -90,6 +91,8 @@ const makeId = () =>
 
 const money = (n) =>
   `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+
+const dollars = (n) => `$${Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
 
 const categoryMeta = (key) =>
   CATEGORIES.find((c) => c.key === key) || CATEGORIES[0];
@@ -930,6 +933,11 @@ export default function InvestmentsScreen() {
                     <Text style={[styles.amountValue, { color: theme.text }]}>
                       {money(item.invested)}
                     </Text>
+                    {usdValues(item)?.investedUsd ? (
+                      <Text style={[styles.amountUsd, { color: theme.textSecondary }]}>
+                        {dollars(usdValues(item).investedUsd)}
+                      </Text>
+                    ) : null}
                   </View>
                   <Ionicons name="arrow-forward" size={14} color={theme.textMuted} />
                   <View style={styles.amountCol}>
@@ -939,6 +947,11 @@ export default function InvestmentsScreen() {
                     <Text style={[styles.amountValue, { color: theme.text }]}>
                       {money(item.current)}
                     </Text>
+                    {usdValues(item)?.currentUsd ? (
+                      <Text style={[styles.amountUsd, { color: theme.textSecondary }]}>
+                        {dollars(usdValues(item).currentUsd)}
+                      </Text>
+                    ) : null}
                   </View>
                   <View style={[styles.plBadge, { backgroundColor: itemPl >= 0 ? '#A5D6A740' : '#EF9A9A40' }]}>
                     <Text style={[styles.plBadgeText, { color: itemPl >= 0 ? '#2DA44E' : '#E5383B' }]}>
@@ -954,7 +967,7 @@ export default function InvestmentsScreen() {
                   const usdPct = ((usd.currentUsd - usd.investedUsd) / usd.investedUsd) * 100;
                   return (
                     <Text style={[styles.usdLine, { color: theme.textSecondary }]}>
-                      In $: ${usd.investedUsd.toLocaleString('en-US')} → ${usd.currentUsd.toLocaleString('en-US', { maximumFractionDigits: 2 })}{' '}
+                      Gain in ${' '}
                       <Text style={{ color: usdPct >= 0 ? '#2DA44E' : '#E5383B' }}>
                         ({usdPct >= 0 ? '+' : ''}
                         {usdPct.toFixed(1)}%)
@@ -1695,6 +1708,7 @@ const styles = StyleSheet.create({
   amountCol: { flex: 1 },
   amountLabel: { fontSize: 11, fontWeight: '600' },
   amountValue: { fontSize: 15, fontWeight: '700', marginTop: 2 },
+  amountUsd: { fontSize: 12, fontWeight: '600', marginTop: 1 },
   plBadge: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: 10 },
   plBadgeText: { fontSize: 12, fontWeight: '800' },
   note: { fontSize: 12, marginTop: 8 },
