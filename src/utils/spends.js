@@ -119,7 +119,7 @@ function sameCard(bill, spend) {
  * `spend` null when it was deleted (with its id as `spendId`).
  * Returns `debts` itself when nothing changed.
  */
-export function syncSpendCardBill(debts, spend, spendId = spend?.id) {
+export function syncSpendCardBill(debts, spend, spendId = spend?.id, newBillNote = 'From Total Spend') {
   const now = new Date().toISOString();
   let changed = false;
 
@@ -177,7 +177,7 @@ export function syncSpendCardBill(debts, spend, spendId = spend?.id) {
     dueDate,
     month,
     paid: false,
-    note: 'From Total Spend',
+    note: newBillNote,
     fromSpends: true,
     spendAmounts: { [spend.id]: amount },
     createdAt: now,
@@ -186,8 +186,21 @@ export function syncSpendCardBill(debts, spend, spendId = spend?.id) {
   return [bill, ...next];
 }
 
+// Shares keyed 'invest:…' came from My Investments, not Total Spend.
+export const isInvestShare = (key) => key.startsWith('invest:');
+
 /** Total a card bill got from Total Spend entries, and how many. */
 export function spendShare(bill) {
-  const shares = Object.values(bill.spendAmounts || {});
+  const shares = Object.entries(bill.spendAmounts || {})
+    .filter(([key]) => !isInvestShare(key))
+    .map(([, n]) => n);
+  return { amount: round2(shares.reduce((sum, n) => sum + (Number(n) || 0), 0)), count: shares.length };
+}
+
+/** Total a card bill got from investments bought on the card, and how many. */
+export function investShare(bill) {
+  const shares = Object.entries(bill.spendAmounts || {})
+    .filter(([key]) => isInvestShare(key))
+    .map(([, n]) => n);
   return { amount: round2(shares.reduce((sum, n) => sum + (Number(n) || 0), 0)), count: shares.length };
 }
