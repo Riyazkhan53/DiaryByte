@@ -153,6 +153,8 @@ export default function InvestmentsScreen() {
   const [rateCategory, setRateCategory] = useState('Digital Gold');
 
   const [refreshing, setRefreshing] = useState(false);
+  // Summary card: just the totals unless opened.
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [goldInfo, setGoldInfo] = useState(null);
   const [stockMarket, setStockMarket] = useState('all');
 
@@ -728,7 +730,16 @@ export default function InvestmentsScreen() {
               <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>Current value</Text>
               <Text style={[styles.summaryValue, { color: theme.text }]}>{money(totalCurrent)}</Text>
             </View>
+            <TouchableOpacity
+              onPress={() => setSummaryOpen((v) => !v)}
+              style={styles.summaryToggle}
+              accessibilityLabel={summaryOpen ? 'Hide details' : 'Show details'}
+            >
+              <Ionicons name={summaryOpen ? 'chevron-up' : 'chevron-down'} size={20} color={theme.primary} />
+            </TouchableOpacity>
           </View>
+          {summaryOpen ? (
+          <>
           <View style={[styles.plRow, { borderTopColor: theme.borderNeutral }]}>
             <Text style={[styles.plLabel, { color: theme.textMuted }]}>
               Overall {pl >= 0 ? 'gain' : 'loss'}
@@ -799,6 +810,8 @@ export default function InvestmentsScreen() {
               </View>
             );
           })}
+          </>
+          ) : null}
         </View>
 
         <View style={styles.filterRow}>
@@ -1661,6 +1674,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   summaryRow: { flexDirection: 'row' },
+  summaryToggle: { alignSelf: 'center', padding: 4, marginLeft: 4 },
   summaryCol: { flex: 1 },
   summaryLabel: { fontSize: 12, fontWeight: '600' },
   summaryValue: { fontSize: 22, fontWeight: 'bold', marginTop: 4 },
