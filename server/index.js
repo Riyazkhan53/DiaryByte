@@ -30,6 +30,32 @@ async function connectDatabase() {
 }
 
 const OROPOCKET_URL = 'https://api.oropocket.com/public/prices';
+const TROY_OUNCE_G = 31.1035;
+const SILVER_IMPORT_DUTY = 0.06; // India's customs duty on silver
+const SILVER_GST = 0.03;
+
+/** Silver ₹/g from the feed under any of its likely names, or null. */
+function feedSilver(data) {
+  const raw = data.silver || data.Silver || data.SILVER || data.xag || data.XAG || data.silver999 || null;
+  if (!raw) return null;
+  const perGram = (n) => (n > 2000 ? n / 1000 : n); // some feeds quote per kg
+  const buy = perGram(parseFloat(raw.buy ?? raw.buyPrice ?? raw.buy_price));
+  const sell = perGram(parseFloat(raw.sell ?? raw.sellPrice ?? raw.sell_price));
+  if (!(buy > 0) || !(sell > 0)) return null;
+  return { buy: Math.round(buy * 100) / 100, sell: Math.round(sell * 100) / 100, gst: parseFloat(raw.gst) || null, source: 'OroPocket' };
+}
+
+/**
+ * Estimated Indian silver ₹/g when the feed has none: COMEX silver (USD per
+ * troy ounce) × USD→INR, plus import duty; buying adds 3% GST.
+ */
+async function estimatedSilver() {
+  const { quotes, usdInr } = await getQuotes(['SI=F']);
+  const usdOz = quotes['SI=F']?.price;
+  if (!(usdOz > 0) || !(usdInr > 0)) return null;
+  const sell = Math.round(((usdOz * usdInr) / TROY_OUNCE_G) * (1 + SILVER_IMPORT_DUTY) * 100) / 100;
+  return { buy: Math.round(sell * (1 + SILVER_GST) * 100) / 100, sell, gst: SILVER_GST * 100, source: 'estimate' };
+}
 const GOLD_CACHE_MS = 5 * 60 * 1000;
 
 function createApp() {
@@ -82,6 +108,7 @@ function createApp() {
   // a few minutes to stay well inside its 10-requests-a-minute limit. Must be
   // registered before /api/:collection.
   let goldCache = null;
+  let silverLogged = false;
   app.get('/api/gold-rate', async (req, res) => {
     if (goldCache && Date.now() - goldCache.at < GOLD_CACHE_MS) {
       return res.json(goldCache.rate);
@@ -92,27 +119,22 @@ function createApp() {
       const body = await response.json();
       const data = body.data || body;
       const gold = data.gold || {};
-      // Silver per gram (some feeds quote it per kg).
-      const silverRaw = data.silver || {};
-      const perGram = (n) => (n > 2000 ? n / 1000 : n);
-      const silverBuy = perGram(parseFloat(silverRaw.buy));
-      const silverSell = perGram(parseFloat(silverRaw.sell));
       const rate = {
         buy: parseFloat(gold.buy),
         sell: parseFloat(gold.sell),
         gst: parseFloat(gold.gst) || null,
-        silver:
-          silverBuy > 0 && silverSell > 0
-            ? {
-                buy: Math.round(silverBuy * 100) / 100,
-                sell: Math.round(silverSell * 100) / 100,
-                gst: parseFloat(silverRaw.gst) || null,
-              }
-            : null,
+        silver: feedSilver(data),
         timestamp: data.timestamp || null,
         source: 'OroPocket',
       };
       if (!(rate.buy > 0) || !(rate.sell > 0)) throw new Error('No gold rate in response');
+      if (!rate.silver) {
+        if (!silverLogged) {
+          console.warn('[api] OroPocket has no silver rate; feed keys:', Object.keys(data).join(', '));
+          silverLogged = true;
+        }
+        rate.silver = await estimatedSilver().catch(() => null);
+      }
       goldCache = { at: Date.now(), rate };
       res.json(rate);
     } catch (error) {

@@ -729,6 +729,8 @@ export default function InvestmentsScreen() {
                   {m.label} {info.rate ? `${money(info.rate)}/g` : 'rate not set'}
                   {info.latest?.rateSource === 'live'
                     ? ` · live sell rate${goldInfo ? '' : `, ${shortDate(info.latest.rateDate)}`}`
+                    : info.latest?.rateSource === 'estimate'
+                      ? ` · est. from international price${goldInfo ? '' : `, ${shortDate(info.latest.rateDate)}`}`
                     : info.latest?.rateDate
                       ? ` · set by you, ${shortDate(info.latest.rateDate)}`
                       : ''}

@@ -19,8 +19,8 @@ export const isMetal = (category) => !!METALS[category];
 const silverPerGram = (n) => (n > 2000 ? n / 1000 : n);
 
 function parseMetal(raw, perGram = (n) => n) {
-  const buy = perGram(parseFloat(raw?.buy));
-  const sell = perGram(parseFloat(raw?.sell));
+  const buy = perGram(parseFloat(raw?.buy ?? raw?.buyPrice ?? raw?.buy_price));
+  const sell = perGram(parseFloat(raw?.sell ?? raw?.sellPrice ?? raw?.sell_price));
   if (!(buy > 0) || !(sell > 0)) return null;
   return { buy: Math.round(buy * 100) / 100, sell: Math.round(sell * 100) / 100, gst: parseFloat(raw?.gst) || null };
 }
@@ -30,7 +30,8 @@ export function parseOroPocket(body) {
   const data = body?.data || body;
   const gold = parseMetal(data?.gold);
   if (!gold) throw new Error('No gold rate in response');
-  return { ...gold, timestamp: data?.timestamp || null, silver: parseMetal(data?.silver, silverPerGram) };
+  const silverRaw = data?.silver || data?.Silver || data?.SILVER || data?.xag || data?.XAG || data?.silver999;
+  return { ...gold, timestamp: data?.timestamp || null, silver: parseMetal(silverRaw, silverPerGram) };
 }
 
 async function fetchDirect() {
@@ -53,7 +54,12 @@ async function fetchDirect() {
 export async function fetchGoldRate() {
   try {
     const rate = await fetchGoldRateFromServer();
-    if (rate?.buy > 0 && rate?.sell > 0) return rate;
+    if (rate?.buy > 0 && rate?.sell > 0) {
+      if (rate.silver?.sell > 0) return rate;
+      // No silver from the server (an older one, or none found): ask the feed directly.
+      const direct = await fetchDirect().catch(() => null);
+      return direct?.silver ? { ...rate, silver: direct.silver } : rate;
+    }
   } catch (_error) {
     // fall through to the direct call
   }
@@ -68,14 +74,14 @@ export function metalRate(rate, category = 'Digital Gold') {
 }
 
 /** Value every `category` holding that has grams at `sell` per gram. Same array back when nothing changed. */
-export function applyGoldRate(items, sell, dateKey, category = 'Digital Gold') {
+export function applyGoldRate(items, sell, dateKey, category = 'Digital Gold', source = 'live') {
   let updated = 0;
   const next = items.map((item) => {
     if (item.category !== category || !(item.grams > 0)) return item;
     const current = Math.round(item.grams * sell * 100) / 100;
-    if (item.rate === sell && item.current === current && item.rateSource === 'live') return item;
+    if (item.rate === sell && item.current === current && item.rateSource === source) return item;
     updated += 1;
-    return { ...item, rate: sell, rateDate: dateKey, rateSource: 'live', current };
+    return { ...item, rate: sell, rateDate: dateKey, rateSource: source, current };
   });
   return { items: updated ? next : items, updated };
 }
@@ -87,7 +93,7 @@ export function applyMetalRates(items, rate, dateKey) {
   for (const category of Object.keys(METALS)) {
     const r = metalRate(rate, category);
     if (!r) continue;
-    const res = applyGoldRate(out, r.sell, dateKey, category);
+    const res = applyGoldRate(out, r.sell, dateKey, category, r.source === 'estimate' ? 'estimate' : 'live');
     out = res.items;
     updated += res.updated;
   }
