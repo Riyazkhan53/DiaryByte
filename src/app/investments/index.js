@@ -24,7 +24,7 @@ import {
   latestNav,
   searchFunds,
 } from '../../services/mutualFunds';
-import { applyGoldRate, fetchGoldRate } from '../../services/goldRate';
+import { METALS, applyMetalRates, fetchGoldRate, isMetal, metalRate } from '../../services/goldRate';
 import { applyFdGrowth, fdMatured, fdPerDay, fdValue, isGrowingFd } from '../../utils/fd';
 import DatePicker from '../../components/DatePicker';
 import {
@@ -66,6 +66,7 @@ const CATEGORIES = [
   { key: 'Mutual Funds', icon: 'pie-chart-outline', color: '#AF52DE' },
   { key: 'Stocks', icon: 'trending-up-outline', color: '#32ADE6' },
   { key: 'Digital Gold', icon: 'diamond-outline', color: '#FFCC00' },
+  { key: 'Digital Silver', icon: 'ellipse-outline', color: '#A8A9AD' },
   { key: 'FD', icon: 'lock-closed-outline', color: '#34C759' },
 ];
 
@@ -73,6 +74,7 @@ const DETAIL_PLACEHOLDERS = {
   'Mutual Funds': 'Folio number (optional)',
   Stocks: 'Quantity (e.g. 10 shares)',
   'Digital Gold': 'Weight (e.g. 2.5 g)',
+  'Digital Silver': 'Weight (e.g. 100 g)',
   FD: 'Account / note (optional)',
 };
 
@@ -102,8 +104,8 @@ const shortDate = (key) => {
 // Fund linked to a scheme: valued as units × latest NAV.
 const isLinkedFund = (item) => item.category === 'Mutual Funds' && !!item.schemeCode && item.units > 0;
 
-// Gold locker with grams: valued as grams × the gold rate you set.
-const isWeighedGold = (item) => item.category === 'Digital Gold' && item.grams > 0 && item.rate > 0;
+// Gold/silver locker with grams: valued as grams × the rate per gram.
+const isWeighedMetal = (item) => isMetal(item.category) && item.grams > 0 && item.rate > 0;
 
 export default function InvestmentsScreen() {
   const { theme } = useTheme();
@@ -137,11 +139,12 @@ export default function InvestmentsScreen() {
   const [searching, setSearching] = useState(false);
   const [lookupError, setLookupError] = useState(null);
 
-  // Digital gold (grams × rate)
+  // Digital gold / silver (grams × rate)
   const [grams, setGrams] = useState('');
   const [rate, setRate] = useState('');
   const [rateVisible, setRateVisible] = useState(false);
   const [rateDraft, setRateDraft] = useState('');
+  const [rateCategory, setRateCategory] = useState('Digital Gold');
 
   const [refreshing, setRefreshing] = useState(false);
   const [goldInfo, setGoldInfo] = useState(null);
@@ -165,11 +168,21 @@ export default function InvestmentsScreen() {
   const [planId, setPlanId] = useState(null);
   const [planDrafts, setPlanDrafts] = useState({});
 
-  const goldItems = items.filter((i) => i.category === 'Digital Gold');
-  const latestGold = [...goldItems]
-    .filter((i) => i.rate > 0)
-    .sort((a, b) => (b.rateDate || '').localeCompare(a.rateDate || ''))[0];
-  const goldRate = latestGold?.rate || null;
+  // Per metal: its holdings, the most recently priced one and that rate.
+  const metals = Object.fromEntries(
+    Object.keys(METALS).map((cat) => {
+      const held = items.filter((i) => i.category === cat);
+      const latest = [...held]
+        .filter((i) => i.rate > 0)
+        .sort((a, b) => (b.rateDate || '').localeCompare(a.rateDate || ''))[0];
+      return [cat, { held, latest, rate: latest?.rate || null }];
+    })
+  );
+  // Your holdings' rate, else today's live sell rate.
+  const metalRateText = (cat) => {
+    const value = metals[cat]?.rate || metalRate(goldInfo, cat)?.sell;
+    return value ? String(value) : '';
+  };
 
   // ------- live fund prices -------
 
@@ -191,7 +204,7 @@ export default function InvestmentsScreen() {
   const applyGold = useCallback(
     (rate) => {
       setGoldInfo(rate);
-      const { items: next, updated } = applyGoldRate(itemsRef.current, rate.sell, todayKey());
+      const { items: next, updated } = applyMetalRates(itemsRef.current, rate, todayKey());
       if (updated) persist(next);
     },
     [persist]
@@ -358,8 +371,9 @@ export default function InvestmentsScreen() {
 
   // ------- gold rate -------
 
-  const openRate = () => {
-    setRateDraft(goldRate ? String(goldRate) : '');
+  const openRate = (cat) => {
+    setRateCategory(cat);
+    setRateDraft(metalRateText(cat));
     setRateVisible(true);
   };
 
@@ -368,7 +382,7 @@ export default function InvestmentsScreen() {
     if (!(value > 0)) return;
     persist(
       items.map((i) =>
-        i.category === 'Digital Gold' && i.grams > 0
+        i.category === rateCategory && i.grams > 0
           ? { ...i, rate: value, rateDate: todayKey(), rateSource: 'manual', current: round2(i.grams * value) }
           : i
       )
@@ -392,7 +406,7 @@ export default function InvestmentsScreen() {
     setResults([]);
     setLookupError(null);
     setGrams('');
-    setRate(goldRate ? String(goldRate) : '');
+    setRate('');
     setSipOn(false);
     setSipAmount('');
     setSipDay('5');
@@ -427,7 +441,7 @@ export default function InvestmentsScreen() {
     setResults([]);
     setLookupError(null);
     setGrams(item.grams ? String(item.grams) : '');
-    setRate(item.rate ? String(item.rate) : goldRate ? String(goldRate) : '');
+    setRate(item.rate ? String(item.rate) : metalRateText(item.category));
     setSipOn(hasSip(item));
     setSipAmount(item.sip?.amount ? String(item.sip.amount) : '');
     setSipDay(item.sip?.day ? String(item.sip.day) : '5');
@@ -472,12 +486,12 @@ export default function InvestmentsScreen() {
       : null
     : fundLinked && unitsNum > 0 && nav > 0
       ? round2(unitsNum * nav)
-      : category === 'Digital Gold' && gramsNum > 0 && rateNum > 0
+      : isMetal(category) && gramsNum > 0 && rateNum > 0
         ? round2(gramsNum * rateNum)
         : stockLinked
           ? stockValueInr(quantityNum, sharePrice, market, fxRate)
           : null;
-  const manualCurrent = !(fundLinked || stockLinked || fdGrowing || (category === 'Digital Gold' && gramsNum > 0));
+  const manualCurrent = !(fundLinked || stockLinked || fdGrowing || (isMetal(category) && gramsNum > 0));
   // US stock with amounts typed in dollars: convert to ₹ for the totals.
   const usdMode = category === 'Stocks' && market === 'US' && inUsd;
   const investRateNum = toNum(investRate);
@@ -494,7 +508,7 @@ export default function InvestmentsScreen() {
     const currentNum = autoCurrent ?? (manualCurrent ? manualCurrentInr : NaN);
     if (!name.trim() || !investedNum || !(currentNum > 0)) return;
     const existing = editingId ? items.find((i) => i.id === editingId) : null;
-    const gold = category === 'Digital Gold' && gramsNum > 0;
+    const gold = isMetal(category) && gramsNum > 0;
     const day = Math.min(28, Math.max(1, Math.round(toNum(sipDay)) || 1));
     const sip =
       sipAllowed && sipOn && toNum(sipAmount) > 0
@@ -635,7 +649,7 @@ export default function InvestmentsScreen() {
     (autoCurrent > 0 || (manualCurrent && manualCurrentInr > 0)) &&
     (!fundLinked || unitsNum > 0) &&
     (!stockLinked || quantityNum > 0) &&
-    (category !== 'Digital Gold' || !(gramsNum > 0) || rateNum > 0) &&
+    (!isMetal(category) || !(gramsNum > 0) || rateNum > 0) &&
     (!sipAllowed || !sipOn || toNum(sipAmount) > 0);
 
   return (
@@ -705,22 +719,30 @@ export default function InvestmentsScreen() {
               </Text>
             </View>
           ) : null}
-          {goldItems.some((i) => i.grams > 0) ? (
-            <View style={styles.liveRow}>
-              <Ionicons name="diamond-outline" size={15} color={theme.textMuted} />
-              <Text style={[styles.liveText, { color: theme.textMuted }]}>
-                Gold {goldRate ? `${money(goldRate)}/g` : 'rate not set'}
-                {latestGold?.rateSource === 'live'
-                  ? ` · live sell rate${goldInfo ? '' : `, ${shortDate(latestGold.rateDate)}`}`
-                  : latestGold?.rateDate
-                    ? ` · set by you, ${shortDate(latestGold.rateDate)}`
-                    : ''}
-              </Text>
-              <TouchableOpacity onPress={openRate} style={styles.liveBtn} accessibilityLabel="Update gold rate">
-                <Text style={[styles.liveLink, { color: theme.primary }]}>Set</Text>
-              </TouchableOpacity>
-            </View>
-          ) : null}
+          {Object.entries(METALS).map(([cat, m]) => {
+            const info = metals[cat];
+            if (!info.held.some((i) => i.grams > 0)) return null;
+            return (
+              <View key={cat} style={styles.liveRow}>
+                <Ionicons name={m.icon} size={15} color={theme.textMuted} />
+                <Text style={[styles.liveText, { color: theme.textMuted }]}>
+                  {m.label} {info.rate ? `${money(info.rate)}/g` : 'rate not set'}
+                  {info.latest?.rateSource === 'live'
+                    ? ` · live sell rate${goldInfo ? '' : `, ${shortDate(info.latest.rateDate)}`}`
+                    : info.latest?.rateDate
+                      ? ` · set by you, ${shortDate(info.latest.rateDate)}`
+                      : ''}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => openRate(cat)}
+                  style={styles.liveBtn}
+                  accessibilityLabel={`Update ${m.label.toLowerCase()} rate`}
+                >
+                  <Text style={[styles.liveLink, { color: theme.primary }]}>Set</Text>
+                </TouchableOpacity>
+              </View>
+            );
+          })}
         </View>
 
         <View style={styles.filterRow}>
@@ -795,7 +817,7 @@ export default function InvestmentsScreen() {
             <View style={styles.empty}>
               <Ionicons name="trending-up-outline" size={56} color={theme.textMuted} />
               <Text style={[styles.emptyText, { color: theme.textMuted }]}>
-                No investments yet. Tap + to add mutual funds, stocks, gold or FDs.
+                No investments yet. Tap + to add mutual funds, stocks, gold, silver or FDs.
               </Text>
             </View>
           }
@@ -826,7 +848,7 @@ export default function InvestmentsScreen() {
                     <Text style={[styles.cardSub, { color: theme.textSecondary }]} numberOfLines={isGrowingFd(item) ? 2 : 1}>
                       {isLinkedFund(item)
                         ? `${item.units} units${item.nav ? ` · NAV ₹${item.nav}` : ''}${item.navDate ? ` (${shortDate(item.navDate)})` : ''}`
-                        : isWeighedGold(item)
+                        : isWeighedMetal(item)
                           ? `${item.grams} g · ${money(item.rate)}/g`
                           : isLinkedStock(item)
                             ? `${MARKETS.find((m) => m.key === marketOf(item)).flag} ${item.symbol} · ${item.quantity} shares @ ${marketOf(item) === 'US' ? `$${item.price}` : money(item.price)}${item.priceTime ? ` · ${priceTimeLabel(item)}` : ''}`
@@ -952,6 +974,7 @@ export default function InvestmentsScreen() {
                       ]}
                       onPress={() => {
                         setCategory(c.key);
+                        if (isMetal(c.key) && c.key !== category) setRate(metalRateText(c.key));
                         setResults([]);
                         setQuery('');
                         setLookupError(null);
@@ -1126,6 +1149,8 @@ export default function InvestmentsScreen() {
                   placeholder={
                     category === 'Digital Gold'
                         ? 'Locker (e.g. PhonePe Gold, GPay Gold)'
+                        : category === 'Digital Silver'
+                          ? 'Locker (e.g. PhonePe Silver, Jar Silver)'
                         : 'Bank / FD name'
                   }
                   placeholderTextColor={theme.textMuted}
@@ -1157,11 +1182,11 @@ export default function InvestmentsScreen() {
                 />
               ) : null}
 
-              {category === 'Digital Gold' ? (
+              {isMetal(category) ? (
                 <View style={styles.amountRow}>
                   <TextInput
                     style={[styles.input, styles.smallInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-                    placeholder="Grams (e.g. 2.5)"
+                    placeholder={category === 'Digital Silver' ? 'Grams (e.g. 100)' : 'Grams (e.g. 2.5)'}
                     placeholderTextColor={theme.textMuted}
                     keyboardType="decimal-pad"
                     value={grams}
@@ -1169,7 +1194,7 @@ export default function InvestmentsScreen() {
                   />
                   <TextInput
                     style={[styles.input, styles.smallInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-                    placeholder="Gold rate (₹/g)"
+                    placeholder={`${METALS[category].label} rate (₹/g)`}
                     placeholderTextColor={theme.textMuted}
                     keyboardType="decimal-pad"
                     value={rate}
@@ -1303,11 +1328,11 @@ export default function InvestmentsScreen() {
                         : 'Enter your units to see the value'
                       : rateNum > 0
                         ? `${gramsNum} g × ${money(rateNum)}/g`
-                        : 'Enter the gold rate to see the value'}
+                        : `Enter the ${METALS[category]?.label.toLowerCase() || 'gold'} rate to see the value`}
                   </Text>
                 </View>
               ) : null}
-              {category !== 'Mutual Funds' && category !== 'Digital Gold' && !stockLinked ? (
+              {category !== 'Mutual Funds' && !isMetal(category) && !stockLinked ? (
                 <TextInput
                   style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
                   placeholder={DETAIL_PLACEHOLDERS[category] || 'Detail (optional)'}
@@ -1361,7 +1386,7 @@ export default function InvestmentsScreen() {
                           : `Starts ${monthLabel(firstSipMonth(Math.min(28, Math.max(1, Math.round(toNum(sipDay)) || 1))), true)} (earlier ones are already in what you invested). Each installment is added on its day: to the amount invested`}
                         {fundLinked
                           ? ', as units at that day’s NAV'
-                          : category === 'Digital Gold' && gramsNum > 0
+                          : isMetal(category) && gramsNum > 0
                             ? ', as grams at the live buy rate'
                             : stockLinked
                               ? ', as shares at the current price'
@@ -1481,14 +1506,14 @@ export default function InvestmentsScreen() {
         </View>
       </Modal>
 
-      {/* Today's gold rate, applied to every gold locker */}
+      {/* Today's gold or silver rate, applied to every locker of that metal */}
       <Modal visible={rateVisible} transparent animationType="fade" onRequestClose={() => setRateVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Gold rate</Text>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{METALS[rateCategory].label} rate</Text>
             <TextInput
               style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-              placeholder="₹ per gram (e.g. 7450)"
+              placeholder={`₹ per gram (e.g. ${METALS[rateCategory].example})`}
               placeholderTextColor={theme.textMuted}
               keyboardType="decimal-pad"
               value={rateDraft}
@@ -1497,7 +1522,7 @@ export default function InvestmentsScreen() {
             />
             <Text style={[styles.formHint, { color: theme.textMuted }]}>
               The live rate is filled in automatically when available. Set one yourself to use
-              your gold app&apos;s sell rate instead; it updates every gold locker at once and is
+              your app&apos;s sell rate instead; it updates every {METALS[rateCategory].label.toLowerCase()} locker at once and is
               replaced by the live rate next time it loads.
             </Text>
             <View style={styles.modalActions}>

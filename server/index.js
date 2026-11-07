@@ -78,7 +78,7 @@ function createApp() {
     console.warn('[auth] API_KEY not set — endpoints are unprotected');
   }
 
-  // Live digital gold rate (₹/gram) from OroPocket's public feed, cached for
+  // Live digital gold and silver rates (₹/gram) from OroPocket's public feed, cached for
   // a few minutes to stay well inside its 10-requests-a-minute limit. Must be
   // registered before /api/:collection.
   let goldCache = null;
@@ -90,12 +90,26 @@ function createApp() {
       const response = await fetch(OROPOCKET_URL, { signal: AbortSignal.timeout(10000) });
       if (!response.ok) throw new Error(`OroPocket responded ${response.status}`);
       const body = await response.json();
-      const gold = (body.data || body).gold || {};
+      const data = body.data || body;
+      const gold = data.gold || {};
+      // Silver per gram (some feeds quote it per kg).
+      const silverRaw = data.silver || {};
+      const perGram = (n) => (n > 2000 ? n / 1000 : n);
+      const silverBuy = perGram(parseFloat(silverRaw.buy));
+      const silverSell = perGram(parseFloat(silverRaw.sell));
       const rate = {
         buy: parseFloat(gold.buy),
         sell: parseFloat(gold.sell),
         gst: parseFloat(gold.gst) || null,
-        timestamp: (body.data || body).timestamp || null,
+        silver:
+          silverBuy > 0 && silverSell > 0
+            ? {
+                buy: Math.round(silverBuy * 100) / 100,
+                sell: Math.round(silverSell * 100) / 100,
+                gst: parseFloat(silverRaw.gst) || null,
+              }
+            : null,
+        timestamp: data.timestamp || null,
         source: 'OroPocket',
       };
       if (!(rate.buy > 0) || !(rate.sell > 0)) throw new Error('No gold rate in response');

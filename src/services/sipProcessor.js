@@ -1,6 +1,6 @@
 import { readLocal, saveAndPush, notifyLocal } from './sync';
 import { navOnOrAfter } from './mutualFunds';
-import { fetchGoldRate } from './goldRate';
+import { fetchGoldRate, isMetal, metalRate } from './goldRate';
 import { fetchStockPrices, marketOf, sharePriceInr } from './stocks';
 import { todayKey } from '../utils/autopay';
 import {
@@ -20,7 +20,7 @@ let running = null;
 
 /**
  * Record every SIP installment whose date has come: add it to the holding
- * (units at that day's NAV, grams at today's gold buy rate) and add an
+ * (units at that day's NAV, grams at today's gold/silver buy rate) and add an
  * Investment expense to My Expenditure. Safe to call often; only one run
  * happens at a time. Resolves to the number of installments recorded.
  */
@@ -36,8 +36,8 @@ async function run() {
   if (!work.length) return 0;
 
   // Prices first (network), then apply to the freshest local data.
-  const needsGold = work.some(({ item }) => item.category === 'Digital Gold' && item.grams > 0);
-  const goldBuy = needsGold ? (await fetchGoldRate().catch(() => null))?.buy : null;
+  const needsMetal = work.some(({ item }) => isMetal(item.category) && item.grams > 0);
+  const metalRates = needsMetal ? await fetchGoldRate().catch(() => null) : null;
   const needsStocks = work.some(({ item }) => item.category === 'Stocks' && item.symbol && item.quantity > 0);
   const stockPrices = needsStocks
     ? await fetchStockPrices(work.map(({ item }) => item)).catch(() => null)
@@ -54,8 +54,8 @@ async function run() {
       const nav = await navs[key];
       if (!nav) continue; // try again next time, so the units are right
       price = { nav: nav.nav };
-    } else if (amount > 0 && item.category === 'Digital Gold' && item.grams > 0) {
-      const rate = goldBuy || item.rate;
+    } else if (amount > 0 && isMetal(item.category) && item.grams > 0) {
+      const rate = metalRate(metalRates, item.category)?.buy || item.rate;
       if (!rate) continue;
       price = { rate };
     } else if (amount > 0 && item.category === 'Stocks' && item.symbol && item.quantity > 0) {
