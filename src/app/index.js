@@ -105,6 +105,14 @@ const TABS = [
     gradient: ['#FF7B72', '#FF3B30'],
   },
   {
+    key: 'vouchers',
+    label: 'Vouchers & Gift Cards',
+    description: 'Codes, PINs & expiry for every store',
+    icon: 'gift-outline',
+    route: '/vouchers',
+    gradient: ['#FF9A8B', '#FF6A88'],
+  },
+  {
     key: 'autopays',
     label: 'My Autopays',
     description: 'Recurring payments with reminders',
@@ -162,7 +170,8 @@ export default function Dashboard() {
   const { items: expenses } = useSyncedCollection('expenditure', '@diarybyte_expenditure');
   const { items: months } = useSyncedCollection('months', '@diarybyte_months');
   const worth = netWorth({ investments, debts, expenses, months }, currentMonthKey()).total;
-  const comingUp = upcomingItems({ autopays, investments, debts, tickets, dates }, 5, todayKey()).length;
+  const { items: vouchers } = useSyncedCollection('vouchers', '@diarybyte_vouchers');
+  const comingUp = upcomingItems({ autopays, investments, debts, tickets, dates, vouchers }, 5, todayKey()).length;
 
   const stopReminders = (item, due) => {
     persistAutopays(autopays.map((i) => (i.id === item.id ? { ...i, ackDue: due } : i)));

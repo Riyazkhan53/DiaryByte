@@ -7,6 +7,7 @@ import { fetchCollection, pushCollection } from './api';
 export const SYNCED_COLLECTIONS = [
   { collection: 'movies', storageKey: '@diarybyte_movies' },
   { collection: 'passwords', storageKey: '@diarybyte_passwords' },
+  { collection: 'vouchers', storageKey: '@diarybyte_vouchers' },
   { collection: 'banking', storageKey: '@diarybyte_banking' },
   { collection: 'diary', storageKey: '@diarybyte_entries' },
   { collection: 'vault', storageKey: '@diarybyte_vault' },

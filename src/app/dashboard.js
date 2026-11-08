@@ -22,6 +22,7 @@ const KIND = {
   bill: { icon: 'receipt-outline', color: '#FF375F', label: 'Bill' },
   ticket: { icon: 'ticket', color: '#5C6BC0', label: 'Ticket' },
   date: { icon: 'gift', color: '#F5A623', label: 'Date' },
+  voucher: { icon: 'pricetag', color: '#FF6A88', label: 'Voucher' },
 };
 
 const inr = (n) => `₹${Math.round(Math.abs(Number(n) || 0)).toLocaleString('en-IN')}`;
@@ -51,12 +52,14 @@ export default function DashboardScreen() {
   const { items: dates } = useSyncedCollection('dates', DATES_STORAGE_KEY);
   const { items: todos, persist: persistTodos } = useSyncedCollection('todo', '@diarybyte_todo');
   const { items: movies } = useSyncedCollection('movies', '@diarybyte_movies');
+  const { items: vouchers } = useSyncedCollection('vouchers', '@diarybyte_vouchers');
 
   const month = currentMonthKey();
   const worth = netWorth({ investments, debts, expenses, months }, month);
   const positive = worth.total >= 0;
-  const upcoming = upcomingItems({ autopays, investments, debts, tickets, dates }, DAYS_AHEAD, todayKey());
-  const goingOut = upcoming.reduce((sum, u) => sum + (u.amount || 0), 0);
+  const upcoming = upcomingItems({ autopays, investments, debts, tickets, dates, vouchers }, DAYS_AHEAD, todayKey());
+  // Money due out (an expiring voucher's value isn't spending).
+  const goingOut = upcoming.reduce((sum, u) => sum + (u.kind === 'voucher' ? 0 : u.amount || 0), 0);
   const todo = pendingTodos(todos);
   const watching = nowWatching(movies);
 
@@ -135,7 +138,7 @@ export default function DashboardScreen() {
           </View>
           {days.length === 0 ? (
             <Text style={[styles.empty, { color: theme.textMuted }]}>
-              Nothing due — no autopays, SIPs, EMIs, tickets or dates in the next {DAYS_AHEAD} days. 🎉
+              Nothing due — no autopays, SIPs, EMIs, tickets, dates or expiring vouchers in the next {DAYS_AHEAD} days. 🎉
             </Text>
           ) : (
             days.map((day) => (

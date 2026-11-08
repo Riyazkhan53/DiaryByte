@@ -24,6 +24,24 @@ const COLLECTIONS = {
   passwords: {
     fields: ['id', 'site', 'username', 'password', 'createdAt'],
   },
+  // Vouchers & gift cards. kind: giftcard | voucher | coupon; expiry 'YYYY-MM-DD'
+  vouchers: {
+    fields: [
+      'id',
+      'brand',
+      'kind',
+      'code',
+      'pin',
+      'amount',
+      'minOrder',
+      'expiry',
+      'note',
+      'used',
+      'usedAt',
+      'createdAt',
+      'updatedAt',
+    ],
+  },
   banking: {
     fields: [
       'id',
