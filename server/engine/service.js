@@ -10,6 +10,7 @@
 const { getModel } = require('../models');
 const { activeProvider, kiteStatus } = require('./providers');
 const { getQuotes } = require('../quotes');
+const { sendAlert, candidateAlert, closedAlert, summaryAlert, isTopic } = require('./alerts');
 
 let engineModule = null;
 // The engine is shared ES-module code; load it once.
@@ -25,6 +26,7 @@ const state = {
   latest: {}, // symbol → last evaluation
   timer: null,
   lastBoundary: null,
+  summaryDay: null, // IST day the morning summary went out
 };
 
 const newId = () => `${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -44,6 +46,12 @@ async function getConfig() {
   cfg.watchlist = (doc?.watchlist || []).filter((s) => typeof s === 'string').slice(0, MAX_WATCHLIST);
   cfg.scannerOn = doc?.scannerOn !== false;
   cfg.autoPaper = doc?.autoPaper !== false;
+  // Phone alerts (ntfy): on once a topic is set, each kind on unless turned off.
+  cfg.alertTopic = isTopic(doc?.alertTopic) ? doc.alertTopic : null;
+  cfg.alertsOn = !!cfg.alertTopic && doc?.alertsOn !== false;
+  cfg.alertEntries = doc?.alertEntries !== false;
+  cfg.alertExits = doc?.alertExits !== false;
+  cfg.alertSummary = doc?.alertSummary !== false;
   return cfg;
 }
 
@@ -126,6 +134,9 @@ async function updateOpenTrades() {
       if (moved) {
         await Trades.updateOne({ id: t.id }, { $set: { ...sim, updatedAt: new Date().toISOString() } });
         changed += 1;
+        if (sim.status === 'closed' && t.status !== 'closed' && cfg.alertsOn && cfg.alertExits) {
+          await sendAlert(cfg.alertTopic, closedAlert({ ...t, ...sim }));
+        }
       }
     } catch (error) {
       state.lastError = `${t.symbol}: ${error.message}`;
@@ -258,6 +269,7 @@ async function scan() {
         // decision. The first scan of a candle wins; later ones change nothing.
         const logged = await logSignal(r, tradeId);
         if (!candidate || !logged) continue;
+        if (cfg.alertsOn && cfg.alertEntries) await sendAlert(cfg.alertTopic, candidateAlert(r));
         if (tradeId) {
           await getModel('enginetrades').create({
             id: tradeId,
@@ -285,6 +297,18 @@ async function scan() {
       }
     }
     state.lastScanAt = new Date().toISOString();
+    // Once a day, after 09:20 IST: where every watchlist stock stands.
+    if (cfg.alertsOn && cfg.alertSummary && results.length) {
+      const E = await engine();
+      const now = Date.now();
+      const day = new Date(now + 330 * 60000).toISOString().slice(0, 10);
+      const { minutes, weekday } = E.istParts(now);
+      if (state.summaryDay !== day && weekday >= 1 && weekday <= 5 && minutes >= 9 * 60 + 20 && E.isNseOpen(now)) {
+        state.summaryDay = day;
+        const hhmm = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+        await sendAlert(cfg.alertTopic, summaryAlert(results, hhmm));
+      }
+    }
     return { results };
   } finally {
     state.scanning = false;
@@ -335,4 +359,18 @@ async function status() {
   };
 }
 
-module.exports = { evaluate, scan, startScanner, status, updateOpenTrades, getConfig, history, startDemo };
+/** Send a test notification to the saved topic (or `topic`, before it's saved). */
+async function testAlert(topic) {
+  const cfg = await getConfig();
+  const to = isTopic(topic) ? topic : cfg.alertTopic;
+  if (!to) throw Object.assign(new Error('Set up phone alerts first'), { status: 400 });
+  const ok = await sendAlert(to, {
+    title: '🔔 DiaryByte alerts are on',
+    body: 'You will get entry signals, closed paper trades and a morning watchlist summary here.',
+    tags: ['bell'],
+  });
+  if (!ok) throw Object.assign(new Error("Couldn't reach ntfy.sh from the server"), { status: 502 });
+  return { ok: true };
+}
+
+module.exports = { evaluate, scan, startScanner, status, updateOpenTrades, getConfig, history, startDemo, testAlert };

@@ -277,6 +277,12 @@ const COLLECTIONS = {
       'minNetRR',
       'trailAtR',
       'weakExit',
+      // phone alerts via ntfy: topic, master switch and each kind
+      'alertTopic',
+      'alertsOn',
+      'alertEntries',
+      'alertExits',
+      'alertSummary',
       'updatedAt',
     ],
   },
