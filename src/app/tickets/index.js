@@ -19,7 +19,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
+import { isSupported as tripAlarmSupported, readTripAlarm } from '../../services/tripAlarm';
+import { formatDistance } from '../../utils/tripAlarm';
 import { useShareIntentContext } from 'expo-share-intent';
 import Header from '../../components/Header';
 import SyncRow from '../../components/SyncRow';
@@ -284,12 +286,48 @@ export default function TicketsScreen() {
 
   const viewingType = viewing ? ticketType(viewing.type) : null;
 
+  // The trip alarm's status for the card above the list.
+  const [tripAlarm, setTripAlarm] = useState(null);
+  useEffect(() => {
+    if (!tripAlarmSupported) return undefined;
+    const load = () => readTripAlarm().then(setTripAlarm);
+    load();
+    const timer = setInterval(load, 10000);
+    return () => clearInterval(timer);
+  }, []);
+  const tripOn = tripAlarm && (tripAlarm.status === 'active' || tripAlarm.status === 'ringing');
+
+  const openAlarm = (to) => {
+    setViewing(null);
+    router.push(to ? { pathname: '/tickets/alarm', params: { to } } : '/tickets/alarm');
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
       <Header title="My Tickets" subtitle="All your passes in one wallet" />
 
       <View style={styles.content}>
         <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} />
+
+        <TouchableOpacity onPress={() => openAlarm()} activeOpacity={0.85} accessibilityLabel="Open trip alarm">
+          <LinearGradient
+            colors={tripAlarm?.status === 'ringing' ? ['#E5383B', '#FF6A3D'] : ['#5E5CE6', '#8C9BFF']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.alarmCard}
+          >
+            <Ionicons name={tripOn ? 'alarm' : 'alarm-outline'} size={20} color="#FFF" />
+            <View style={styles.alarmBody}>
+              <Text style={styles.alarmTitle}>{tripOn ? `Trip alarm on · ${tripAlarm.name}` : 'Trip alarm'}</Text>
+              <Text style={styles.alarmSub} numberOfLines={1}>
+                {tripOn
+                  ? `${formatDistance(tripAlarm.lastDistanceKm)} to go · rings at ${formatDistance(tripAlarm.radiusKm)}`
+                  : 'Wake me when I’m near my stop'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#FFF" />
+          </LinearGradient>
+        </TouchableOpacity>
 
         <View style={styles.filters}>
           {FILTERS.map((f) => {
@@ -388,6 +426,16 @@ export default function TicketsScreen() {
                 </View>
               ) : viewing.venue ? (
                 <Text style={styles.passVenue}>{viewing.venue}</Text>
+              ) : null}
+              {viewingType.travel && viewing.to && !viewing.completed ? (
+                <TouchableOpacity
+                  style={styles.wakeBtn}
+                  onPress={() => openAlarm(viewing.to)}
+                  accessibilityLabel={`Wake me before ${viewing.to}`}
+                >
+                  <Ionicons name="alarm-outline" size={16} color="#FFF" />
+                  <Text style={styles.wakeText}>Wake me before {viewing.to}</Text>
+                </TouchableOpacity>
               ) : null}
             </LinearGradient>
 
@@ -787,6 +835,22 @@ const styles = StyleSheet.create({
     marginRight: 4,
   },
   doneText: { color: '#FFF', fontSize: 13, fontWeight: '700' },
+  alarmCard: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 12 },
+  alarmBody: { flex: 1 },
+  alarmTitle: { color: '#FFF', fontSize: 14, fontWeight: '800' },
+  alarmSub: { color: '#FFFFFFD9', fontSize: 12, marginTop: 1 },
+  wakeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginTop: 12,
+  },
+  wakeText: { color: '#FFF', fontSize: 13, fontWeight: '700' },
 
   modalOverlay: {
     flex: 1,

@@ -42,7 +42,23 @@
         }
       ],
       "expo-mlkit-ocr",
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "sounds": [
+            "./assets/sounds/trip_alarm.wav"
+          ]
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "DiaryByte uses your location in the background only while a trip alarm is on, to ring when you are near your destination.",
+          "locationWhenInUsePermission": "DiaryByte uses your location for the trip alarm.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
       [
         "expo-camera",
         {
