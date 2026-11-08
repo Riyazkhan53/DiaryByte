@@ -17,8 +17,9 @@ export function ticketType(key) {
   return TICKET_TYPES.find((t) => t.key === key) || TICKET_TYPES[TICKET_TYPES.length - 1];
 }
 
+// A ticket marked completed is done even if its day hasn't ended.
 export function isUpcoming(ticket, today = todayKey()) {
-  return ticket.date >= today;
+  return !ticket.completed && ticket.date >= today;
 }
 
 export function daysUntil(ticket, today = todayKey()) {
@@ -26,6 +27,7 @@ export function daysUntil(ticket, today = todayKey()) {
 }
 
 export function countdownLabel(ticket, today = todayKey()) {
+  if (ticket.completed) return 'Completed';
   const days = daysUntil(ticket, today);
   if (days < 0) return 'Used';
   if (days === 0) return 'Today';

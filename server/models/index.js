@@ -219,6 +219,10 @@ const COLLECTIONS = {
       'bookingRef',
       'note',
       'image',
+      'link',
+      // marked done (trip taken / show watched) before its day ends
+      'completed',
+      'completedAt',
       'createdAt',
     ],
   },
