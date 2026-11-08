@@ -12,6 +12,7 @@ import { DATES_STORAGE_KEY } from '../utils/importantDates';
 import { currentMonthKey, monthLabel } from '../utils/debts';
 import { fromKey, todayKey } from '../utils/autopay';
 import { netWorth, nowWatching, pendingTodos, upcomingItems } from '../utils/dashboard';
+import TripAlarmCard from '../components/TripAlarmCard';
 
 const DAYS_AHEAD = 5;
 
@@ -122,6 +123,9 @@ export default function DashboardScreen() {
             ))}
           </View>
         </LinearGradient>
+
+        {/* Trip alarm, while one is on */}
+        <TripAlarmCard />
 
         {/* Next few days */}
         <View style={card}>

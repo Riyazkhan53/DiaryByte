@@ -14,6 +14,7 @@ import { TICKETS_STORAGE_KEY, ticketType, countdownLabel, daysUntil, sortTickets
 import { DATES_STORAGE_KEY, sortDates, daysUntil as daysUntilDate } from '../utils/importantDates';
 import { currentMonthKey } from '../utils/debts';
 import { netWorth, upcomingItems } from '../utils/dashboard';
+import TripAlarmCard from '../components/TripAlarmCard';
 
 const TABS = [
   {
@@ -231,6 +232,7 @@ export default function Dashboard() {
           showsVerticalScrollIndicator={false}
         >
           <UpdateReadyBanner />
+          <TripAlarmCard />
           <TouchableOpacity
             style={styles.dashWrap}
             onPress={() => router.push('/dashboard')}
