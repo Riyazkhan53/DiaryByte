@@ -133,6 +133,11 @@ export function runEngineScan() {
   return request('/api/engine/scan', { method: 'POST' });
 }
 
+// Phone alerts (ntfy): ask the server to send a test notification.
+export function sendTestAlert(topic) {
+  return request('/api/engine/test-alert', { method: 'POST', body: JSON.stringify({ topic }) });
+}
+
 // Demo trade: simulate taking the signal now (side 'long' | 'short'): { trade }.
 export function startDemoTrade(symbol, side) {
   return request('/api/engine/demo', { method: 'POST', body: JSON.stringify({ symbol, side }) });

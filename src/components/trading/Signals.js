@@ -18,6 +18,8 @@ import { DEFAULT_CONFIG, MIN_REWARD_RISK } from '../../engine/risk.js';
 import { maxDrawdown } from '../../engine/stats.js';
 import { confirmDelete } from '../../utils/confirm';
 import { searchStocks } from '../../services/stocks';
+import AlertsCard from './AlertsCard';
+import { EngineReportCard } from './ReportCard';
 import {
   evaluateSymbol,
   fetchCollection,
@@ -366,6 +368,9 @@ export default function Signals({ header, onPaperTrade }) {
             </TouchableOpacity>
           ) : null}
         </View>
+
+        <EngineReportCard trades={ledger.trades} />
+        <AlertsCard configDoc={configDoc} saveConfig={saveConfig} />
 
         {/* Watchlist */}
         <View style={cardStyle}>

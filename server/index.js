@@ -246,6 +246,15 @@ function createApp() {
     }
   });
 
+  // Phone alerts: send a test notification. POST { topic? }
+  app.post('/api/engine/test-alert', async (req, res) => {
+    try {
+      res.json(await engineService.testAlert(req.body?.topic));
+    } catch (error) {
+      res.status(error.status || 502).json({ error: error.message });
+    }
+  });
+
   // Signal history and the paper trades behind it.
   // GET /api/engine/history?symbol=DLF.NS&state=WAIT&days=7&timeframe=5m
   app.get('/api/engine/history', async (req, res) => {

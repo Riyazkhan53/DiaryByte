@@ -19,6 +19,7 @@ import { MARKETS, searchStocks } from '../../services/stocks';
 import { evaluateSymbol, fetchCandles, fetchStockQuotes } from '../../services/api';
 import { combineSetup } from '../../utils/combinedSetup';
 import { WARN, istTime } from './format';
+import { SetupReportCard } from './ReportCard';
 
 const STORAGE_KEY = '@diarybyte_setups';
 const CONFIG_KEY = '@diarybyte_tradingconfig';
@@ -94,7 +95,7 @@ const formatWhen = (iso) =>
  * Setup Check section of My Trading: score a stock setup, keep a log, and
  * start a paper trade from a check (`onPaperTrade(check)`).
  */
-export default function SetupCheck({ header, onPaperTrade }) {
+export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
   const { theme } = useTheme();
   const {
     items: log,
@@ -559,6 +560,8 @@ export default function SetupCheck({ header, onPaperTrade }) {
           </>
         ) : null}
       </View>
+
+      <SetupReportCard trades={trades} />
 
       {/* Inputs */}
       <View style={cardStyle}>

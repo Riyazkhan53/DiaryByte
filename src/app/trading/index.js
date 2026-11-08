@@ -104,7 +104,7 @@ export default function TradingScreen() {
       <Header title="My Trading" subtitle="Setup checks, intraday signals and paper trades" />
 
       {tab === 'setup' ? (
-        <SetupCheck header={tabBar} onPaperTrade={tradeFromCheck} />
+        <SetupCheck header={tabBar} onPaperTrade={tradeFromCheck} trades={trades} />
       ) : tab === 'signals' ? (
         <Signals header={tabBar} onPaperTrade={tradeFromSignal} />
       ) : tab === 'history' ? (
