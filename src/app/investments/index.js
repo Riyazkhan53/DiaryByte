@@ -16,6 +16,8 @@ import Header from '../../components/Header';
 import SyncRow from '../../components/SyncRow';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
+import { router } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import { confirmDelete } from '../../utils/confirm';
 import { todayKey } from '../../utils/autopay';
 import {
@@ -981,6 +983,19 @@ export default function InvestmentsScreen() {
           </>
           ) : null}
         </View>
+
+        <TouchableOpacity onPress={() => router.push('/investments/ai')} activeOpacity={0.85} accessibilityLabel="Open InvestByte AI">
+          <LinearGradient colors={['#0EA5A4', '#059669']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.aiCard}>
+            <Ionicons name="analytics" size={20} color="#FFF" />
+            <View style={styles.flex}>
+              <Text style={styles.aiTitle}>InvestByte AI</Text>
+              <Text style={styles.aiSub} numberOfLines={1}>
+                What to sell, keep or improve in your portfolio
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#FFF" />
+          </LinearGradient>
+        </TouchableOpacity>
 
         <View style={styles.filterRow}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChips}>
@@ -2057,6 +2072,9 @@ const styles = StyleSheet.create({
   plLabel: { fontSize: 13, fontWeight: '600' },
   plValue: { fontSize: 16, fontWeight: '800' },
   filterRow: { marginBottom: 10 },
+  aiCard: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 12 },
+  aiTitle: { color: '#FFF', fontSize: 14, fontWeight: '800' },
+  aiSub: { color: '#FFFFFFD9', fontSize: 12, marginTop: 1 },
   toolRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   sortBtn: {
     flexShrink: 1,

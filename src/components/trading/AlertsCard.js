@@ -50,7 +50,7 @@ export default function AlertsCard({ configDoc, saveConfig }) {
       await sendTestAlert(topic);
       setTest({ ok: true, text: 'Test sent — it should pop up on your phone in a few seconds.' });
     } catch (error) {
-      setTest({ ok: false, text: error?.status === 404 ? 'Your server needs a redeploy for alerts.' : error?.message || "Couldn't send the test." });
+      setTest({ ok: false, text: error?.status === 404 ? 'Your server needs a redeploy for alerts.' : error?.serverMessage || "Couldn't send the test." });
     }
   };
 

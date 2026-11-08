@@ -24,6 +24,11 @@ services:
         sync: false
       - key: KITE_API_SECRET
         sync: false
+      # StockByte AI / InvestByte AI (Claude). Create a key at
+      # console.anthropic.com → API Keys. Optional: AI_MODEL (default
+      # claude-opus-5-5) and AI_EFFORT (low | medium | high).
+      - key: ANTHROPIC_API_KEY
+        sync: false
     healthCheckPath: /api/health
 
   # --- Static web app ---

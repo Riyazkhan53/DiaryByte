@@ -119,6 +119,19 @@ export function fetchCandles(symbol) {
   return request(`/api/candles?symbol=${encodeURIComponent(symbol)}`);
 }
 
+// ------- AI assistants (Claude, via the server) -------
+
+// { configured, model } — configured is false until ANTHROPIC_API_KEY is set on the server.
+export function fetchAiStatus() {
+  return request('/api/ai/status');
+}
+
+// Ask StockByte AI (kind 'stock') or InvestByte AI ('invest'): { reply, tools, model }.
+// history: earlier turns [{ role: 'user' | 'assistant', content }].
+export function askAi(kind, question, history = []) {
+  return request(`/api/ai/${kind}`, { method: 'POST', body: JSON.stringify({ question, history }) });
+}
+
 // ------- intraday signal engine -------
 
 export function fetchEngineStatus() {
