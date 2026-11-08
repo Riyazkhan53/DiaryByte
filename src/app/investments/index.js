@@ -96,6 +96,21 @@ const money = (n) =>
 
 const dollars = (n) => `$${Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
 
+// List sorting and the gain/loss filter.
+const SORTS = [
+  { key: 'default', label: 'Newest first', icon: 'time-outline' },
+  { key: 'gainDesc', label: 'Return % · high to low', short: 'Return % ↓', icon: 'trending-up' },
+  { key: 'gainAsc', label: 'Return % · low to high', short: 'Return % ↑', icon: 'trending-down' },
+  { key: 'investedDesc', label: 'Invested · high to low', short: 'Invested ↓', icon: 'arrow-down' },
+  { key: 'investedAsc', label: 'Invested · low to high', short: 'Invested ↑', icon: 'arrow-up' },
+];
+const GAIN_FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'gain', label: 'Gaining', icon: 'caret-up', color: '#2DA44E' },
+  { key: 'loss', label: 'Losing', icon: 'caret-down', color: '#E5383B' },
+];
+const returnPct = (i) => (i.invested > 0 ? ((Number(i.current) || 0) - i.invested) / i.invested : 0);
+
 const categoryMeta = (key) =>
   CATEGORIES.find((c) => c.key === key) || CATEGORIES[0];
 
@@ -142,6 +157,9 @@ export default function InvestmentsScreen() {
   const [fdMaturityOn, setFdMaturityOn] = useState(false);
   const [fdMaturity, setFdMaturity] = useState(null);
   const [filter, setFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('default');
+  const [sortOpen, setSortOpen] = useState(false);
+  const [gainFilter, setGainFilter] = useState('all');
 
   // Mutual fund linked to a scheme (units × NAV)
   const [schemeCode, setSchemeCode] = useState(null);
@@ -728,7 +746,7 @@ export default function InvestmentsScreen() {
   const plPct = totalInvested > 0 ? (pl / totalInvested) * 100 : 0;
   const plColor = pl >= 0 ? '#2DA44E' : '#E5383B';
 
-  const visible =
+  const byCategory =
     filter === 'all'
       ? items
       : items.filter(
@@ -736,6 +754,24 @@ export default function InvestmentsScreen() {
             i.category === filter &&
             (filter !== 'Stocks' || stockMarket === 'all' || marketOf(i) === stockMarket)
         );
+  // Gaining = worth more than invested; losing = worth less (break-even is neither).
+  const byGain =
+    gainFilter === 'all'
+      ? byCategory
+      : byCategory.filter((i) => {
+          const pl = (Number(i.current) || 0) - (Number(i.invested) || 0);
+          return gainFilter === 'gain' ? pl > 0 : pl < 0;
+        });
+  const visible =
+    sortBy === 'default'
+      ? byGain
+      : [...byGain].sort((a, b) => {
+          if (sortBy === 'gainDesc') return returnPct(b) - returnPct(a);
+          if (sortBy === 'gainAsc') return returnPct(a) - returnPct(b);
+          if (sortBy === 'investedDesc') return (b.invested || 0) - (a.invested || 0);
+          return (a.invested || 0) - (b.invested || 0);
+        });
+  const sortMeta = SORTS.find((o) => o.key === sortBy);
   const stocks = items.filter((i) => i.category === 'Stocks');
   const marketTotal = (key) =>
     stocks.filter((i) => marketOf(i) === key).reduce((s, i) => s + (i.current || 0), 0);
@@ -909,13 +945,63 @@ export default function InvestmentsScreen() {
           </View>
         ) : null}
 
+        <View style={styles.toolRow}>
+          <TouchableOpacity
+            style={[styles.sortBtn, { backgroundColor: theme.surface, borderColor: sortBy === 'default' ? theme.borderNeutral : theme.primary }]}
+            onPress={() => setSortOpen((v) => !v)}
+            accessibilityLabel="Sort investments"
+          >
+            <Ionicons name="swap-vertical" size={15} color={theme.primary} />
+            <Text style={[styles.sortText, { color: theme.text }]} numberOfLines={1}>
+              {sortBy === 'default' ? 'Sort' : sortMeta.short}
+            </Text>
+            <Ionicons name={sortOpen ? 'chevron-up' : 'chevron-down'} size={14} color={theme.textMuted} />
+          </TouchableOpacity>
+          <View style={[styles.gainSeg, { backgroundColor: theme.surfaceAlt }]}>
+            {GAIN_FILTERS.map((g) => {
+              const on = gainFilter === g.key;
+              return (
+                <TouchableOpacity
+                  key={g.key}
+                  style={[styles.gainItem, on && { backgroundColor: theme.sheet }]}
+                  onPress={() => setGainFilter(g.key)}
+                  accessibilityLabel={`Show ${g.label.toLowerCase()} investments`}
+                >
+                  {g.icon ? <Ionicons name={g.icon} size={12} color={g.color} /> : null}
+                  <Text style={[styles.gainText, { color: on ? theme.text : theme.textSecondary }]}>{g.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+        {sortOpen ? (
+          <View style={[styles.sortMenu, { backgroundColor: theme.surface, borderColor: theme.borderNeutral }]}>
+            {SORTS.map((o) => (
+              <TouchableOpacity
+                key={o.key}
+                style={styles.sortOption}
+                onPress={() => {
+                  setSortBy(o.key);
+                  setSortOpen(false);
+                }}
+                accessibilityLabel={`Sort by ${o.label}`}
+              >
+                <Ionicons name={o.icon} size={16} color={sortBy === o.key ? theme.primary : theme.textMuted} />
+                <Text style={[styles.sortOptionText, { color: sortBy === o.key ? theme.primary : theme.text }]}>{o.label}</Text>
+                {sortBy === o.key ? <Ionicons name="checkmark" size={16} color={theme.primary} /> : null}
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : null}
+
         {visible.length > 0 ? (
           <Text style={[styles.visibleTotal, { color: theme.textMuted }]}>
             {filter === 'all'
               ? 'All holdings'
               : filter === 'Stocks' && stockMarket !== 'all'
                 ? `${MARKETS.find((m) => m.key === stockMarket).label} stocks`
-                : filter}{' '}
+                : filter}
+            {gainFilter === 'gain' ? ' · gaining' : gainFilter === 'loss' ? ' · losing' : ''}{' '}
             · invested {money(visibleInvested)} → now{' '}
             {money(visibleCurrent)}
           </Text>
@@ -930,7 +1016,9 @@ export default function InvestmentsScreen() {
             <View style={styles.empty}>
               <Ionicons name="trending-up-outline" size={56} color={theme.textMuted} />
               <Text style={[styles.emptyText, { color: theme.textMuted }]}>
-                No investments yet. Tap + to add mutual funds, stocks, gold, silver, platinum or FDs.
+                {byCategory.length && gainFilter !== 'all'
+                  ? `Nothing ${gainFilter === 'gain' ? 'gaining' : 'losing'} here right now.`
+                  : 'No investments yet. Tap + to add mutual funds, stocks, gold, silver, platinum or FDs.'}
               </Text>
             </View>
           }
@@ -1791,6 +1879,24 @@ const styles = StyleSheet.create({
   plLabel: { fontSize: 13, fontWeight: '600' },
   plValue: { fontSize: 16, fontWeight: '800' },
   filterRow: { marginBottom: 10 },
+  toolRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  sortBtn: {
+    flexShrink: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  sortText: { flexShrink: 1, fontSize: 12, fontWeight: '600' },
+  gainSeg: { flexDirection: 'row', borderRadius: 16, padding: 3, marginLeft: 'auto' },
+  gainItem: { flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 13, paddingHorizontal: 9, paddingVertical: 4 },
+  gainText: { fontSize: 12, fontWeight: '600' },
+  sortMenu: { borderWidth: 1, borderRadius: 14, paddingVertical: 4, marginBottom: 10 },
+  sortOption: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10 },
+  sortOptionText: { flex: 1, fontSize: 14, fontWeight: '500' },
   filterChips: { flexDirection: 'row', gap: 8, paddingRight: 8 },
   chip: { paddingVertical: 7, paddingHorizontal: 14, borderRadius: 18, borderWidth: 1 },
   chipText: { fontSize: 13, fontWeight: '600' },
