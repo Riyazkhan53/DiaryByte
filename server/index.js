@@ -9,6 +9,8 @@ const {
 } = require('./models');
 const { getQuotes, getCandles, searchSymbols, isSymbol, getUsdInrOn } = require('./quotes');
 const { searchCoins, getCryptoPrices } = require('./crypto');
+const ai = require('./ai/agent');
+const AnthropicSdk = require('@anthropic-ai/sdk');
 const engineService = require('./engine/service');
 const { kiteConfigured, kiteCreateSession, kiteLoginUrl } = require('./engine/providers');
 
@@ -165,6 +167,37 @@ function createApp() {
     } catch (error) {
       console.error('[api] GET /api/quotes failed', error.message);
       res.status(502).json({ error: 'Stock prices unavailable' });
+    }
+  });
+
+  // AI assistants (Claude): StockByte AI (stocks) and InvestByte AI (portfolio).
+  // GET /api/ai/status → { configured, model }
+  app.get('/api/ai/status', (req, res) => res.json({ configured: ai.configured(), model: ai.MODEL, effort: ai.EFFORT }));
+  // POST /api/ai/stock | /api/ai/invest  { question, history: [{ role, content }] } → { reply, tools, model }
+  app.post('/api/ai/:kind', async (req, res) => {
+    const kind = req.params.kind;
+    if (!ai.AGENTS[kind]) return res.status(404).json({ error: 'Unknown assistant' });
+    try {
+      const out = await ai.ask(kind, req.body?.question, req.body?.history);
+      res.json({ reply: out.reply, tools: out.tools, model: out.model });
+    } catch (error) {
+      const A = AnthropicSdk.default || AnthropicSdk;
+      let status = error.status || 502;
+      let message = error.message;
+      if (error instanceof A.AuthenticationError || error instanceof A.PermissionDeniedError) {
+        status = 503;
+        message = 'The Anthropic API key on the server was rejected. Check ANTHROPIC_API_KEY in Render.';
+      } else if (error instanceof A.RateLimitError) {
+        status = 429;
+        message = 'The AI is busy (rate limit). Try again in a minute.';
+      } else if (error instanceof A.BadRequestError && /credit|billing|balance/i.test(error.message)) {
+        status = 402;
+        message = 'Your Anthropic account is out of credit. Add credit at console.anthropic.com.';
+      } else if (error instanceof A.APIError) {
+        console.error(`[ai] ${kind} failed`, error.status, error.message);
+        message = 'The AI service had a problem. Try again shortly.';
+      }
+      res.status(status).json({ error: message, code: error.code });
     }
   });
 
