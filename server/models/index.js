@@ -107,6 +107,10 @@ const COLLECTIONS = {
       // US stocks entered in dollars: $ invested, ₹/$ paid, $ value (if typed)
       'investedUsd',
       'investRate',
+      // crypto: CoinGecko coin id and ticker; current = quantity × price (₹), change24h %
+      'coinId',
+      'coinSymbol',
+      'change24h',
       // US stocks: the day you bought (its ₹/$ fills investRate)
       'boughtOn',
       // stocks added more than once: each purchase { date, quantity, invested, investedUsd?, investRate? }

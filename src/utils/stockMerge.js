@@ -1,4 +1,4 @@
-// Adding a stock you already hold: the purchase is added to the existing
+// Adding a stock (or coin) you already hold: the purchase is added to the existing
 // holding instead of becoming a second one. Each purchase is kept in `lots`.
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -7,6 +7,16 @@ const norm = (s) => String(s || '').trim().toLowerCase();
 
 /** The holding `entry` duplicates (same symbol, or same name if not linked, same market), or null. */
 export function findSameStock(items, entry, excludeId = null) {
+  if (entry.category === 'Crypto') {
+    return (
+      items.find(
+        (i) =>
+          i.id !== excludeId &&
+          i.category === 'Crypto' &&
+          (entry.coinId ? i.coinId === entry.coinId : !i.coinId && norm(i.name) === norm(entry.name))
+      ) || null
+    );
+  }
   if (entry.category !== 'Stocks') return null;
   const market = entry.market || 'IN';
   return (

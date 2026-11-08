@@ -91,6 +91,14 @@ export function fetchGoldRateFromServer() {
 }
 
 // Stock prices for symbols (e.g. TCS.NS, AAPL) and USD→INR: { quotes, usdInr }.
+// Crypto via the server (CoinGecko): coin search and live prices.
+export function searchCryptoOnServer(query) {
+  return request(`/api/crypto/search?q=${encodeURIComponent(query)}`);
+}
+export function fetchCryptoPricesFromServer(ids) {
+  return request(`/api/crypto/prices?ids=${encodeURIComponent(ids.join(','))}`);
+}
+
 // ₹ per $ on a past date: { date, rate, rateDate } (rateDate = the trading day used).
 export function fetchUsdInrOn(date) {
   return request(`/api/usdinr?date=${encodeURIComponent(date)}`);
