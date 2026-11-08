@@ -8,6 +8,7 @@ const {
   toItem,
 } = require('./models');
 const { getQuotes, getCandles, searchSymbols, isSymbol, getUsdInrOn } = require('./quotes');
+const { searchCoins, getCryptoPrices } = require('./crypto');
 const engineService = require('./engine/service');
 const { kiteConfigured, kiteCreateSession, kiteLoginUrl } = require('./engine/providers');
 
@@ -164,6 +165,30 @@ function createApp() {
     } catch (error) {
       console.error('[api] GET /api/quotes failed', error.message);
       res.status(502).json({ error: 'Stock prices unavailable' });
+    }
+  });
+
+  // Crypto (CoinGecko): coin search and live ₹/$ prices.
+  // GET /api/crypto/search?q=bitcoin → { results: [{ id, symbol, name, thumb, rank }] }
+  app.get('/api/crypto/search', async (req, res) => {
+    try {
+      res.json({ results: await searchCoins(String(req.query.q || '')) });
+    } catch (error) {
+      console.error('[api] GET /api/crypto/search failed', error.message);
+      res.status(502).json({ error: 'Crypto search unavailable' });
+    }
+  });
+  // GET /api/crypto/prices?ids=bitcoin,ethereum → { prices: { id: { inr, usd, change24h, updatedAt } }, fetchedAt }
+  app.get('/api/crypto/prices', async (req, res) => {
+    const ids = String(req.query.ids || '')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    try {
+      res.json(await getCryptoPrices(ids));
+    } catch (error) {
+      console.error('[api] GET /api/crypto/prices failed', error.message);
+      res.status(502).json({ error: 'Crypto prices unavailable' });
     }
   });
 

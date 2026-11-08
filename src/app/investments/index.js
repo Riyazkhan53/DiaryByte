@@ -41,6 +41,7 @@ import {
 } from '../../services/stocks';
 import { fetchStockQuotes, fetchUsdInrOn } from '../../services/api';
 import { findSameStock, mergeStock } from '../../utils/stockMerge';
+import { applyCryptoPrices, coinPriceLabel, fetchCoinPrices, fetchCryptoPrices, isLinkedCoin, searchCoins } from '../../services/crypto';
 import { addMonths, currentMonthKey, dueDateFor, monthLabel } from '../../utils/debts';
 import { isCreditCard, savedCardLabel } from '../../utils/cards';
 import { syncSpendCardBill } from '../../utils/spends';
@@ -72,6 +73,7 @@ const CATEGORIES = [
   { key: 'Digital Gold', icon: 'diamond-outline', color: '#FFCC00' },
   { key: 'Digital Silver', icon: 'ellipse-outline', color: '#A8A9AD' },
   { key: 'Digital Platinum', icon: 'sparkles-outline', color: '#8E9AAF' },
+  { key: 'Crypto', icon: 'logo-bitcoin', color: '#F7931A' },
   { key: 'FD', icon: 'lock-closed-outline', color: '#34C759' },
 ];
 
@@ -82,6 +84,7 @@ const DETAIL_PLACEHOLDERS = {
   'Digital Silver': 'Weight (e.g. 100 g)',
   'Digital Platinum': 'Weight (e.g. 5 g)',
   FD: 'Account / note (optional)',
+  Crypto: 'Exchange / wallet (e.g. CoinDCX)',
 };
 
 const CURRENT_LABELS = {
@@ -187,6 +190,10 @@ export default function InvestmentsScreen() {
   // Stock linked to a symbol (quantity × live price)
   const [market, setMarket] = useState('IN');
   const [symbol, setSymbol] = useState(null);
+  // Crypto linked to a CoinGecko coin (quantity × live ₹ price)
+  const [coinId, setCoinId] = useState(null);
+  const [coinSymbol, setCoinSymbol] = useState(null);
+  const [coinPrice, setCoinPrice] = useState(null);
   const [exchange, setExchange] = useState(null);
   const [quantity, setQuantity] = useState('');
   const [sharePrice, setSharePrice] = useState(null);
@@ -257,13 +264,22 @@ export default function InvestmentsScreen() {
     [persist]
   );
 
-  // Re-price linked funds, gold lockers and stocks whenever the screen opens.
+  const applyCrypto = useCallback(
+    (prices) => {
+      const { items: next, updated } = applyCryptoPrices(itemsRef.current, prices, todayKey());
+      if (updated) persist(next);
+    },
+    [persist]
+  );
+
+  // Re-price linked funds, gold lockers, stocks and crypto whenever the screen opens.
   useEffect(() => {
     if (!loaded) return;
     fetchFundPrices(itemsRef.current).then(applyPrices).catch(() => {});
     fetchGoldRate().then(applyGold).catch(() => {});
     fetchStockPrices(itemsRef.current).then(applyStocks).catch(() => {});
-  }, [loaded, applyPrices, applyGold, applyStocks]);
+    fetchCryptoPrices(itemsRef.current).then(applyCrypto).catch(() => {});
+  }, [loaded, applyPrices, applyGold, applyStocks, applyCrypto]);
 
   // FDs with a rate grow by a day's interest every day.
   useEffect(() => {
@@ -275,14 +291,16 @@ export default function InvestmentsScreen() {
   const refreshPrices = async () => {
     setRefreshing(true);
     try {
-      const [prices, gold, stocks] = await Promise.all([
+      const [prices, gold, stocks, crypto] = await Promise.all([
         fetchFundPrices(itemsRef.current),
         fetchGoldRate().catch(() => null),
         fetchStockPrices(itemsRef.current).catch(() => null),
+        fetchCryptoPrices(itemsRef.current).catch(() => null),
       ]);
       applyPrices(prices);
       if (gold) applyGold(gold);
       if (stocks) applyStocks(stocks);
+      if (crypto) applyCrypto(crypto);
     } finally {
       setRefreshing(false);
     }
@@ -299,6 +317,7 @@ export default function InvestmentsScreen() {
     return `${day === today ? '' : `${shortDate(day)} `}${pad(ist.getUTCHours())}:${pad(ist.getUTCMinutes())} IST`;
   };
   const linkedStocks = items.filter(isLinkedStock);
+  const linkedCoins = items.filter(isLinkedCoin);
   const stocksFetched = linkedStocks.map((i) => i.priceFetchedAt).filter(Boolean).sort().pop();
   const stocksAsOf = linkedStocks.map((i) => i.priceDate).filter(Boolean).sort().pop();
   const usdInrNow = linkedStocks.find((i) => marketOf(i) === 'US' && i.usdInr > 0)?.usdInr;
@@ -310,6 +329,7 @@ export default function InvestmentsScreen() {
 
   const runSearch = async () => {
     if (category === 'Stocks') return runStockSearch();
+    if (category === 'Crypto') return runCoinSearch();
     if (query.trim().length < 3) return;
     setSearching(true);
     setLookupError(null);
@@ -360,6 +380,45 @@ export default function InvestmentsScreen() {
     } finally {
       setSearching(false);
     }
+  };
+
+  const runCoinSearch = async () => {
+    if (query.trim().length < 2) return;
+    setSearching(true);
+    setLookupError(null);
+    try {
+      const found = await searchCoins(query.trim());
+      setResults(found.map((c) => ({ ...c, key: c.id })));
+      if (!found.length) setLookupError('No coins found. Try the name or ticker, e.g. "bitcoin" or "ETH".');
+    } catch (_error) {
+      setLookupError("Couldn't search coins right now. You can type a name and enter the value yourself.");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const pickCoin = async (coin) => {
+    setCoinId(coin.id);
+    setCoinSymbol(coin.symbol);
+    setName(coin.name);
+    setResults([]);
+    setQuery('');
+    setCoinPrice(null);
+    setLookupError(null);
+    try {
+      const body = await fetchCoinPrices([coin.id]);
+      const p = body?.prices?.[coin.id];
+      if (!p) throw new Error('no price');
+      setCoinPrice(p.inr);
+    } catch (_error) {
+      setLookupError("Couldn't get this coin's price right now. It will update next time you open Investments.");
+    }
+  };
+
+  const unlinkCoin = () => {
+    setCoinId(null);
+    setCoinSymbol(null);
+    setCoinPrice(null);
   };
 
   const pickStock = async (stock) => {
@@ -476,6 +535,9 @@ export default function InvestmentsScreen() {
     setExchange(null);
     setQuantity('');
     setSharePrice(null);
+    setCoinId(null);
+    setCoinSymbol(null);
+    setCoinPrice(null);
     setFxRate(usdInrNow || null);
     setInUsd(true);
     setInvestRate(usdInrNow ? String(usdInrNow) : '');
@@ -516,7 +578,10 @@ export default function InvestmentsScreen() {
     setSymbol(item.symbol || null);
     setExchange(item.exchange || null);
     setQuantity(item.quantity ? String(item.quantity) : '');
-    setSharePrice(item.price || null);
+    setSharePrice(item.category === 'Crypto' ? null : item.price || null);
+    setCoinId(item.coinId || null);
+    setCoinSymbol(item.coinSymbol || null);
+    setCoinPrice(item.category === 'Crypto' ? item.price || null : null);
     setFxRate(item.usdInr || usdInrNow || null);
     const dollars = marketOf(item) === 'US' && item.investedUsd > 0;
     setInUsd(marketOf(item) === 'US' ? dollars : true);
@@ -541,6 +606,7 @@ export default function InvestmentsScreen() {
 
   const fundLinked = category === 'Mutual Funds' && !!schemeCode;
   const stockLinked = category === 'Stocks' && !!symbol;
+  const coinLinked = category === 'Crypto' && !!coinId;
   const quantityNum = toNum(quantity);
   const sipAllowed = SIP_CATEGORIES.includes(category);
   const unitsNum = toNum(units);
@@ -561,8 +627,12 @@ export default function InvestmentsScreen() {
         ? round2(gramsNum * rateNum)
         : stockLinked
           ? stockValueInr(quantityNum, sharePrice, market, fxRate)
-          : null;
-  const manualCurrent = !(fundLinked || stockLinked || fdGrowing || (isMetal(category) && gramsNum > 0));
+          : coinLinked
+            ? quantityNum > 0 && coinPrice > 0
+              ? round2(quantityNum * coinPrice)
+              : null
+            : null;
+  const manualCurrent = !(fundLinked || stockLinked || coinLinked || fdGrowing || (isMetal(category) && gramsNum > 0));
   // US stock with amounts typed in dollars: convert to ₹ for the totals.
   const usdMode = category === 'Stocks' && market === 'US' && inUsd;
   const investRateNum = toNum(investRate);
@@ -573,8 +643,14 @@ export default function InvestmentsScreen() {
     : toNum(invested);
   // Adding a stock you already hold: shown in the form, merged on save.
   const sameStock =
-    !editingId && category === 'Stocks' && (stockLinked || name.trim())
-      ? findSameStock(items, { category, market, symbol: stockLinked ? symbol : null, name: name.trim() })
+    !editingId && (category === 'Stocks' || category === 'Crypto') && (stockLinked || coinLinked || name.trim())
+      ? findSameStock(items, {
+          category,
+          market,
+          symbol: stockLinked ? symbol : null,
+          coinId: coinLinked ? coinId : null,
+          name: name.trim(),
+        })
       : null;
   const manualCurrentInr =
     usdMode && manualCurrent ? (fxRate > 0 ? round2(toNum(current) * fxRate) : NaN) : toNum(current);
@@ -617,10 +693,21 @@ export default function InvestmentsScreen() {
       market: category === 'Stocks' ? market : undefined,
       symbol: stockLinked ? symbol : undefined,
       exchange: stockLinked ? exchange || undefined : undefined,
-      quantity: stockLinked ? quantityNum : undefined,
-      price: stockLinked ? sharePrice : undefined,
-      priceCurrency: stockLinked ? (market === 'US' ? 'USD' : 'INR') : undefined,
-      priceDate: stockLinked ? (sharePrice === existing?.price ? existing?.priceDate : todayKey()) : undefined,
+      quantity: stockLinked || coinLinked ? quantityNum : undefined,
+      price: stockLinked ? sharePrice : coinLinked ? coinPrice : undefined,
+      priceCurrency: stockLinked ? (market === 'US' ? 'USD' : 'INR') : coinLinked ? 'INR' : undefined,
+      priceDate: stockLinked
+        ? sharePrice === existing?.price
+          ? existing?.priceDate
+          : todayKey()
+        : coinLinked
+          ? coinPrice === existing?.price
+            ? existing?.priceDate
+            : todayKey()
+          : undefined,
+      coinId: coinLinked ? coinId : undefined,
+      coinSymbol: coinLinked ? coinSymbol : undefined,
+      change24h: coinLinked ? existing?.change24h : undefined,
       usdInr: category === 'Stocks' && market === 'US' ? fxRate || undefined : undefined,
       investedUsd: usdMode ? toNum(invested) : undefined,
       investRate: usdMode ? investRateNum : undefined,
@@ -784,6 +871,7 @@ export default function InvestmentsScreen() {
     (autoCurrent > 0 || (manualCurrent && manualCurrentInr > 0)) &&
     (!fundLinked || unitsNum > 0) &&
     (!stockLinked || quantityNum > 0) &&
+    (!coinLinked || quantityNum > 0) &&
     (!isMetal(category) || !(gramsNum > 0) || rateNum > 0) &&
     (!sipAllowed || !sipOn || toNum(sipAmount) > 0) &&
     (editingId || payFrom !== 'card' || !!payCardId);
@@ -830,7 +918,7 @@ export default function InvestmentsScreen() {
               {plPct.toFixed(1)}%)
             </Text>
           </View>
-          {linkedFunds.length > 0 || linkedStocks.length > 0 ? (
+          {linkedFunds.length > 0 || linkedStocks.length > 0 || linkedCoins.length > 0 ? (
             <View style={styles.liveRow}>
               <Ionicons name="pulse-outline" size={15} color={theme.textMuted} />
               <Text style={[styles.liveText, { color: theme.textMuted }]}>
@@ -1018,7 +1106,7 @@ export default function InvestmentsScreen() {
               <Text style={[styles.emptyText, { color: theme.textMuted }]}>
                 {byCategory.length && gainFilter !== 'all'
                   ? `Nothing ${gainFilter === 'gain' ? 'gaining' : 'losing'} here right now.`
-                  : 'No investments yet. Tap + to add mutual funds, stocks, gold, silver, platinum or FDs.'}
+                  : 'No investments yet. Tap + to add mutual funds, stocks, gold, silver, platinum, crypto or FDs.'}
               </Text>
             </View>
           }
@@ -1051,6 +1139,8 @@ export default function InvestmentsScreen() {
                         ? `${item.units} units${item.nav ? ` · NAV ₹${item.nav}` : ''}${item.navDate ? ` (${shortDate(item.navDate)})` : ''}`
                         : isWeighedMetal(item)
                           ? `${item.grams} g · ${money(item.rate)}/g`
+                          : isLinkedCoin(item)
+                            ? `${item.coinSymbol} · ${item.quantity} @ ${coinPriceLabel(item.price)}${item.change24h != null ? ` · ${item.change24h >= 0 ? '▲' : '▼'}${Math.abs(item.change24h)}% 24h` : ''}${item.lots?.length > 1 ? ` · ${item.lots.length} buys` : ''}`
                           : isLinkedStock(item)
                             ? `${MARKETS.find((m) => m.key === marketOf(item)).flag} ${item.symbol} · ${item.quantity} shares @ ${marketOf(item) === 'US' ? `$${item.price}` : money(item.price)}${item.lots?.length > 1 ? ` · ${item.lots.length} buys` : ''}${item.priceTime ? ` · ${priceTimeLabel(item)}` : ''}`
                             : item.category === 'Stocks'
@@ -1354,6 +1444,74 @@ export default function InvestmentsScreen() {
                     </>
                   )}
                 </>
+              ) : category === 'Crypto' ? (
+                coinLinked ? (
+                  <View style={[styles.linkedFund, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral }]}>
+                    <View style={styles.flex}>
+                      <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={2}>
+                        {name}
+                      </Text>
+                      <Text style={[styles.cardSub, { color: theme.textSecondary }]}>
+                        {coinSymbol} · {coinPrice ? `${coinPriceLabel(coinPrice)} live` : 'getting price…'}
+                      </Text>
+                    </View>
+                    <TouchableOpacity onPress={unlinkCoin} style={styles.liveBtn}>
+                      <Text style={[styles.liveLink, { color: theme.primary }]}>Change</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <>
+                    <View style={styles.searchRow}>
+                      <TextInput
+                        style={[styles.input, styles.flex, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                        placeholder="Search coin (e.g. bitcoin, ETH)"
+                        placeholderTextColor={theme.textMuted}
+                        value={query}
+                        onChangeText={setQuery}
+                        onSubmitEditing={runSearch}
+                        returnKeyType="search"
+                      />
+                      <TouchableOpacity
+                        style={[styles.searchBtn, { backgroundColor: theme.primary }, query.trim().length < 2 && styles.btnDisabled]}
+                        onPress={runSearch}
+                        disabled={query.trim().length < 2 || searching}
+                        accessibilityLabel="Search coins"
+                      >
+                        {searching ? (
+                          <ActivityIndicator size="small" color={theme.onPrimary} />
+                        ) : (
+                          <Ionicons name="search" size={20} color={theme.onPrimary} />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                    {results.map((coin) => (
+                      <TouchableOpacity
+                        key={coin.id}
+                        style={[styles.result, { borderColor: theme.borderNeutral }]}
+                        onPress={() => pickCoin(coin)}
+                      >
+                        <Text style={[styles.resultText, { color: theme.text }]}>
+                          {coin.name}
+                          <Text style={{ color: theme.textMuted }}>
+                            {' '}· {coin.symbol}
+                            {coin.rank ? ` · #${coin.rank}` : ''}
+                          </Text>
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                    <Text style={[styles.formHint, { color: theme.textMuted }]}>
+                      Pick the coin to value it at its live ₹ price (CoinGecko). Or type a name below and enter the
+                      value yourself.
+                    </Text>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                      placeholder="Coin name (if not linking)"
+                      placeholderTextColor={theme.textMuted}
+                      value={name}
+                      onChangeText={setName}
+                    />
+                  </>
+                )
               ) : (
                 <TextInput
                   style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
@@ -1376,14 +1534,28 @@ export default function InvestmentsScreen() {
               {sameStock ? (
                 <Text style={[styles.formHint, { color: theme.primary }]}>
                   You already hold {sameStock.name}
-                  {sameStock.quantity ? ` (${sameStock.quantity} shares, ${money(sameStock.invested)} invested)` : ` (${money(sameStock.invested)} invested)`}.
-                  Saving adds this purchase to it{stockLinked ? ': enter only the shares and amount of this buy' : ''}.
+                  {sameStock.quantity
+                    ? ` (${sameStock.quantity} ${sameStock.category === 'Crypto' ? sameStock.coinSymbol || 'coins' : 'shares'}, ${money(sameStock.invested)} invested)`
+                    : ` (${money(sameStock.invested)} invested)`}
+                  . Saving adds this purchase to it
+                  {stockLinked || coinLinked ? `: enter only the ${coinLinked ? 'coins' : 'shares'} and amount of this buy` : ''}.
                 </Text>
               ) : null}
               {stockLinked ? (
                 <TextInput
                   style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
                   placeholder={sameStock ? 'Shares bought this time (e.g. 5)' : 'Shares held (e.g. 25)'}
+                  placeholderTextColor={theme.textMuted}
+                  keyboardType="decimal-pad"
+                  value={quantity}
+                  onChangeText={setQuantity}
+                />
+              ) : null}
+
+              {coinLinked ? (
+                <TextInput
+                  style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
+                  placeholder={`${sameStock ? `${coinSymbol} bought this time` : `${coinSymbol} held`} (e.g. 0.015)`}
                   placeholderTextColor={theme.textMuted}
                   keyboardType="decimal-pad"
                   value={quantity}
@@ -1560,7 +1732,11 @@ export default function InvestmentsScreen() {
                     {autoCurrent ? money(autoCurrent) : '—'}
                   </Text>
                   <Text style={[styles.cardSub, { color: theme.textMuted }]}>
-                    {stockLinked
+                    {coinLinked
+                      ? quantityNum > 0 && coinPrice
+                        ? `${quantityNum} ${coinSymbol} × ${coinPriceLabel(coinPrice)}`
+                        : `Enter how much ${coinSymbol} you hold to see the value`
+                      : stockLinked
                       ? quantityNum > 0 && sharePrice
                         ? market === 'US'
                           ? `${quantityNum} × $${sharePrice} × ₹${fxRate || '—'} per $`
@@ -1576,7 +1752,7 @@ export default function InvestmentsScreen() {
                   </Text>
                 </View>
               ) : null}
-              {category !== 'Mutual Funds' && !isMetal(category) && !stockLinked ? (
+              {category !== 'Mutual Funds' && !isMetal(category) && !stockLinked && category !== 'Crypto' ? (
                 <TextInput
                   style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
                   placeholder={DETAIL_PLACEHOLDERS[category] || 'Detail (optional)'}
@@ -1692,7 +1868,9 @@ export default function InvestmentsScreen() {
                             ? ', as grams at the live buy rate'
                             : stockLinked
                               ? ', as shares at the current price'
-                              : ''}
+                              : coinLinked
+                                ? `, as ${coinSymbol} at the live price`
+                                : ''}
                         {' '}— and to My Expenditure as an Investment. Change any month’s amount from “Plan”.
                       </Text>
                     </>

@@ -11,7 +11,7 @@
 
 import { addMonths, dueDateFor } from './debts';
 
-export const SIP_CATEGORIES = ['Mutual Funds', 'Digital Gold', 'Digital Silver', 'Digital Platinum', 'Stocks'];
+export const SIP_CATEGORIES = ['Mutual Funds', 'Digital Gold', 'Digital Silver', 'Digital Platinum', 'Stocks', 'Crypto'];
 
 export const EXPENSE_CATEGORY = 'Investment';
 
@@ -95,7 +95,11 @@ export function applyInstallment(item, month, amount, price = {}, date = sipDueD
     record.grams = round4(amount / price.rate);
     next.grams = round4(item.grams + record.grams);
     next.current = round2(next.grams * (item.rate || price.rate));
-  } else if (item.category === 'Stocks' && item.symbol && item.quantity > 0 && price.sharePrice > 0) {
+  } else if (
+    ((item.category === 'Stocks' && item.symbol) || (item.category === 'Crypto' && item.coinId)) &&
+    item.quantity > 0 &&
+    price.sharePrice > 0
+  ) {
     // Fractional shares, as SIP apps for US stocks allow; for Indian
     // stocks it's an approximation of what the amount buys.
     record.sharePrice = round2(price.sharePrice);

@@ -2,6 +2,7 @@ import { readLocal, saveAndPush, notifyLocal } from './sync';
 import { navOnOrAfter } from './mutualFunds';
 import { fetchGoldRate, isMetal, metalRate } from './goldRate';
 import { fetchStockPrices, marketOf, sharePriceInr } from './stocks';
+import { fetchCryptoPrices, isLinkedCoin } from './crypto';
 import { todayKey } from '../utils/autopay';
 import {
   applyInstallment,
@@ -42,6 +43,8 @@ async function run() {
   const stockPrices = needsStocks
     ? await fetchStockPrices(work.map(({ item }) => item)).catch(() => null)
     : null;
+  const needsCrypto = work.some(({ item }) => isLinkedCoin(item));
+  const cryptoPrices = needsCrypto ? await fetchCryptoPrices(work.map(({ item }) => item)).catch(() => null) : null;
   const navs = {};
   const priced = [];
   for (const { item, month } of work) {
@@ -64,6 +67,11 @@ async function run() {
       const fx = stockPrices?.usdInr || item.usdInr;
       const live = quote ? (marketOf(item) === 'US' ? (fx > 0 ? quote.price * fx : null) : quote.price) : null;
       const sharePrice = live || sharePriceInr(item);
+      if (!sharePrice) continue;
+      price = { sharePrice };
+    } else if (amount > 0 && isLinkedCoin(item)) {
+      // Today's ₹ price, else the last one known.
+      const sharePrice = cryptoPrices?.prices?.[item.coinId]?.inr || item.price;
       if (!sharePrice) continue;
       price = { sharePrice };
     }
