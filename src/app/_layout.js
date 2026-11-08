@@ -5,6 +5,7 @@ import { ThemeProvider, useTheme } from '../hooks/useTheme';
 import ServerGate from '../components/ServerGate';
 import GlassBackground from '../components/GlassBackground';
 import AutopayReminderService from '../components/AutopayReminderService';
+import TripAlarmService from '../components/TripAlarmService';
 import DebtReminderService from '../components/DebtReminderService';
 import SipService from '../components/SipService';
 import ShareIntentHandler from '../components/ShareIntentHandler';
@@ -29,6 +30,7 @@ function GlassRoot() {
     <NavigationThemeProvider value={navigationTheme}>
       <GlassBackground>
         <AutopayReminderService />
+        <TripAlarmService />
         <DebtReminderService />
         <SipService />
         <ServerGate>
