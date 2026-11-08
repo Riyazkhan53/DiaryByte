@@ -32,6 +32,7 @@ import {
   TICKET_TYPES,
   ticketType,
   countdownLabel,
+  isUpcoming,
   sortTickets,
 } from '../../utils/tickets';
 import { linkLabel, parseBookingText } from '../../utils/ticketShare';
@@ -160,6 +161,14 @@ export default function TicketsScreen() {
     setFormVisible(false);
   };
 
+  // Done with it (trip taken, show watched): move it to Past now.
+  const toggleCompleted = (ticket) => {
+    const completed = !ticket.completed;
+    const next = { ...ticket, completed, completedAt: completed ? new Date().toISOString() : undefined };
+    persist(items.map((t) => (t.id === ticket.id ? next : t)));
+    setViewing(next);
+  };
+
   const deleteTicket = (ticket) => {
     confirmDelete('Delete ticket', `Remove "${ticket.title}" from your tickets?`, () => {
       setViewing(null);
@@ -216,7 +225,7 @@ export default function TicketsScreen() {
 
   const renderPass = ({ item }) => {
     const type = ticketType(item.type);
-    const past = countdownLabel(item) === 'Used';
+    const past = !isUpcoming(item);
     return (
       <TouchableOpacity activeOpacity={0.85} onPress={() => setViewing(item)}>
         <LinearGradient
@@ -348,6 +357,14 @@ export default function TicketsScreen() {
                   <Ionicons name="close" size={26} color="#FFF" />
                 </TouchableOpacity>
                 <View style={styles.viewerActions}>
+                  <TouchableOpacity
+                    onPress={() => toggleCompleted(viewing)}
+                    style={styles.doneBtn}
+                    accessibilityLabel={viewing.completed ? 'Move back to upcoming' : 'Mark ticket completed'}
+                  >
+                    <Ionicons name={viewing.completed ? 'arrow-undo' : 'checkmark-done'} size={18} color="#FFF" />
+                    <Text style={styles.doneText}>{viewing.completed ? 'Not done' : 'Completed'}</Text>
+                  </TouchableOpacity>
                   <TouchableOpacity onPress={() => openEdit(viewing)} style={styles.iconBtn} accessibilityLabel="Edit ticket">
                     <Ionicons name="create-outline" size={22} color="#FFF" />
                   </TouchableOpacity>
@@ -704,7 +721,7 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 24,
   },
   viewerTopRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
-  viewerActions: { flexDirection: 'row', gap: 4 },
+  viewerActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   iconBtn: { padding: 6 },
   viewerTitle: { color: '#FFF', fontSize: 24, fontWeight: '800', marginTop: 8 },
   viewerBody: { padding: 16, paddingBottom: 40 },
@@ -759,6 +776,17 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   pasteText: { fontSize: 14, fontWeight: '700' },
+  doneBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginRight: 4,
+  },
+  doneText: { color: '#FFF', fontSize: 13, fontWeight: '700' },
 
   modalOverlay: {
     flex: 1,
