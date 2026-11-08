@@ -69,7 +69,11 @@ export function netWorth({ investments, debts, expenses, months }, month) {
  * Everything due from today to `days` days ahead, soonest first:
  * [{ key, kind, title, sub, date, daysLeft, amount?, route, params? }].
  */
-export function upcomingItems({ autopays = [], investments = [], debts = [], tickets = [], dates = [] }, days = 5, today = todayKey()) {
+export function upcomingItems(
+  { autopays = [], investments = [], debts = [], tickets = [], dates = [], vouchers = [] },
+  days = 5,
+  today = todayKey()
+) {
   const until = addDays(today, days);
   const out = [];
   const within = (d) => d && d >= today && d <= until;
@@ -134,6 +138,21 @@ export function upcomingItems({ autopays = [], investments = [], debts = [], tic
         date: nextOccurrenceKey(d, today),
         route: '/important-dates',
         params: { open: d.id },
+      })
+    );
+
+  // Unused vouchers and gift cards that run out soon.
+  vouchers
+    .filter((v) => !v.used && within(v.expiry))
+    .forEach((v) =>
+      out.push({
+        key: `voucher:${v.id}`,
+        kind: 'voucher',
+        title: `${v.brand} ${v.kind === 'coupon' ? 'coupon' : v.kind === 'voucher' ? 'voucher' : 'gift card'} expires`,
+        sub: v.code ? `Code ${v.code}` : 'Use it before it lapses',
+        date: v.expiry,
+        amount: Number(v.amount) || 0,
+        route: '/vouchers',
       })
     );
 

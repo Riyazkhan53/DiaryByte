@@ -18,6 +18,7 @@ import { SYNCED_COLLECTIONS, notifyLocal, pullFromServer } from '../services/syn
 
 const SECTION_LABELS = {
   passwords: 'Passwords',
+  vouchers: 'Vouchers',
   diary: 'Diary',
   movies: 'Movies',
   banking: 'Banking',
@@ -44,7 +45,7 @@ const SECTIONS = Object.keys(SECTION_LABELS).filter((key) =>
 function itemTitle(item) {
   if (item.enc) return 'Encrypted vault item';
   return (
-    item.title || item.site || item.name || item.bankName || item.month || item.category || 'Item'
+    item.title || item.site || item.name || item.brand || item.bankName || item.month || item.category || 'Item'
   );
 }
 

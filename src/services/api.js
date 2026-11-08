@@ -4,6 +4,7 @@ const API_KEY = process.env.EXPO_PUBLIC_API_KEY || '';
 const COLLECTIONS = [
   'movies',
   'passwords',
+  'vouchers',
   'banking',
   'diary',
   'vault',
