@@ -21,6 +21,7 @@ const COLLECTIONS = [
   'spends',
   'setups',
   'trades',
+  'demat',
   'tradingconfig',
   // Written by the server's scanner; read-only in the app.
   'signals',

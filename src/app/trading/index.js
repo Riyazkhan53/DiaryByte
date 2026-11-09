@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, SafeAreaView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AiChat from '../../components/ai/AiChat';
+import Demat from '../../components/trading/Demat';
 import Header from '../../components/Header';
 import SetupCheck from '../../components/trading/SetupCheck';
 import OpenTrades from '../../components/trading/OpenTrades';
@@ -42,6 +43,7 @@ export default function TradingScreen() {
     { key: 'history', label: 'History' },
     { key: 'open', label: `Open${openCount ? ` (${openCount})` : ''}` },
     { key: 'completed', label: `Done${closedCount ? ` (${closedCount})` : ''}` },
+    { key: 'demat', label: 'Demat', icon: 'wallet-outline' },
     { key: 'ai', label: 'StockByte AI', icon: 'sparkles' },
   ];
 
@@ -89,8 +91,8 @@ export default function TradingScreen() {
       ref={tabScroll}
       horizontal
       showsHorizontalScrollIndicator={false}
-      // Keep the AI tab (last) in view when it's the open one.
-      onContentSizeChange={() => tab === 'ai' && tabScroll.current?.scrollToEnd({ animated: false })}
+      // Keep the last tabs (Demat, AI) in view when one is open.
+      onContentSizeChange={() => (tab === 'ai' || tab === 'demat') && tabScroll.current?.scrollToEnd({ animated: false })}
       style={[styles.tabs, { backgroundColor: theme.surfaceAlt }]}
       contentContainerStyle={styles.tabsInner}
     >
@@ -137,6 +139,8 @@ export default function TradingScreen() {
           onEdit={showForm}
           config={config}
         />
+      ) : tab === 'demat' ? (
+        <Demat header={tabBar} />
       ) : tab === 'ai' ? (
         <AiChat
           kind="stock"

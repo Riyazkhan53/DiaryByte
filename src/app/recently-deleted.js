@@ -30,6 +30,7 @@ const SECTION_LABELS = {
   spends: 'Total spend',
   setups: 'Setup checks',
   trades: 'Paper trades',
+  demat: 'Demat',
   investments: 'Investments',
   debts: 'Debts',
   autopays: 'Autopays',

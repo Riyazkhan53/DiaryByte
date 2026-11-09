@@ -6,6 +6,7 @@ import { addMonths, isRecurringBill, loanSummary, monthKeyOf, sectionOf, upcomin
 import { hasSip, sipAmountFor, sipDueDate, upcomingSipMonths } from './sip';
 import { daysUntil as ticketDaysUntil, sortTickets, ticketType } from './tickets';
 import { daysUntil as dateDaysUntil, nextOccurrenceKey, sortDates } from './importantDates';
+import { dematSummary } from './demat';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const sumOf = (list) => list.reduce((sum, x) => sum + (Number(x.amount) || 0), 0);
@@ -57,12 +58,13 @@ export function monthBalance(expenses, months, month) {
   return { carried: round2(carry), income: round2(income), spent: round2(out), balance: round2(carry + income - out) };
 }
 
-/** Net worth = investments + this month's balance − debts. */
-export function netWorth({ investments, debts, expenses, months }, month) {
+/** Net worth = investments + demat balances + this month's balance − debts. */
+export function netWorth({ investments, debts, expenses, months, demat = [] }, month) {
   const invested = investmentsValue(investments);
   const owed = debtsOutstanding(debts);
   const cash = monthBalance(expenses, months, month);
-  return { investments: invested, debts: owed, cash, total: round2(invested + cash.balance - owed.total) };
+  const trading = dematSummary(demat).total;
+  return { investments: invested, demat: trading, debts: owed, cash, total: round2(invested + trading + cash.balance - owed.total) };
 }
 
 /**
