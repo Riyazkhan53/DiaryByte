@@ -54,9 +54,10 @@ export default function DashboardScreen() {
   const { items: todos, persist: persistTodos } = useSyncedCollection('todo', '@diarybyte_todo');
   const { items: movies } = useSyncedCollection('movies', '@diarybyte_movies');
   const { items: vouchers } = useSyncedCollection('vouchers', '@diarybyte_vouchers');
+  const { items: demat } = useSyncedCollection('demat', '@diarybyte_demat');
 
   const month = currentMonthKey();
-  const worth = netWorth({ investments, debts, expenses, months }, month);
+  const worth = netWorth({ investments, debts, expenses, months, demat }, month);
   const positive = worth.total >= 0;
   const upcoming = upcomingItems({ autopays, investments, debts, tickets, dates, vouchers }, DAYS_AHEAD, todayKey());
   // Money due out (an expiring voucher's value isn't spending).
@@ -100,16 +101,19 @@ export default function DashboardScreen() {
           <Text style={styles.heroValue} accessibilityLabel={`Net worth ${signed(worth.total)}`}>
             {signed(worth.total)}
           </Text>
-          <Text style={styles.heroSub}>Investments + {monthLabel(month)} balance − debts</Text>
-          <View style={styles.heroTiles}>
+          <Text style={styles.heroSub}>
+            Investments{worth.demat ? ' + demat' : ''} + {monthLabel(month)} balance − debts
+          </Text>
+          <View style={[styles.heroTiles, worth.demat ? styles.heroTilesGrid : null]}>
             {[
               { label: 'Investments', value: worth.investments, sign: 1, icon: 'pie-chart', route: '/investments' },
+              ...(worth.demat ? [{ label: 'Demat', value: worth.demat, sign: 1, icon: 'stats-chart', route: '/trading' }] : []),
               { label: 'Balance', value: worth.cash.balance, sign: 0, icon: 'wallet', route: '/expenditure' },
               { label: 'Debts', value: worth.debts.total, sign: -1, icon: 'card', route: '/debts' },
             ].map((t) => (
               <TouchableOpacity
                 key={t.label}
-                style={styles.heroTile}
+                style={[styles.heroTile, worth.demat ? styles.heroTileHalf : null]}
                 onPress={() => router.push(t.route)}
                 accessibilityLabel={`Open ${t.label}`}
               >
@@ -281,6 +285,8 @@ const styles = StyleSheet.create({
   heroValue: { color: '#FFF', fontSize: 38, fontWeight: '800', marginTop: 6, letterSpacing: 0.5 },
   heroSub: { color: '#FFFFFFB3', fontSize: 12, marginTop: 2 },
   heroTiles: { flexDirection: 'row', gap: 8, marginTop: 16 },
+  heroTilesGrid: { flexWrap: 'wrap' },
+  heroTileHalf: { flexGrow: 0, flexShrink: 0, flexBasis: '48%' },
   heroTile: { flex: 1, backgroundColor: '#FFFFFF26', borderRadius: 14, padding: 10, gap: 2 },
   heroTileLabel: { color: '#FFFFFFCC', fontSize: 11, fontWeight: '600', marginTop: 2 },
   heroTileValue: { color: '#FFF', fontSize: 15, fontWeight: '800' },

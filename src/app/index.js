@@ -170,7 +170,8 @@ export default function Dashboard() {
   const { items: debts } = useSyncedCollection('debts', '@diarybyte_debts');
   const { items: expenses } = useSyncedCollection('expenditure', '@diarybyte_expenditure');
   const { items: months } = useSyncedCollection('months', '@diarybyte_months');
-  const worth = netWorth({ investments, debts, expenses, months }, currentMonthKey()).total;
+  const { items: demat } = useSyncedCollection('demat', '@diarybyte_demat');
+  const worth = netWorth({ investments, debts, expenses, months, demat }, currentMonthKey()).total;
   const { items: vouchers } = useSyncedCollection('vouchers', '@diarybyte_vouchers');
   const comingUp = upcomingItems({ autopays, investments, debts, tickets, dates, vouchers }, 5, todayKey()).length;
 

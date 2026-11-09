@@ -24,6 +24,26 @@ const COLLECTIONS = {
   passwords: {
     fields: ['id', 'site', 'username', 'password', 'createdAt'],
   },
+  // Demat accounts and their day-by-day entries (one collection):
+  // type 'account': name, balance, balanceDate, balanceSetAt
+  // type 'entry': accountId, kind 'pnl' | 'deposit' | 'withdraw', date, amount (pnl signed)
+  demat: {
+    fields: [
+      'id',
+      'type',
+      'name',
+      'balance',
+      'balanceDate',
+      'balanceSetAt',
+      'accountId',
+      'kind',
+      'date',
+      'amount',
+      'note',
+      'createdAt',
+      'updatedAt',
+    ],
+  },
   // Vouchers & gift cards. kind: giftcard | voucher | coupon; expiry 'YYYY-MM-DD'
   vouchers: {
     fields: [
