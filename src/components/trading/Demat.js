@@ -17,6 +17,7 @@ import {
   byMonth,
   countsAfterBalance,
   entryEffect,
+  netOf,
   pnlBetween,
   pnlStats,
   recentPnl,
@@ -47,6 +48,8 @@ export default function Demat({ header }) {
   const [date, setDate] = useState(null); // null = today
   const [pickDate, setPickDate] = useState(false);
   const [note, setNote] = useState('');
+  const [charges, setCharges] = useState('');
+  const [executions, setExecutions] = useState('');
   const [saved, setSaved] = useState(null);
 
   const today = todayKey();
@@ -92,6 +95,12 @@ export default function Demat({ header }) {
       setSelectedId(null);
     });
 
+  const isPnl = kind === 'gain' || kind === 'loss';
+  const grossNum = toNum(amount) || 0;
+  const chargesNum = toNum(charges) || 0;
+  const execNum = Math.round(toNum(executions)) || 0;
+  const netPreview = (kind === 'loss' ? -grossNum : grossNum) - chargesNum;
+
   const saveEntry = () => {
     const value = toNum(amount);
     if (!account || !(value > 0)) return;
@@ -100,8 +109,10 @@ export default function Demat({ header }) {
       id: existingDay?.id || makeId(),
       type: 'entry',
       accountId: account.id,
-      kind: kind === 'gain' || kind === 'loss' ? 'pnl' : kind,
+      kind: isPnl ? 'pnl' : kind,
       amount: kind === 'loss' ? -value : value,
+      charges: isPnl && chargesNum > 0 ? chargesNum : undefined,
+      executions: isPnl && execNum > 0 ? execNum : undefined,
       date: entryDate,
       note: note.trim(),
       createdAt: existingDay?.createdAt || now,
@@ -109,12 +120,14 @@ export default function Demat({ header }) {
     };
     persist(existingDay ? docs.map((d) => (d.id === existingDay.id ? entry : d)) : [entry, ...docs]);
     setSaved(
-      `${kind === 'gain' ? 'Gain' : kind === 'loss' ? 'Loss' : kind === 'deposit' ? 'Added funds' : 'Withdrawal'} of ${inr(value)} saved for ${formatDate(entryDate)}.${
+      `${isPnl ? `Net ${signed(netOf(entry))}` : `${kind === 'deposit' ? 'Added funds' : 'Withdrawal'} of ${inr(value)}`} saved for ${formatDate(entryDate)}.${
         countsAfterBalance(account, entry) ? '' : ' (On or before the day you set the balance, so it doesn’t change it.)'
       }`
     );
     setAmount('');
     setNote('');
+    setCharges('');
+    setExecutions('');
     setTimeout(() => setSaved(null), 4000);
   };
 
@@ -125,7 +138,7 @@ export default function Demat({ header }) {
 
   const card = [styles.card, { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow }];
   const input = [styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }];
-  const maxBar = Math.max(1, ...bars.map((b) => Math.abs(Number(b.amount) || 0)));
+  const maxBar = Math.max(1, ...bars.map((b) => Math.abs(netOf(b))));
 
   const accountForm = accForm ? (
     <View style={card}>
@@ -283,7 +296,7 @@ export default function Demat({ header }) {
             <View style={styles.row}>
               <TextInput
                 style={[...input, styles.flex]}
-                placeholder={kind === 'gain' ? 'Profit today (₹)' : kind === 'loss' ? 'Loss today (₹)' : 'Amount (₹)'}
+                placeholder={kind === 'gain' ? 'Gross profit (₹)' : kind === 'loss' ? 'Gross loss (₹)' : 'Amount (₹)'}
                 placeholderTextColor={theme.textMuted}
                 keyboardType="decimal-pad"
                 value={amount}
@@ -303,10 +316,43 @@ export default function Demat({ header }) {
                 }}
               />
             ) : null}
+            {isPnl ? (
+              <>
+                <View style={styles.row}>
+                  <TextInput
+                    style={[...input, styles.flex]}
+                    placeholder="Brokerage + charges (₹)"
+                    placeholderTextColor={theme.textMuted}
+                    keyboardType="decimal-pad"
+                    value={charges}
+                    onChangeText={setCharges}
+                  />
+                  <TextInput
+                    style={[...input, styles.execInput]}
+                    placeholder="Executions"
+                    placeholderTextColor={theme.textMuted}
+                    keyboardType="number-pad"
+                    value={executions}
+                    onChangeText={setExecutions}
+                  />
+                </View>
+                {grossNum > 0 ? (
+                  <View style={[styles.netBox, { backgroundColor: theme.surfaceAlt }]}>
+                    <Text style={[styles.netLabel, { color: theme.textMuted }]}>Net for the day</Text>
+                    <Text style={[styles.netValue, { color: colorOf(netPreview, theme.text) }]}>{signed(netPreview)}</Text>
+                    <Text style={[styles.hint, { color: theme.textSecondary }]}>
+                      {signed(kind === 'loss' ? -grossNum : grossNum)} gross − {inr(chargesNum)} charges
+                      {execNum ? ` · ${execNum} execution${execNum === 1 ? '' : 's'} (${inr(chargesNum / execNum)} each)` : ''}
+                      {kind === 'gain' && chargesNum > 0 ? ` · charges took ${Math.round((chargesNum / grossNum) * 100)}% of the profit` : ''}
+                    </Text>
+                  </View>
+                ) : null}
+              </>
+            ) : null}
             <TextInput style={input} placeholder="Note (optional, e.g. NIFTY options, stop hit)" placeholderTextColor={theme.textMuted} value={note} onChangeText={setNote} />
             {existingDay ? (
               <Text style={[styles.hint, { color: '#F59E0B' }]}>
-                {formatDate(entryDate)} already has {signed(existingDay.amount)} — saving replaces it.
+                {formatDate(entryDate)} already has {signed(netOf(existingDay))} — saving replaces it.
               </Text>
             ) : null}
             <TouchableOpacity style={[styles.btn, { backgroundColor: theme.primary }, !(toNum(amount) > 0) && styles.disabled]} onPress={saveEntry} disabled={!(toNum(amount) > 0)} accessibilityLabel="Save day entry">
@@ -327,6 +373,9 @@ export default function Demat({ header }) {
                   ['Best day', signed(stats.best), colorOf(stats.best)],
                   ['Worst day', signed(stats.worst), colorOf(stats.worst)],
                   ['Avg day', signed(stats.avg), colorOf(stats.avg)],
+                  ['Gross P/L', signed(stats.gross), colorOf(stats.gross)],
+                  ['Charges paid', inr(stats.charges), stats.charges ? LOSS : null],
+                  ['Executions', String(stats.executions || 0)],
                 ].map(([label, value, color]) => (
                   <View key={label} style={[styles.stat, { backgroundColor: theme.surfaceAlt }]}>
                     <Text style={[styles.statLabel, { color: theme.textMuted }]}>{label}</Text>
@@ -334,6 +383,13 @@ export default function Demat({ header }) {
                   </View>
                 ))}
               </View>
+              {stats.charges > 0 ? (
+                <Text style={[styles.hint, { color: theme.textSecondary }]}>
+                  {stats.chargesPerExecution != null ? `About ${inr(stats.chargesPerExecution)} per execution. ` : ''}
+                  {stats.chargesPctOfGains != null ? `Charges took ${stats.chargesPctOfGains}% of your gross gains.` : ''}
+                  {stats.chargesPctOfGains >= 30 ? ' Fewer, bigger trades would keep more of it.' : ''}
+                </Text>
+              ) : null}
               {stats.streak?.length > 1 ? (
                 <Text style={[styles.hint, { color: stats.streak.kind === 'green' ? PROFIT : LOSS }]}>
                   {stats.streak.length} {stats.streak.kind} days in a row
@@ -342,7 +398,7 @@ export default function Demat({ header }) {
               ) : null}
               <View style={styles.chart}>
                 {bars.map((b) => {
-                  const v = Number(b.amount) || 0;
+                  const v = netOf(b);
                   const h = Math.max(3, (Math.abs(v) / maxBar) * 56);
                   return (
                     <View key={b.id} style={styles.barCol}>
@@ -364,6 +420,11 @@ export default function Demat({ header }) {
                 <Text style={[styles.title, styles.flex, { color: theme.text }]}>{monthLabel(g.month, true)}</Text>
                 <Text style={[styles.monthPnl, { color: colorOf(g.pnl, theme.textMuted) }]}>{signed(g.pnl)}</Text>
               </View>
+              {g.charges > 0 || g.executions > 0 ? (
+                <Text style={[styles.hint, { color: theme.textMuted }]}>
+                  Net after {inr(g.charges)} charges{g.executions ? ` · ${g.executions} executions` : ''}
+                </Text>
+              ) : null}
               {g.entries.map((e) => {
                 const eff = entryEffect(e);
                 const k = ENTRY_KINDS.find((x) => x.key === e.kind);
@@ -374,6 +435,13 @@ export default function Demat({ header }) {
                       <Text style={[styles.entryTitle, { color: theme.text }]}>
                         {formatDate(e.date)} · {e.kind === 'pnl' ? (eff >= 0 ? 'Gain' : 'Loss') : k.label}
                       </Text>
+                      {e.kind === 'pnl' && (e.charges || e.executions) ? (
+                        <Text style={[styles.hint, { color: theme.textMuted }]}>
+                          Gross {signed(Number(e.amount) || 0)}
+                          {e.charges ? ` · charges ${inr(e.charges)}` : ''}
+                          {e.executions ? ` · ${e.executions} exec` : ''}
+                        </Text>
+                      ) : null}
                       {e.note ? <Text style={[styles.hint, { color: theme.textMuted }]}>{e.note}</Text> : null}
                     </View>
                     <Text style={[styles.entryAmt, { color: e.kind === 'pnl' ? colorOf(eff) : theme.text }]}>{signed(eff)}</Text>
@@ -425,6 +493,10 @@ const styles = StyleSheet.create({
   segment: { flexDirection: 'row', borderRadius: 12, padding: 3 },
   segItem: { flex: 1, alignItems: 'center', borderRadius: 10, paddingVertical: 8 },
   segText: { fontSize: 13, fontWeight: '700' },
+  execInput: { width: 120 },
+  netBox: { borderRadius: 12, padding: 10, gap: 2 },
+  netLabel: { fontSize: 11, fontWeight: '600' },
+  netValue: { fontSize: 20, fontWeight: '900' },
   dateBtn: { flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12 },
   dateText: { fontSize: 14, fontWeight: '600' },
   statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
