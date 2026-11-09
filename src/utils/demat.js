@@ -5,8 +5,12 @@
 // - accounts: { id, type: 'account', name, balance, balanceDate,
 //               balanceSetAt (ISO time it was set), note }
 // - entries:  { id, type: 'entry', accountId, kind: 'pnl' | 'deposit' |
-//               'withdraw', date: 'YYYY-MM-DD', amount, note }
-//   pnl amounts are signed (+ gain, − loss); deposit/withdraw are positive.
+//               'withdraw', date: 'YYYY-MM-DD', amount, charges?,
+//               executions?, note }
+//   pnl: `amount` is the day's gross P/L, signed (+ gain, − loss), before
+//   `charges` (brokerage + taxes, positive); net = amount − charges.
+//   `executions` is how many orders were executed. deposit/withdraw
+//   amounts are positive.
 //
 // Current balance = the balance you set + every entry after it: dated after
 // balanceDate, or on that day but logged after the balance was set (so a
@@ -26,12 +30,15 @@ export const accountsOf = (docs) => docs.filter((d) => d.type === 'account');
 export const entriesOf = (docs, accountId) =>
   docs.filter((d) => d.type === 'entry' && (!accountId || d.accountId === accountId));
 
+/** A day's P/L after charges. */
+export const netOf = (e) => round2((Number(e.amount) || 0) - (Number(e.charges) || 0));
+
 /** Signed effect of an entry on the balance. */
 export function entryEffect(e) {
   const a = Math.abs(Number(e.amount) || 0);
   if (e.kind === 'deposit') return a;
   if (e.kind === 'withdraw') return -a;
-  return Number(e.amount) || 0; // pnl: signed
+  return netOf(e); // pnl: gross − charges
 }
 
 /** True when an entry moves the balance (it came after the balance was set). */
@@ -54,25 +61,26 @@ export function dematSummary(docs) {
   return { total: round2(accounts.reduce((s, a) => s + a.current, 0)), accounts };
 }
 
-/** Trading P/L (pnl entries only) between two date keys, inclusive. */
+/** Net trading P/L (after charges) between two date keys, inclusive. */
 export function pnlBetween(docs, from, to, accountId) {
   return round2(
     entriesOf(docs, accountId)
       .filter((e) => e.kind === 'pnl' && e.date >= from && e.date <= to)
-      .reduce((s, e) => s + (Number(e.amount) || 0), 0)
+      .reduce((s, e) => s + netOf(e), 0)
   );
 }
 
 /**
- * Stats on day P/L entries: { days, green, red, winRate, best, worst, net,
- * avg, streak: { kind: 'green' | 'red', length } }.
+ * Stats on day P/L entries (green/red, best/worst judged after charges):
+ * { days, green, red, winRate, best, worst, net, avg, gross, charges,
+ * executions, chargesPerExecution, chargesPctOfGains, streak }.
  */
 export function pnlStats(docs, accountId) {
   const days = entriesOf(docs, accountId)
     .filter((e) => e.kind === 'pnl')
     .sort((a, b) => a.date.localeCompare(b.date));
   if (!days.length) return { days: 0 };
-  const vals = days.map((e) => Number(e.amount) || 0);
+  const vals = days.map(netOf);
   const green = vals.filter((v) => v > 0).length;
   const red = vals.filter((v) => v < 0).length;
   let streak = { kind: null, length: 0 };
@@ -84,8 +92,16 @@ export function pnlStats(docs, accountId) {
     else break;
   }
   const net = round2(vals.reduce((s, v) => s + v, 0));
+  const charges = round2(days.reduce((s, e) => s + (Number(e.charges) || 0), 0));
+  const executions = days.reduce((s, e) => s + (Number(e.executions) || 0), 0);
+  const grossGains = days.reduce((s, e) => s + Math.max(0, Number(e.amount) || 0), 0);
   return {
     days: days.length,
+    gross: round2(days.reduce((s, e) => s + (Number(e.amount) || 0), 0)),
+    charges,
+    executions,
+    chargesPerExecution: executions ? round2(charges / executions) : null,
+    chargesPctOfGains: grossGains > 0 ? Math.round((charges / grossGains) * 100) : null,
     green,
     red,
     winRate: green + red ? Math.round((green / (green + red)) * 100) : null,
@@ -111,10 +127,14 @@ export function byMonth(docs, accountId) {
     .sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || '').localeCompare(a.createdAt || ''))
     .forEach((e) => {
       const m = e.date.slice(0, 7);
-      if (!groups.has(m)) groups.set(m, { month: m, pnl: 0, entries: [] });
+      if (!groups.has(m)) groups.set(m, { month: m, pnl: 0, charges: 0, executions: 0, entries: [] });
       const g = groups.get(m);
       g.entries.push(e);
-      if (e.kind === 'pnl') g.pnl = round2(g.pnl + (Number(e.amount) || 0));
+      if (e.kind === 'pnl') {
+        g.pnl = round2(g.pnl + netOf(e));
+        g.charges = round2(g.charges + (Number(e.charges) || 0));
+        g.executions += Number(e.executions) || 0;
+      }
     });
   return [...groups.values()];
 }

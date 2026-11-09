@@ -39,6 +39,9 @@ const COLLECTIONS = {
       'kind',
       'date',
       'amount',
+      // day P/L: brokerage + charges (₹) and number of executed orders
+      'charges',
+      'executions',
       'note',
       'createdAt',
       'updatedAt',
