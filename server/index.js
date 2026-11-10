@@ -10,6 +10,7 @@ const {
 const { getQuotes, getCandles, searchSymbols, isSymbol, getUsdInrOn } = require('./quotes');
 const { searchCoins, getCryptoPrices } = require('./crypto');
 const ai = require('./ai/agent');
+const { mountAuth } = require('./auth');
 const AnthropicSdk = require('@anthropic-ai/sdk');
 const engineService = require('./engine/service');
 const { kiteConfigured, kiteCreateSession, kiteLoginUrl } = require('./engine/providers');
@@ -112,6 +113,10 @@ function createApp() {
   } else {
     console.warn('[auth] API_KEY not set — endpoints are unprotected');
   }
+
+  // Owner sign-in: /api/auth/*, and a token check on every private route.
+  app.set('trust proxy', 1); // Render sits behind a proxy; needed for per-IP login limits
+  mountAuth(app);
 
   // Live digital gold, silver and platinum rates (₹/gram) from OroPocket's public feed, cached for
   // a few minutes to stay well inside its 10-requests-a-minute limit. Must be

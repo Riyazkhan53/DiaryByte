@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fetchCollection, pushCollection } from './api';
+import { isGuest } from './session';
 
 // Single registry of every synced collection: local storage key ↔ server collection.
 // On web, AsyncStorage is backed by IndexedDB; on Android/iOS it's SQLite.
@@ -139,6 +140,15 @@ async function pushMerged(collection, storageKey) {
  * as pending and is retried on the next app load or the next save.
  */
 export async function saveAndPush(collection, storageKey, items) {
+  // Guests: this device only. No delete log, no pending marker, no push.
+  if (isGuest()) {
+    try {
+      await inLocalQueue(storageKey, () => writeLocal(storageKey, items));
+    } catch (error) {
+      console.error(`Failed to save ${collection} locally`, error);
+    }
+    return { pushed: false, guest: true };
+  }
   try {
     await inLocalQueue(storageKey, async () => {
       const previous = await readLocal(storageKey);
@@ -171,6 +181,7 @@ export async function saveAndPush(collection, storageKey, items) {
  */
 export async function loadLocalWithRetry(collection, storageKey) {
   const local = await readLocal(storageKey);
+  if (isGuest()) return local;
   try {
     if (await AsyncStorage.getItem(pendingKey(storageKey))) {
       pushMerged(collection, storageKey).catch(() => {});
@@ -189,6 +200,7 @@ export async function loadLocalWithRetry(collection, storageKey) {
  * are merged and pushed, so a pull never throws away unsynced work.
  */
 export async function pullFromServer(collection, storageKey) {
+  if (isGuest()) return readLocal(storageKey);
   if (await AsyncStorage.getItem(pendingKey(storageKey))) {
     return pushMerged(collection, storageKey);
   }

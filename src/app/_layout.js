@@ -3,6 +3,8 @@ import { ShareIntentProvider } from 'expo-share-intent';
 import * as SplashScreen from 'expo-splash-screen';
 import { ThemeProvider, useTheme } from '../hooks/useTheme';
 import ServerGate from '../components/ServerGate';
+import AuthGate from '../components/AuthGate';
+import { isGuest } from '../services/session';
 import GlassBackground from '../components/GlassBackground';
 import AutopayReminderService from '../components/AutopayReminderService';
 import TripAlarmService from '../components/TripAlarmService';
@@ -17,6 +19,11 @@ SplashScreen.preventAutoHideAsync();
 
 const renderScreen = ({ children }) => <GlassBackground>{children}</GlassBackground>;
 
+// Guests never wait for the server: their data is all on the device.
+function MaybeServerGate({ children }) {
+  return isGuest() ? children : <ServerGate>{children}</ServerGate>;
+}
+
 function GlassRoot() {
   const { theme, isDark } = useTheme();
   // Navigation paints its own opaque background behind every screen unless
@@ -29,11 +36,12 @@ function GlassRoot() {
   return (
     <NavigationThemeProvider value={navigationTheme}>
       <GlassBackground>
-        <AutopayReminderService />
-        <TripAlarmService />
-        <DebtReminderService />
-        <SipService />
-        <ServerGate>
+        <AuthGate>
+          <AutopayReminderService />
+          <TripAlarmService />
+          <DebtReminderService />
+          <SipService />
+          <MaybeServerGate>
           <Stack
             // Each screen gets its own backdrop so slide transitions don't
             // show the previous screen through the translucent glass.
@@ -44,8 +52,9 @@ function GlassRoot() {
               animation: 'slide_from_right',
             }}
           />
-          <ShareIntentHandler />
-        </ServerGate>
+            <ShareIntentHandler />
+          </MaybeServerGate>
+        </AuthGate>
       </GlassBackground>
     </NavigationThemeProvider>
   );

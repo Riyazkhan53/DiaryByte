@@ -1,3 +1,5 @@
+import { authToken, getSession, isGuest, sessionReady, signOut } from './session';
+
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 const API_KEY = process.env.EXPO_PUBLIC_API_KEY || '';
 
@@ -28,14 +30,33 @@ const COLLECTIONS = [
   'enginetrades',
 ];
 
+// Market data anyone may read; everything else is the owner's (see server/auth.js).
+const PUBLIC_PATHS = ['/api/health', '/api/auth/', '/api/gold-rate', '/api/quotes', '/api/usdinr', '/api/crypto/', '/api/candles', '/api/stock-search'];
+const isPublic = (path) => PUBLIC_PATHS.some((p) => path.startsWith(p));
+
 async function request(path, options = {}) {
+  await sessionReady;
+  // Guests stay on this device: nothing private is asked of the server.
+  if (isGuest() && !isPublic(path)) {
+    const error = new Error('Guest mode: this needs you to sign in.');
+    error.status = 'guest';
+    error.serverMessage = 'Sign in to use this. In guest mode everything stays on this device.';
+    throw error;
+  }
+  const token = authToken();
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
       ...(API_KEY ? { 'x-api-key': API_KEY } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
+  // The server no longer accepts this sign-in: back to the sign-in page.
+  if (response.status === 401 && token && !path.startsWith('/api/auth/') && getSession()?.token === token) {
+    const body = await response.clone().json().catch(() => null);
+    if (body?.code === 'auth') signOut();
+  }
   if (!response.ok) {
     const error = new Error(`API request failed (${response.status})`);
     // Lets screens tell "server is out of date" (404) from other failures.
@@ -119,6 +140,16 @@ export function searchStockSymbols(query, market) {
 export function fetchCandles(symbol) {
   return request(`/api/candles?symbol=${encodeURIComponent(symbol)}`);
 }
+
+// ------- account -------
+
+// { registered } — whether the app's one account exists yet.
+export const fetchAuthStatus = () => request('/api/auth/status');
+// Both resolve to { username, token }; errors carry the server's message.
+export const registerAccount = (username, password) =>
+  request('/api/auth/register', { method: 'POST', body: JSON.stringify({ username, password }) });
+export const loginAccount = (username, password) =>
+  request('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
 
 // ------- AI assistants (Claude, via the server) -------
 

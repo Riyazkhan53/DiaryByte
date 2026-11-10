@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../hooks/useTheme';
+import { isGuest } from '../services/session';
 
 /**
  * Sync status row with a per-section "pull from server" button.
@@ -22,6 +23,16 @@ export default function SyncRow({ synced, pulling, pullInfo, onPull }) {
       Alert.alert('Sync failed', result.error || 'Could not reach the server.');
     }
   };
+
+  // Guests have nothing to sync: say where the data is and offer no pull.
+  if (isGuest()) {
+    return (
+      <View style={styles.row}>
+        <Ionicons name="phone-portrait-outline" size={13} color={theme.textMuted} />
+        <Text style={[styles.text, { color: theme.textMuted }]}>Guest mode · saved on this device only</Text>
+      </View>
+    );
+  }
 
   const text = pullInfo
     ? `Pulled ${pullInfo.count} item${pullInfo.count === 1 ? '' : 's'} from server`

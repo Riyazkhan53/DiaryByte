@@ -21,10 +21,16 @@ import { AppUpdatesSection } from '../components/AppUpdates';
 import { DeleteProtectionSection } from '../components/DeleteProtectionSection';
 import { VaultCodeSection } from '../components/VaultCodeSection';
 import { confirmDelete } from '../utils/confirm';
+import { getSession, isGuest, signOut } from '../services/session';
+
+// Groups the server-only rows (hidden for guests) without re-indenting them.
+const SyncTools = ({ children }) => children;
 
 export default function SettingsScreen() {
   const { theme, isDark, toggleTheme, themeMode, updateThemeMode, userName, updateUserName } =
     useTheme();
+  const session = getSession();
+  const guest = isGuest();
   const [nameDraft, setNameDraft] = useState(userName);
   const [syncing, setSyncing] = useState(false);
 
@@ -92,6 +98,37 @@ export default function SettingsScreen() {
       <Header title="Settings" subtitle="Make DiaryByte yours" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View
+          style={[
+            styles.section,
+            { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow },
+          ]}
+        >
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Account</Text>
+          <View style={styles.settingRow}>
+            <Ionicons name={guest ? 'eye-outline' : 'person-circle-outline'} size={22} color={theme.accent} />
+            <Text style={[styles.settingLabel, { color: theme.text }]}>
+              {guest ? `Guest (${session?.id})` : `Signed in as ${session?.username || '—'}`}
+            </Text>
+          </View>
+          <Text style={[styles.hint, { color: theme.textMuted }]}>
+            {guest
+              ? 'Guest mode: everything you add stays on this device only. Nothing is loaded from or saved to the server.'
+              : 'You stay signed in on this device until you sign out. Your data stays on the device and the server.'}
+          </Text>
+          <TouchableOpacity
+            style={styles.dangerRow}
+            onPress={() => signOut()}
+            activeOpacity={0.7}
+            accessibilityLabel={guest ? 'Sign in' : 'Sign out'}
+          >
+            <Ionicons name={guest ? 'log-in-outline' : 'log-out-outline'} size={22} color={theme.primary} />
+            <Text style={[styles.settingLabel, { color: theme.primary }]}>
+              {guest ? 'Sign in or create account' : 'Sign out'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         <View
           style={[
             styles.section,
@@ -229,9 +266,13 @@ export default function SettingsScreen() {
           <View style={styles.settingRow}>
             <Ionicons name="server-outline" size={22} color={theme.accent} />
             <Text style={[styles.settingLabel, { color: theme.text }]}>
-              Data lives on this device and pushes to your server in real time
+              {guest
+                ? 'Guest data lives on this device only'
+                : 'Data lives on this device and pushes to your server in real time'}
             </Text>
           </View>
+          {guest ? null : (
+            <SyncTools>
           <TouchableOpacity
             style={[styles.syncBtn, { backgroundColor: theme.primary }]}
             onPress={syncFromServer}
@@ -259,6 +300,8 @@ export default function SettingsScreen() {
             <Text style={[styles.settingLabel, { color: theme.text }]}>Recently Deleted</Text>
             <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
           </TouchableOpacity>
+            </SyncTools>
+          )}
           <TouchableOpacity style={styles.dangerRow} onPress={clearAllData} activeOpacity={0.7}>
             <Ionicons name="trash-outline" size={22} color={theme.danger} />
             <Text style={[styles.dangerText, { color: theme.danger }]}>Reset All Data</Text>

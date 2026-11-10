@@ -445,6 +445,27 @@ function getTrashModel() {
   return trashModel;
 }
 
+// The app's one account (see ../auth.js). Kept out of COLLECTIONS so the
+// generic /api/:collection routes can never read or write it.
+let userModel = null;
+function getUserModel() {
+  if (!userModel) {
+    const schema = new mongoose.Schema(
+      {
+        id: { type: String, required: true, unique: true },
+        username: { type: String, required: true },
+        salt: String,
+        hash: String,
+        tokenSecret: String,
+        createdAt: String,
+      },
+      { collection: 'users' }
+    );
+    userModel = mongoose.model('users', schema);
+  }
+  return userModel;
+}
+
 // Drop Mongo's own fields so an item looks exactly as the app stored it.
 function toItem(doc) {
   const item = {};
@@ -460,6 +481,7 @@ module.exports = {
   getCollectionNames,
   getModel,
   getTrashModel,
+  getUserModel,
   sanitize,
   toItem,
 };

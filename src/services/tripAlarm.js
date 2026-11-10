@@ -11,6 +11,7 @@
 // imported from the root layout.
 
 import { Platform } from 'react-native';
+import './session'; // guest storage applies in the background task too
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
