@@ -104,28 +104,35 @@ export default function DashboardScreen() {
           <Text style={styles.heroSub}>
             Investments{worth.demat ? ' + demat' : ''} + {monthLabel(month)} balance − debts
           </Text>
-          <View style={[styles.heroTiles, worth.demat ? styles.heroTilesGrid : null]}>
-            {[
+          {/* Plain rows (two per row with Demat): wrapping % widths break on Android. */}
+          {(() => {
+            const tiles = [
               { label: 'Investments', value: worth.investments, sign: 1, icon: 'pie-chart', route: '/investments' },
               ...(worth.demat ? [{ label: 'Demat', value: worth.demat, sign: 1, icon: 'stats-chart', route: '/trading' }] : []),
               { label: 'Balance', value: worth.cash.balance, sign: 0, icon: 'wallet', route: '/expenditure' },
               { label: 'Debts', value: worth.debts.total, sign: -1, icon: 'card', route: '/debts' },
-            ].map((t) => (
-              <TouchableOpacity
-                key={t.label}
-                style={[styles.heroTile, worth.demat ? styles.heroTileHalf : null]}
-                onPress={() => router.push(t.route)}
-                accessibilityLabel={`Open ${t.label}`}
-              >
-                <Ionicons name={t.icon} size={16} color="#FFF" />
-                <Text style={styles.heroTileLabel}>{t.label}</Text>
-                <Text style={styles.heroTileValue} numberOfLines={1} adjustsFontSizeToFit>
-                  {t.sign > 0 ? '+' : t.sign < 0 ? '−' : t.value < 0 ? '−' : '+'}
-                  {compact(t.value)}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+            ];
+            const rows = tiles.length > 3 ? [tiles.slice(0, 2), tiles.slice(2)] : [tiles];
+            return rows.map((row, i) => (
+              <View key={row[0].label} style={[styles.heroTiles, i > 0 && styles.heroTilesNext]}>
+                {row.map((t) => (
+                  <TouchableOpacity
+                    key={t.label}
+                    style={styles.heroTile}
+                    onPress={() => router.push(t.route)}
+                    accessibilityLabel={`Open ${t.label}`}
+                  >
+                    <Ionicons name={t.icon} size={16} color="#FFF" />
+                    <Text style={styles.heroTileLabel}>{t.label}</Text>
+                    <Text style={styles.heroTileValue} numberOfLines={1} adjustsFontSizeToFit>
+                      {t.sign > 0 ? '+' : t.sign < 0 ? '−' : t.value < 0 ? '−' : '+'}
+                      {compact(t.value)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ));
+          })()}
         </LinearGradient>
 
         {/* Trip alarm, while one is on */}
@@ -285,8 +292,7 @@ const styles = StyleSheet.create({
   heroValue: { color: '#FFF', fontSize: 38, fontWeight: '800', marginTop: 6, letterSpacing: 0.5 },
   heroSub: { color: '#FFFFFFB3', fontSize: 12, marginTop: 2 },
   heroTiles: { flexDirection: 'row', gap: 8, marginTop: 16 },
-  heroTilesGrid: { flexWrap: 'wrap' },
-  heroTileHalf: { flexGrow: 0, flexShrink: 0, flexBasis: '48%' },
+  heroTilesNext: { marginTop: 8 },
   heroTile: { flex: 1, backgroundColor: '#FFFFFF26', borderRadius: 14, padding: 10, gap: 2 },
   heroTileLabel: { color: '#FFFFFFCC', fontSize: 11, fontWeight: '600', marginTop: 2 },
   heroTileValue: { color: '#FFF', fontSize: 15, fontWeight: '800' },
