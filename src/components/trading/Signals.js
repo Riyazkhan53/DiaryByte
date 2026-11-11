@@ -114,6 +114,10 @@ const timeOf = (iso) =>
  * indicators and risk plan, the engine's own paper-trade ledger, and the
  * settings it uses. Decision support only: it never places orders.
  */
+// How often the open screen re-checks: the last traded price changes all the
+// time, and a new 5-minute candle's signal then shows within seconds.
+const REFRESH_MS = 15000;
+
 export default function Signals({ header, onPaperTrade }) {
   const { theme } = useTheme();
   const {
@@ -152,10 +156,10 @@ export default function Signals({ header, onPaperTrade }) {
   }, [configLoaded, configDocs.length, pullConfig]);
 
   // Status, ledger and the selected symbol's evaluation; refreshed every
-  // minute while the screen is open.
+  // 15 seconds while the screen is open (quietly: no spinner after the first).
   useEffect(() => {
     let cancelled = false;
-    const load = () => {
+    const load = (quiet) => {
       fetchEngineStatus()
         .then((s) => {
           if (cancelled) return;
@@ -171,7 +175,7 @@ export default function Signals({ header, onPaperTrade }) {
         .then((trades) => !cancelled && setLedger({ trades }))
         .catch(() => {});
       if (!symbol) return;
-      setLoading(true);
+      if (quiet !== true) setLoading(true);
       evaluateSymbol(symbol)
         .then((r) => {
           if (cancelled) return;
@@ -182,7 +186,7 @@ export default function Signals({ header, onPaperTrade }) {
         .finally(() => !cancelled && setLoading(false));
     };
     load();
-    const timer = setInterval(load, 60000);
+    const timer = setInterval(() => load(true), REFRESH_MS);
     return () => {
       cancelled = true;
       clearInterval(timer);

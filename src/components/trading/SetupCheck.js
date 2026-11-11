@@ -171,8 +171,8 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
   }, [logSymbols]);
 
   // While an NSE stock is picked and the market is open, re-check the intraday
-  // signal every minute (the server refetches candles as each 5-min candle
-  // closes, and the last traded price every minute).
+  // signal every 15 seconds (the server refetches candles as each 5-min
+  // candle closes, and the last traded price every 15 seconds).
   const marketLive = !!intraday.ev?.data?.marketOpen;
   useEffect(() => {
     if (!intradayFor || !marketLive) return undefined;
@@ -180,7 +180,7 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
       evaluateSymbol(intradayFor)
         .then((r) => setIntraday((cur) => (cur.symbol === intradayFor ? { ...cur, ev: r, error: null } : cur)))
         .catch(() => {});
-    }, 60000);
+    }, 15000);
     return () => clearInterval(timer);
   }, [intradayFor, marketLive]);
 

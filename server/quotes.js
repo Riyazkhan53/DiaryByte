@@ -6,7 +6,7 @@
 const CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart/';
 const SEARCH_URL = 'https://query2.finance.yahoo.com/v1/finance/search';
 // Short, so prices stay close to the broker's: at most a minute older than Yahoo's.
-const QUOTE_CACHE_MS = 60 * 1000;
+const QUOTE_CACHE_MS = 15 * 1000; // the app re-checks every 15 s while a trading screen is open
 const SEARCH_CACHE_MS = 24 * 60 * 60 * 1000;
 const MAX_SYMBOLS = 40;
 // Yahoo refuses requests without a browser-like User-Agent.
