@@ -74,6 +74,49 @@ async function ledgerContext() {
   };
 }
 
+const LEARN_CACHE_MS = 5 * 60 * 1000;
+let learnCache = null; // { at, threshold, learned }
+
+/**
+ * What past results teach (see src/engine/learn.js): from the engine's closed
+ * paper and demo trades, and your own closed paper trades on NSE stocks.
+ */
+async function learned(cfg) {
+  if (learnCache && Date.now() - learnCache.at < LEARN_CACHE_MS && learnCache.threshold === cfg.threshold) return learnCache.learned;
+  const E = await engine();
+  const [engineTrades, paper] = await Promise.all([
+    getModel('enginetrades').find({ status: 'closed' }).lean(),
+    getModel('trades').find({ status: 'closed' }).lean().catch(() => []),
+  ]);
+  const records = engineTrades
+    .filter((t) => Number.isFinite(t.netPnl))
+    .map((t) => ({
+      side: t.side,
+      symbol: t.symbol,
+      r: t.r ?? null,
+      net: t.netPnl,
+      score: t.score ? t.score[t.side === 'short' ? 'short' : 'long'] : null,
+      minutes: t.signalTime ? E.istParts(t.signalTime).minutes : null,
+    }));
+  paper
+    .filter((t) => (t.market || 'IN') === 'IN' && t.entryPrice > 0 && t.exitPrice > 0 && t.quantity > 0)
+    .forEach((t) => {
+      const dir = t.side === 'short' ? -1 : 1;
+      const risk = t.stopLoss > 0 ? Math.abs(t.entryPrice - t.stopLoss) : 0;
+      records.push({
+        side: t.side === 'short' ? 'short' : 'long',
+        symbol: t.symbol,
+        r: risk > 0 ? Math.round((((t.exitPrice - t.entryPrice) * dir) / risk) * 100) / 100 : null,
+        net: (t.exitPrice - t.entryPrice) * dir * t.quantity,
+        score: null,
+        minutes: null,
+      });
+    });
+  const result = E.learnFromTrades(records, cfg.threshold);
+  learnCache = { at: Date.now(), threshold: cfg.threshold, learned: result };
+  return result;
+}
+
 /** Evaluate one symbol now. Adds the provider used to the result. */
 async function evaluate(symbol, { config, context } = {}) {
   const E = await engine();
@@ -81,6 +124,7 @@ async function evaluate(symbol, { config, context } = {}) {
   const ctx = context || (await ledgerContext());
   const { provider, note } = await activeProvider();
   const [candles5, candles15] = await Promise.all([provider.getCandles(symbol, 5), provider.getCandles(symbol, 15)]);
+  const lessons = await learned(cfg).catch(() => null);
   const result = E.evaluateSignal({
     symbol,
     candles5,
@@ -92,8 +136,13 @@ async function evaluate(symbol, { config, context } = {}) {
       openPositions: ctx.openPositions,
       dayPnl: ctx.dayPnl,
       lastSignalKey: ctx.lastKeys[symbol]?.key,
+      learned: lessons,
     },
   });
+  // Everything learned so far (not only what applies to this stock now), for the app.
+  result.learning = lessons
+    ? { on: cfg.learnOn !== false, trades: lessons.trades, needed: lessons.needed, active: lessons.active, rules: lessons.rules.map((r) => ({ id: r.id, bump: r.bump, note: r.note })) }
+    : null;
   result.provider = { id: provider.id, label: provider.label, delayed: provider.delayed, note };
   // When the candles were fetched, and the latest traded price, to compare with a broker app.
   const fetched = provider.fetchedAt?.(symbol, 5);

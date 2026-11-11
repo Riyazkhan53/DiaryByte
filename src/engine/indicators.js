@@ -85,29 +85,57 @@ export function sessionVwap(candles) {
   return vol > 0 ? pv / vol : null;
 }
 
+// Early in the session: earlier candles needed today before a signal (so
+// the opening candle alone can't trigger one), and earlier days needed for
+// the same-time comparison.
+export const EARLY_MIN_CANDLES = 2;
+const EARLY_MIN_DAYS = 2;
+
 /**
- * Volume of the last candle against the average of the `n` candles before
- * it from the same IST session and timeframe (pass completed candles only,
- * so the forming candle is never in either number). Yesterday's candles are
- * not used: the open and close of a day trade very different volume.
- * Returns { volume, avg, ratio, count, needed }; avg and ratio are null
- * until the session has `n` earlier candles.
+ * Volume of the last candle against what is normal (pass completed candles
+ * only, so the forming candle is never in either number):
+ * - once the session has `n` earlier candles: their average ('session');
+ * - before that: the same 5-minute slot on earlier days ('sameTime'), since
+ *   the open trades far more than midday and today's few candles would be a
+ *   skewed yardstick. Needs EARLY_MIN_CANDLES earlier candles today and the
+ *   slot on at least EARLY_MIN_DAYS earlier days.
+ * Returns { volume, avg, ratio, count, needed, basis }; avg and ratio are
+ * null while neither is available (`needed` = candles today required).
  */
 export function volumeStats(candles, n = 20) {
-  if (!candles.length) return { volume: null, avg: null, ratio: null, count: 0, needed: n };
+  if (!candles.length) return { volume: null, avg: null, ratio: null, count: 0, needed: EARLY_MIN_CANDLES, basis: null };
   const last = candles[candles.length - 1];
-  const day = istParts(last.t).dateKey;
+  const { dateKey: day, minutes: slot } = istParts(last.t);
   const prior = [];
   for (let i = candles.length - 2; i >= 0 && prior.length < n && istParts(candles[i].t).dateKey === day; i -= 1) {
     prior.push(candles[i]);
   }
-  const avg = prior.length === n ? prior.reduce((s, c) => s + c.volume, 0) / n : null;
+  let avg = null;
+  let basis = null;
+  let needed = n;
+  if (prior.length === n) {
+    avg = prior.reduce((s, c) => s + c.volume, 0) / n;
+    basis = 'session';
+  } else {
+    const sameSlot = candles.filter((c) => {
+      const p = istParts(c.t);
+      return p.dateKey !== day && p.minutes === slot && c.volume > 0;
+    });
+    if (sameSlot.length >= EARLY_MIN_DAYS) {
+      needed = EARLY_MIN_CANDLES;
+      if (prior.length >= EARLY_MIN_CANDLES) {
+        avg = sameSlot.reduce((s, c) => s + c.volume, 0) / sameSlot.length;
+        basis = 'sameTime';
+      }
+    }
+  }
   return {
     volume: last.volume,
     avg,
     ratio: avg > 0 ? last.volume / avg : null,
     count: prior.length,
-    needed: n,
+    needed,
+    basis,
   };
 }
 

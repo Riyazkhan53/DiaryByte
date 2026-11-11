@@ -52,7 +52,7 @@ function Grid({ items }) {
 }
 
 /** Signals tab: how the engine's paper/demo trades did in the last 30 days, and why it waited today. */
-export function EngineReportCard({ trades }) {
+export function EngineReportCard({ trades, learning }) {
   const { theme } = useTheme();
   const [signals, setSignals] = useState([]);
   useEffect(() => {
@@ -114,6 +114,35 @@ export function EngineReportCard({ trades }) {
                 </View>
               ))}
             </>
+          ) : null}
+        </>
+      ) : null}
+      {learning ? (
+        <>
+          <Text style={[styles.sub, { color: theme.textSecondary }]}>What the engine has learned</Text>
+          {!learning.on ? (
+            <Text style={[styles.line, { color: theme.textMuted }]}>Learning is switched off in settings.</Text>
+          ) : !learning.active ? (
+            <Text style={[styles.line, { color: theme.text }]}>
+              Nothing yet: it starts after {learning.needed} closed trades ({learning.trades} so far), so a few unlucky
+              trades can&apos;t change the rules.
+            </Text>
+          ) : learning.rules.length ? (
+            learning.rules.map((r) => (
+              <Text key={r.id} style={[styles.line, { color: theme.text }]}>
+                • {r.note}
+              </Text>
+            ))
+          ) : (
+            <Text style={[styles.line, { color: theme.text }]}>
+              Nothing needs tightening: no side, time of day or stock is clearly losing over {learning.trades} trades.
+            </Text>
+          )}
+          {learning.on && learning.active ? (
+            <Text style={[styles.hint, { color: theme.textMuted }]}>
+              It only ever asks for a higher score (+20 at most) where results after charges are clearly negative, and
+              drops the extra once they recover.
+            </Text>
           ) : null}
         </>
       ) : null}

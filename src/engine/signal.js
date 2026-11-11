@@ -6,10 +6,11 @@
 import { completedCandles, checkFreshness, normalizeCandles } from './candles.js';
 import { atr, ema, macd, priorRange, rsi, sessionVwap, volumeStats } from './indicators.js';
 import { DEFAULT_CONFIG, planTrade } from './risk.js';
+import { learnedBump } from './learn.js';
 import { istMinutes, istParts } from './time.js';
 
 // Bump when checks, weights or gates change, so past results stay traceable.
-export const RULE_VERSION = 'intraday-v4';
+export const RULE_VERSION = 'intraday-v6';
 
 export const STATES = {
   BUY: 'BUY CANDIDATE',
@@ -216,7 +217,9 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
         note:
           vol.avg == null
             ? `Volume needs ${vol.needed} completed 5-minute candles today before the signal candle (${vol.count} so far)`
-            : `Volume ${round(vol.ratio)}× the same-session 20-candle average (needs 1×)`,
+            : vol.basis === 'sameTime'
+              ? `Volume ${round(vol.ratio)}× this time of day on earlier days (needs 1×)`
+              : `Volume ${round(vol.ratio)}× the same-session 20-candle average (needs 1×)`,
         action:
           vol.avg == null
             ? `Wait for ${vol.needed - vol.count} more completed 5-minute candle${vol.needed - vol.count > 1 ? 's' : ''} today`
@@ -253,6 +256,12 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
   const failed = (list) => list.filter((g) => !g.pass);
   const dataFails = failed(dataGates);
   const Side = side === 'long' ? 'Long' : 'Short';
+  // Learned from past results: a higher score is needed where trades have been losing.
+  const learn =
+    cfg.learnOn !== false
+      ? learnedBump(context.learned, { side, symbol, minutes: candle ? istParts(candle.t).minutes : null })
+      : { bump: 0, notes: [] };
+  const need = cfg.threshold + learn.bump;
   if (penalty[side] > 0) {
     reasons.push(`${Side} score lost ${penalty[side]} points for an extended move (${penalties.filter((p) => p[side]).map((p) => p.name).join('; ')})`);
   }
@@ -263,26 +272,29 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
     nextAction = dataFails[0].action;
   } else {
     const best = score[side];
+    if (learn.bump > 0) {
+      reasons.push(`Learned from ${context.learned.trades} past trades: needs ${need} here instead of ${cfg.threshold}`);
+    }
     const sideFails = failed(gates[side]);
     const safety = sideFails.filter((g) =>
       ['risk', 'entryTime', 'dailyLimit', 'positions', 'shortAllowed'].includes(g.id)
     );
-    const scoreShort = best < cfg.threshold;
+    const scoreShort = best < need;
     // The checks agree but the move is stretched: say so rather than "score".
-    const chasing = scoreShort && penalty[side] > 0 && raw[side] >= cfg.threshold;
+    const chasing = scoreShort && penalty[side] > 0 && raw[side] >= need;
     failedConditions = [...(chasing ? ['Overextended'] : scoreShort ? ['Score'] : []), ...sideFails.map((g) => g.label)];
     if (!scoreShort && !sideFails.length) {
       state = side === 'long' ? STATES.BUY : STATES.SELL;
-      reasons.push(`${Side} score ${best}/100 meets ${cfg.threshold} and every gate passes. Review it yourself; it is not an order.`);
+      reasons.push(`${Side} score ${best}/100 meets ${need} and every gate passes. Review it yourself; it is not an order.`);
       nextAction = 'Review the plan below; paper trade it only if you agree';
     } else if (!scoreShort && safety.length) {
       state = STATES.NO_TRADE;
       reasons.push(...safety.map((g) => g.note));
       failedConditions = safety.map((g) => g.label);
       nextAction = safety[0].action;
-    } else if (best >= cfg.threshold - 15) {
+    } else if (best >= need - 15) {
       state = STATES.WAIT;
-      if (scoreShort) reasons.push(`${Side} score ${best}/100 is close to ${cfg.threshold}`);
+      if (scoreShort) reasons.push(`${Side} score ${best}/100 is close to ${need}`);
       reasons.push(...sideFails.map((g) => g.note));
       // A required setup gate first (no score helps while one fails), then
       // chasing, then anything else (time, limits).
@@ -293,10 +305,10 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
           ? sideFails[0].action
           : chasing
           ? `Don't chase: wait for a pullback (RSI back ${side === 'long' ? `under ${RSI_OVERBOUGHT}` : `over ${RSI_OVERSOLD}`} or price nearer VWAP)`
-          : `Wait for the ${side} score to reach ${cfg.threshold} (now ${best})`;
+          : `Wait for the ${side} score to reach ${need} (now ${best})`;
     } else {
       state = STATES.NEUTRAL;
-      reasons.push(`No side reaches ${cfg.threshold}: long ${score.long}, short ${score.short}`);
+      reasons.push(`No side reaches ${need}: long ${score.long}, short ${score.short}`);
       nextAction = 'No setup yet; check again after the next candle';
     }
   }
@@ -321,7 +333,10 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
     score,
     rawScore: raw,
     penalties,
-    threshold: cfg.threshold,
+    // Score needed now (the base threshold plus anything learned).
+    threshold: need,
+    baseThreshold: cfg.threshold,
+    learned: { bump: learn.bump, notes: learn.notes },
     checks,
     gates,
     reasons,
@@ -343,6 +358,7 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
       volumeAvg: ind.vol.avg == null ? null : Math.round(ind.vol.avg),
       volumeRatio: round(ind.vol.ratio),
       volumeCandles: ind.vol.count,
+      volumeBasis: ind.vol.basis,
       stretchAtr: round(stretchAtr),
       rangeHigh: round(ind.range?.high),
       rangeLow: round(ind.range?.low),

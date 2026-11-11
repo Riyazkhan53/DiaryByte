@@ -34,6 +34,7 @@ export const DEFAULT_CONFIG = {
   trailAtR: 1, // once a trade is this many R in profit, move the stop to entry (0 = off)
   weakExit: true, // exit when a 5-min candle closes back across VWAP with EMA 9/21 flipped
   allowShort: true, // intraday shorts (MIS) only
+  learnOn: true, // ask for a higher score where past trades have been losing
   charges: DEFAULT_CHARGES,
 };
 
