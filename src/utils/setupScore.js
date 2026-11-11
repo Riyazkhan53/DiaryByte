@@ -32,14 +32,14 @@ export function scoreSetup(input, threshold = DEFAULT_THRESHOLD) {
   // 1. Short-term trend: price vs EMA 20
   if (has('price', 'ema20')) {
     const v = Math.sign(d.price - d.ema20);
-    add('ema20', 'Price vs EMA 20 (daily)', 15, v,
+    add('ema20', 'Price vs EMA 20', 15, v,
       v > 0 ? 'Price is above the 20 EMA' : v < 0 ? 'Price is below the 20 EMA' : 'Price is sitting on the 20 EMA');
   }
 
   // 2. Trend structure: EMA 20 vs EMA 50
   if (has('ema20', 'ema50')) {
     const v = Math.sign(d.ema20 - d.ema50);
-    add('emaCross', 'EMA 20 vs EMA 50 (daily)', 20, v,
+    add('emaCross', 'EMA 20 vs EMA 50', 20, v,
       v > 0 ? '20 EMA is above the 50 EMA (uptrend)' : v < 0 ? '20 EMA is below the 50 EMA (downtrend)' : 'EMAs are flat together');
   }
 
@@ -51,13 +51,13 @@ export function scoreSetup(input, threshold = DEFAULT_THRESHOLD) {
     else if (r >= 55) { v = 1; note = 'RSI between 55 and 70: bullish momentum'; }
     else if (r < 30) { note = 'RSI below 30: weak but oversold'; warnings.push('RSI is oversold, so a bounce is common before more downside.'); }
     else if (r <= 45) { v = -1; note = 'RSI between 30 and 45: bearish momentum'; }
-    add('rsi', 'RSI (14, daily)', 15, v, note);
+    add('rsi', 'RSI (14)', 15, v, note);
   }
 
   // 4. Momentum: MACD vs signal
   if (has('macd', 'macdSignal')) {
     const v = Math.sign(d.macd - d.macdSignal);
-    add('macd', 'MACD vs signal (daily)', 15, v,
+    add('macd', 'MACD vs signal', 15, v,
       v > 0 ? 'MACD is above its signal line' : v < 0 ? 'MACD is below its signal line' : 'MACD is on its signal line');
   }
 
@@ -75,7 +75,7 @@ export function scoreSetup(input, threshold = DEFAULT_THRESHOLD) {
     } else {
       note = `Volume is ${ratio.toFixed(1)}× average, which is normal`;
     }
-    add('volume', 'Volume vs 20-day average', 15, v, note);
+    add('volume', 'Volume vs 20-period average', 15, v, note);
   }
 
   // 6. Intraday value: price vs VWAP

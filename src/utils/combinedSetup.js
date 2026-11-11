@@ -8,7 +8,8 @@
 const STATE_SIDE = { 'BUY CANDIDATE': 'long', 'SELL CANDIDATE': 'short' };
 
 /**
- * `daily`: scoreSetup result ({ signal, bullPct, bearPct }).
+ * `daily`: scoreSetup result ({ signal, bullPct, bearPct }) from the chart
+ * named by `tf` ('daily' or '5-minute').
  * `ev`: engine evaluation from /api/engine/evaluate, or null when there is
  * none (US stocks, server unreachable).
  * Returns { verdict: 'BUY' | 'SELL' | 'WAIT' | 'NO TRADE', source:
@@ -16,12 +17,13 @@ const STATE_SIDE = { 'BUY CANDIDATE': 'long', 'SELL CANDIDATE': 'short' };
  * warnings: [text] } — warnings (e.g. low profit after charges) never change
  * the verdict.
  */
-export function combineSetup(daily, ev) {
+export function combineSetup(daily, ev, tf = 'daily') {
+  const Tf = tf.charAt(0).toUpperCase() + tf.slice(1);
   if (!ev) {
     return {
       verdict: daily.signal,
       source: 'daily',
-      reason: `Daily setup only: ${daily.reason}`,
+      reason: `${Tf} setup only: ${daily.reason}`,
       failed: [],
       nextAction: null,
       plan: null,
@@ -38,9 +40,9 @@ export function combineSetup(daily, ev) {
       return {
         verdict: 'WAIT',
         source: 'combined',
-        reason: `Intraday says ${side === 'long' ? 'buy' : 'sell'}, but the daily setup is ${dailyWord}: trading against the bigger trend.`,
-        failed: ['Daily trend'],
-        nextAction: 'Skip it, or wait until the daily setup stops pointing the other way',
+        reason: `Intraday says ${side === 'long' ? 'buy' : 'sell'}, but the ${tf} setup is ${dailyWord}${tf === 'daily' ? ': trading against the bigger trend' : ''}.`,
+        failed: [tf === 'daily' ? 'Daily trend' : `${Tf} setup`],
+        nextAction: `Skip it, or wait until the ${tf} setup stops pointing the other way`,
         plan: null,
         warnings: [],
       };
@@ -51,8 +53,8 @@ export function combineSetup(daily, ev) {
       source: 'combined',
       reason:
         daily.signal === verdict
-          ? `Intraday ${verdict.toLowerCase()} candidate and the daily setup agrees.`
-          : `Intraday ${verdict.toLowerCase()} candidate; the daily setup is neutral, so size small.`,
+          ? `Intraday ${verdict.toLowerCase()} candidate and the ${tf} setup agrees.`
+          : `Intraday ${verdict.toLowerCase()} candidate; the ${tf} setup is neutral, so size small.`,
       failed: [],
       nextAction: ev.nextAction || 'Review the plan; paper trade it only if you agree',
       plan: ev.plan?.ok ? ev.plan : null,
@@ -65,7 +67,7 @@ export function combineSetup(daily, ev) {
     return {
       verdict: 'WAIT',
       source: 'combined',
-      reason: `NSE is closed, so there is no intraday signal. Daily setup: ${daily.signal} (${dailyWord}).`,
+      reason: `NSE is closed, so there is no intraday signal. ${Tf} setup: ${daily.signal} (${dailyWord}).`,
       failed,
       nextAction: 'Check again after 09:15 IST, once a few 5-minute candles have closed',
       plan: null,
@@ -89,8 +91,8 @@ export function combineSetup(daily, ev) {
     source: 'combined',
     reason:
       ev.state === 'WAIT'
-        ? `Intraday setup not confirmed yet. Daily setup: ${daily.signal} (${dailyWord}).`
-        : `No intraday setup right now. Daily setup: ${daily.signal} (${dailyWord}).`,
+        ? `Intraday setup not confirmed yet. ${Tf} setup: ${daily.signal} (${dailyWord}).`
+        : `No intraday setup right now. ${Tf} setup: ${daily.signal} (${dailyWord}).`,
     failed,
     nextAction: ev.nextAction,
     plan: null,

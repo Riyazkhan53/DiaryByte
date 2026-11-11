@@ -15,6 +15,7 @@ import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 import { confirmDelete } from '../../utils/confirm';
 import { DEFAULT_THRESHOLD, MIN_CHECKS, scoreSetup } from '../../utils/setupScore';
 import { setupInputsFromCandles } from '../../utils/indicators';
+import { sessionVwap } from '../../engine/indicators.js';
 import { MARKETS, searchStocks } from '../../services/stocks';
 import { evaluateSymbol, fetchCandles, fetchStockQuotes } from '../../services/api';
 import { combineSetup } from '../../utils/combinedSetup';
@@ -38,18 +39,18 @@ const SECTIONS = [
     ],
   },
   {
-    title: 'Trend (daily chart)',
+    title: 'Trend',
     fields: [
-      { key: 'ema20', label: 'EMA 20 (daily)' },
-      { key: 'ema50', label: 'EMA 50 (daily)' },
+      { key: 'ema20', label: 'EMA 20' },
+      { key: 'ema50', label: 'EMA 50' },
     ],
   },
   {
-    title: 'Momentum (daily chart)',
+    title: 'Momentum',
     fields: [
-      { key: 'rsi', label: 'RSI (14, daily)' },
-      { key: 'macd', label: 'MACD line (daily)' },
-      { key: 'macdSignal', label: 'MACD signal (daily)' },
+      { key: 'rsi', label: 'RSI (14)' },
+      { key: 'macd', label: 'MACD line' },
+      { key: 'macdSignal', label: 'MACD signal' },
     ],
   },
   {
@@ -95,6 +96,9 @@ const formatWhen = (iso) =>
  * Setup Check section of My Trading: score a stock setup, keep a log, and
  * start a paper trade from a check (`onPaperTrade(check)`).
  */
+// Field names when the 5-minute chart is used.
+const FIVE_MIN_LABELS = { volume: 'Last 5-min candle volume', avgVolume: '20-candle avg volume' };
+
 export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
   const { theme } = useTheme();
   const {
@@ -123,6 +127,11 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [filling, setFilling] = useState(false);
+  // Which chart the indicators are read from: '5m' (like a broker's intraday
+  // chart, including the candle still forming) or '1d' (daily).
+  const [timeframe, setTimeframe] = useState('5m');
+  const tfWord = timeframe === '5m' ? '5-minute' : 'daily';
+  const tfTag = timeframe === '5m' ? '5-min' : 'daily';
   const [notice, setNotice] = useState(null);
   const [nowPrices, setNowPrices] = useState({});
   // The verdict card shows the verdict and stock; the breakdown opens on demand.
@@ -150,7 +159,7 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
   // the verdict combines both, with the intraday engine deciding.
   const intradayFor = symbol && marketOfSymbol(symbol) === 'IN' ? symbol : null;
   const ev = intraday.symbol === intradayFor ? intraday.ev : null;
-  const combined = combineSetup(result, ev);
+  const combined = combineSetup(result, ev, timeframe === '5m' ? '5-minute' : 'daily');
   const signalColor = SIGNAL_COLORS[combined.verdict] || SIGNAL_COLORS.WAIT;
   const dailyColor = SIGNAL_COLORS[result.signal] || SIGNAL_COLORS.WAIT;
   const setField = (key) => (value) => setFields((f) => ({ ...f, [key]: value }));
@@ -256,16 +265,32 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
       );
   };
 
-  const fillFromLiveData = async (sym = symbol) => {
+  const fillFromLiveData = async (sym = symbol, tf = timeframe) => {
     if (!sym) return;
     loadIntraday(sym);
     setFilling(true);
     setNotice(null);
     try {
-      const data = await fetchCandles(sym);
+      const five = tf === '5m';
+      const data = await fetchCandles(sym, five ? 5 : undefined);
       // Picked by symbol alone (watchlist): show the company name.
       if (data.name) setName((n) => (!n || n === shortSymbol(sym) ? data.name : n));
       const inputs = setupInputsFromCandles(data.candles);
+      if (five) {
+        // EMA, RSI and MACD include the candle still forming, as a broker chart
+        // does. Volume and the recent range use completed candles only (a
+        // half-built candle always looks quiet), and VWAP is today's.
+        const lastT = Date.parse(data.candles[data.candles.length - 1]?.t);
+        // Still forming if the server fetched it before its five minutes were up.
+        const forming = Number.isFinite(lastT) && Date.parse(data.fetchedAt) < lastT + 5 * 60000;
+        const done = setupInputsFromCandles(forming ? data.candles.slice(0, -1) : data.candles);
+        ['volume', 'avgVolume', 'swingHigh', 'swingLow'].forEach((k) => {
+          if (done[k] != null) inputs[k] = done[k];
+          else delete inputs[k];
+        });
+        const vwap = sessionVwap(data.candles.map((c) => ({ ...c, t: Date.parse(c.t) })));
+        if (vwap != null) inputs.vwap = Math.round(vwap * 100) / 100;
+      }
       // The live price and the official previous close (last session's close),
       // when the server has them, over the values read off the daily bars.
       const q = data.quote;
@@ -275,17 +300,19 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
         ...f,
         ...Object.fromEntries(Object.entries(inputs).map(([k, v]) => [k, String(v)])),
         // VWAP is intraday; daily candles don't have it.
-        vwap: f.vwap,
+        vwap: inputs.vwap != null ? String(inputs.vwap) : five ? f.vwap : '',
       }));
       const lastDay = data.candles[data.candles.length - 1]?.t;
       setNotice({
         error: false,
         text:
-          `Filled from daily prices up to ${lastDay ? formatWhen(lastDay) : 'today'}` +
+          `Filled from ${five ? `the 5-minute chart up to ${lastDay ? istTime(lastDay, false) : 'now'} IST` : `daily prices up to ${lastDay ? formatWhen(lastDay) : 'today'}`}` +
           `${data.fetchedAt ? ` (fetched ${istTime(data.fetchedAt)} IST)` : ''}.` +
           `${q?.price > 0 ? ` Current price ₹${inputs.price}${q.time ? ` traded at ${istTime(q.time, false)} IST` : ''}.` : ''}` +
           `${q?.previousClose > 0 ? ` Previous close ₹${inputs.prevClose} = the last session's closing price.` : ''}` +
-          ' EMA, RSI and MACD here are from the daily chart: compare them with a 1D chart, not a 5-minute one (Signals shows the 5-minute values).',
+          (five
+            ? ' EMA, RSI, MACD and VWAP match a 5-minute chart (candle in progress included); small differences from your broker come from the price feed.'
+            : ' EMA, RSI and MACD are from the daily chart: compare them with a 1D chart.'),
       });
     } catch (_error) {
       setNotice({
@@ -325,7 +352,7 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
       bullPct: result.bullPct,
       bearPct: result.bearPct,
       note:
-        `Daily ${result.signal} (bull ${result.bullPct}% / bear ${result.bearPct}%)` +
+        `${tfTag} setup ${result.signal} (bull ${result.bullPct}% / bear ${result.bearPct}%)` +
         (ev ? ` · Intraday ${ev.state} (long ${ev.score.long} / short ${ev.score.short}, ${ev.ruleVersion})` : ' · no intraday reading'),
       createdAt: new Date().toISOString(),
     };
@@ -446,7 +473,7 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
                       : intraday.error || '—'}
                 </Text>
                 <Text style={[styles.explainLine, { color: theme.text }]}>
-                  <Text style={styles.bold}>Daily setup: </Text>
+                  <Text style={styles.bold}>{timeframe === '5m' ? '5-minute' : 'Daily'} setup: </Text>
                   <Text style={{ color: dailyColor }}>{result.signal}</Text> · bullish {result.bullPct}% / bearish{' '}
                   {result.bearPct}%
                 </Text>
@@ -472,12 +499,13 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
               </View>
             ) : symbol ? (
               <Text style={[styles.hint, { color: theme.textMuted }]}>
-                Intraday signals cover NSE stocks only, so this is the daily setup alone.
+                Intraday signals cover NSE stocks only, so this is the {tfWord} setup alone.
               </Text>
             ) : null}
 
             <Text style={[styles.dailyTitle, { color: theme.textSecondary }]}>
-              Daily setup (daily candles){intradayFor ? ' · used as the trend filter' : ''}
+              {timeframe === '5m' ? '5-minute setup (5-min candles)' : 'Daily setup (daily candles)'}
+              {intradayFor ? (timeframe === '5m' ? ' · checked against the engine' : ' · used as the trend filter') : ''}
             </Text>
 
             <View style={[styles.bar, { backgroundColor: theme.surfaceAlt }]}>
@@ -679,6 +707,25 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
             </Text>
           </TouchableOpacity>
         ))}
+        <View style={[styles.tfRow, { backgroundColor: theme.surfaceAlt }]}>
+          {[
+            { key: '5m', label: '5-min chart (like your broker)' },
+            { key: '1d', label: 'Daily chart' },
+          ].map((o) => (
+            <TouchableOpacity
+              key={o.key}
+              style={[styles.tfItem, timeframe === o.key && { backgroundColor: theme.sheet }]}
+              onPress={() => {
+                if (o.key === timeframe) return;
+                setTimeframe(o.key);
+                if (symbol) fillFromLiveData(symbol, o.key);
+              }}
+              accessibilityLabel={`Use the ${o.label}`}
+            >
+              <Text style={[styles.tfText, { color: timeframe === o.key ? theme.text : theme.textSecondary }]}>{o.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
         {symbol ? (
           <TouchableOpacity
             style={[styles.fillBtn, { borderColor: theme.primary }]}
@@ -696,7 +743,7 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
           </TouchableOpacity>
         ) : (
           <Text style={[styles.hint, styles.hintTop, { color: theme.textMuted }]}>
-            Search and pick a stock to fill the indicators from its daily prices, or type them in
+            Search and pick a stock to fill the indicators from its chart, or type them in
             from your chart.
           </Text>
         )}
@@ -713,12 +760,15 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
             {si > 0 ? (
               <Text style={[styles.sectionTitle, styles.sectionGap, { color: theme.text }]}>
                 {section.title}
+                {section.title === 'Trend' || section.title === 'Momentum' ? ` (${tfTag} chart)` : ''}
               </Text>
             ) : null}
             <View style={styles.fieldGrid}>
               {section.fields.map((f) => (
                 <View key={f.key} style={styles.field}>
-                  <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>{f.label}</Text>
+                  <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>
+                    {timeframe === '5m' && FIVE_MIN_LABELS[f.key] ? FIVE_MIN_LABELS[f.key] : f.label}
+                  </Text>
                   <TextInput
                     style={inputStyle}
                     keyboardType="decimal-pad"
@@ -930,6 +980,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   segmentText: { fontSize: 13, fontWeight: '600' },
+  tfRow: { flexDirection: 'row', borderRadius: 12, padding: 3, marginTop: 10 },
+  tfItem: { flex: 1, alignItems: 'center', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 4 },
+  tfText: { fontSize: 12, fontWeight: '700', textAlign: 'center' },
   pickScroll: { flexGrow: 0, marginBottom: 10 },
   pickRow: { gap: 8, paddingRight: 8 },
   pickChip: {

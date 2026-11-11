@@ -7,7 +7,7 @@ const {
   sanitize,
   toItem,
 } = require('./models');
-const { getQuotes, getCandles, searchSymbols, isSymbol, getUsdInrOn } = require('./quotes');
+const { getQuotes, getCandles, getIntradayBundle, searchSymbols, isSymbol, getUsdInrOn } = require('./quotes');
 const { searchCoins, getCryptoPrices } = require('./crypto');
 const ai = require('./ai/agent');
 const { mountAuth } = require('./auth');
@@ -322,7 +322,9 @@ function createApp() {
   // Daily price history for the Setup Check. GET /api/candles?symbol=TCS.NS
   app.get('/api/candles', async (req, res) => {
     try {
-      res.json(await getCandles(String(req.query.symbol || '')));
+      // ?interval=5 → 5-minute candles (as a broker's intraday chart); otherwise daily.
+      const symbol = String(req.query.symbol || '');
+      res.json(req.query.interval === '5' ? await getIntradayBundle(symbol, 5) : await getCandles(symbol));
     } catch (error) {
       console.error('[api] GET /api/candles failed', error.message);
       res.status(502).json({ error: 'Price history unavailable' });

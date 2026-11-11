@@ -141,6 +141,35 @@ async function getCandles(symbol) {
   return data;
 }
 
+const intradayBundleCache = new Map();
+
+/**
+ * Intraday candles for a chart-style reading, oldest first, including the
+ * candle still forming (as a broker chart shows it):
+ * { symbol, name, currency, interval, candles: [{ t (ISO), open, high, low,
+ * close, volume }], quote, fetchedAt }. About five days of 5-minute candles.
+ */
+async function getIntradayBundle(symbol, intervalMin = 5) {
+  if (!isSymbol(symbol)) throw new Error('Bad symbol');
+  const key = `${symbol.toUpperCase()}:${intervalMin}`;
+  const cached = intradayBundleCache.get(key);
+  if (cached && Date.now() - cached.at < QUOTE_CACHE_MS) return cached.data;
+  const rows = (await getIntradayCandles(key.split(':')[0], intervalMin)).filter((c) => c.close > 0);
+  if (!rows.length) throw new Error('No price history');
+  const quote = await fetchQuote(key.split(':')[0]).catch(() => null);
+  const data = {
+    symbol: key.split(':')[0],
+    name: quote?.name || null,
+    currency: quote?.currency || null,
+    interval: intervalMin,
+    candles: rows.map((c) => ({ ...c, t: new Date(c.t).toISOString() })),
+    quote: quote ? { price: quote.price, previousClose: quote.previousClose, time: quote.time } : null,
+    fetchedAt: new Date().toISOString(),
+  };
+  intradayBundleCache.set(key, { at: Date.now(), data });
+  return data;
+}
+
 const fxDayCache = new Map();
 
 /**
@@ -224,4 +253,4 @@ async function getIntradayCandles(symbol, intervalMin) {
   }));
 }
 
-module.exports = { getQuotes, getCandles, getIntradayCandles, searchSymbols, isSymbol, getUsdInrOn };
+module.exports = { getQuotes, getCandles, getIntradayCandles, getIntradayBundle, searchSymbols, isSymbol, getUsdInrOn };
