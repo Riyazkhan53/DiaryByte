@@ -550,9 +550,9 @@ export default function Signals({ header, onPaperTrade }) {
                 [
                   'Volume',
                   ev.indicators.volumeRatio != null
-                    ? `${ev.indicators.volumeRatio}× avg`
+                    ? `${ev.indicators.volumeRatio}× ${ev.indicators.volumeBasis === 'sameTime' ? 'usual for this time' : 'avg'}`
                     : ev.indicators.volumeCandles != null
-                      ? `avg after 20 candles (${ev.indicators.volumeCandles})`
+                      ? `waiting for more candles (${ev.indicators.volumeCandles} today)`
                       : null,
                 ],
                 ['From VWAP', ev.indicators.stretchAtr != null ? `${ev.indicators.stretchAtr} × ATR` : null],

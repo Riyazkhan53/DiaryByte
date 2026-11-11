@@ -9,7 +9,7 @@ import { DEFAULT_CONFIG, planTrade } from './risk.js';
 import { istMinutes, istParts } from './time.js';
 
 // Bump when checks, weights or gates change, so past results stay traceable.
-export const RULE_VERSION = 'intraday-v4';
+export const RULE_VERSION = 'intraday-v5';
 
 export const STATES = {
   BUY: 'BUY CANDIDATE',
@@ -216,7 +216,9 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
         note:
           vol.avg == null
             ? `Volume needs ${vol.needed} completed 5-minute candles today before the signal candle (${vol.count} so far)`
-            : `Volume ${round(vol.ratio)}× the same-session 20-candle average (needs 1×)`,
+            : vol.basis === 'sameTime'
+              ? `Volume ${round(vol.ratio)}× this time of day on earlier days (needs 1×)`
+              : `Volume ${round(vol.ratio)}× the same-session 20-candle average (needs 1×)`,
         action:
           vol.avg == null
             ? `Wait for ${vol.needed - vol.count} more completed 5-minute candle${vol.needed - vol.count > 1 ? 's' : ''} today`
@@ -343,6 +345,7 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
       volumeAvg: ind.vol.avg == null ? null : Math.round(ind.vol.avg),
       volumeRatio: round(ind.vol.ratio),
       volumeCandles: ind.vol.count,
+      volumeBasis: ind.vol.basis,
       stretchAtr: round(stretchAtr),
       rangeHigh: round(ind.range?.high),
       rangeLow: round(ind.range?.low),
