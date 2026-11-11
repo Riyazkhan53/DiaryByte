@@ -137,8 +137,9 @@ export function searchStockSymbols(query, market) {
 }
 
 // About six months of daily candles: { symbol, name, currency, candles }.
-export function fetchCandles(symbol) {
-  return request(`/api/candles?symbol=${encodeURIComponent(symbol)}`);
+// With interval 5: about five days of 5-minute candles, including the one still forming.
+export function fetchCandles(symbol, interval) {
+  return request(`/api/candles?symbol=${encodeURIComponent(symbol)}${interval ? `&interval=${interval}` : ''}`);
 }
 
 // ------- account -------

@@ -75,7 +75,7 @@ export function scoreSetup(input, threshold = DEFAULT_THRESHOLD) {
     } else {
       note = `Volume is ${ratio.toFixed(1)}× average, which is normal`;
     }
-    add('volume', 'Volume vs 20-day average', 15, v, note);
+    add('volume', 'Volume vs 20-period average', 15, v, note);
   }
 
   // 6. Intraday value: price vs VWAP
