@@ -300,6 +300,8 @@ const COLLECTIONS = {
       'minNetRR',
       'trailAtR',
       'weakExit',
+      // learn from results: raise the score needed where past trades lost
+      'learnOn',
       // phone alerts via ntfy: topic, master switch and each kind
       'alertTopic',
       'alertsOn',

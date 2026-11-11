@@ -369,7 +369,7 @@ export default function Signals({ header, onPaperTrade }) {
           ) : null}
         </View>
 
-        <EngineReportCard trades={ledger.trades} />
+        <EngineReportCard trades={ledger.trades} learning={ev?.learning} />
         <AlertsCard configDoc={configDoc} saveConfig={saveConfig} />
 
         {/* Watchlist */}
@@ -800,6 +800,7 @@ export default function Signals({ header, onPaperTrade }) {
                 { key: 'scannerOn', label: 'Scan watchlist every 5 minutes' },
                 { key: 'autoPaper', label: 'Paper-trade candidates automatically' },
                 { key: 'weakExit', label: 'Exit when the setup breaks (VWAP + EMA 9/21)' },
+                { key: 'learnOn', label: 'Learn from results (stricter where trades lost)' },
               ].map((s) => (
                 <View key={s.key} style={styles.switchRow}>
                   <Text style={[styles.flex, { color: theme.text }]}>{s.label}</Text>
