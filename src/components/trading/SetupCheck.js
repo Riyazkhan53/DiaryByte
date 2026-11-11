@@ -38,18 +38,18 @@ const SECTIONS = [
     ],
   },
   {
-    title: 'Trend',
+    title: 'Trend (daily chart)',
     fields: [
-      { key: 'ema20', label: 'EMA 20' },
-      { key: 'ema50', label: 'EMA 50' },
+      { key: 'ema20', label: 'EMA 20 (daily)' },
+      { key: 'ema50', label: 'EMA 50 (daily)' },
     ],
   },
   {
-    title: 'Momentum',
+    title: 'Momentum (daily chart)',
     fields: [
-      { key: 'rsi', label: 'RSI (14)' },
-      { key: 'macd', label: 'MACD line' },
-      { key: 'macdSignal', label: 'MACD signal' },
+      { key: 'rsi', label: 'RSI (14, daily)' },
+      { key: 'macd', label: 'MACD line (daily)' },
+      { key: 'macdSignal', label: 'MACD signal (daily)' },
     ],
   },
   {
@@ -285,7 +285,7 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
           `${data.fetchedAt ? ` (fetched ${istTime(data.fetchedAt)} IST)` : ''}.` +
           `${q?.price > 0 ? ` Current price ₹${inputs.price}${q.time ? ` traded at ${istTime(q.time, false)} IST` : ''}.` : ''}` +
           `${q?.previousClose > 0 ? ` Previous close ₹${inputs.prevClose} = the last session's closing price.` : ''}` +
-          ' Check them against your chart before acting.',
+          ' EMA, RSI and MACD here are from the daily chart: compare them with a 1D chart, not a 5-minute one (Signals shows the 5-minute values).',
       });
     } catch (_error) {
       setNotice({
