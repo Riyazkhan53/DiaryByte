@@ -22,8 +22,39 @@ const tries = new Map(); // ip → { count, since }
 
 let dashboardModule;
 let dematModule;
+let ticketsModule;
+let datesModule;
 const dashboard = () => (dashboardModule ||= import('../src/utils/dashboard.js'));
 const demat = () => (dematModule ||= import('../src/utils/demat.js'));
+const ticketsLib = () => (ticketsModule ||= import('../src/utils/tickets.js'));
+const datesLib = () => (datesModule ||= import('../src/utils/importantDates.js'));
+
+const round2 = (n) => Math.round(n * 100) / 100;
+
+// Holdings by category, largest first, as the Investments screen groups them.
+function investmentBreakdown(investments) {
+  const groups = {};
+  investments.forEach((i) => {
+    const key = i.category || 'Other';
+    const g = (groups[key] ||= { category: key, current: 0, invested: 0, holdings: [] });
+    const current = Number(i.current) || 0;
+    const invested = Number(i.invested) || 0;
+    g.current += current;
+    g.invested += invested;
+    g.holdings.push({ name: i.name || i.symbol || key, current: round2(current), invested: round2(invested) });
+  });
+  const categories = Object.values(groups)
+    .map((g) => ({
+      ...g,
+      current: round2(g.current),
+      invested: round2(g.invested),
+      holdings: g.holdings.sort((a, b) => b.current - a.current).slice(0, 25),
+    }))
+    .sort((a, b) => b.current - a.current);
+  const current = round2(categories.reduce((t, g) => t + g.current, 0));
+  const invested = round2(categories.reduce((t, g) => t + g.invested, 0));
+  return { current, invested, gain: round2(current - invested), count: investments.length, categories };
+}
 
 // The owner lives in India: "today" and "this month" are IST dates.
 const istDate = (ms = Date.now()) => new Date(ms + 330 * 60000).toISOString().slice(0, 10);
@@ -112,7 +143,7 @@ async function latestSignals(engineService) {
 async function summary(engineService) {
   const today = istDate();
   const month = today.slice(0, 7);
-  const [D, M] = await Promise.all([dashboard(), demat()]);
+  const [D, M, TK, DT] = await Promise.all([dashboard(), demat(), ticketsLib(), datesLib()]);
   const [investments, debts, expenses, months, autopays, tickets, dates, todos, vouchers, dematDocs] = await Promise.all(
     ['investments', 'debts', 'expenditure', 'months', 'autopays', 'tickets', 'dates', 'todo', 'vouchers', 'demat'].map(load)
   );
@@ -153,6 +184,34 @@ async function summary(engineService) {
       .slice(0, 30)
       .map((t) => ({ id: t.id, title: t.title || '' })),
     signals,
+    investments: investmentBreakdown(investments),
+    tickets: TK.sortTickets(tickets, today)
+      .upcoming.slice(0, 20)
+      .map((t) => ({
+        id: t.id,
+        type: TK.ticketType(t.type).key,
+        title: t.title || '',
+        from: t.from || '',
+        to: t.to || '',
+        venue: t.venue || '',
+        date: t.date,
+        time: t.time || '',
+        seat: t.seat || '',
+        bookingRef: t.bookingRef || '',
+        daysLeft: TK.daysUntil(t, today),
+      })),
+    dates: DT.sortDates(dates, today)
+      .all.filter((d) => Number.isFinite(DT.daysUntil(d, today)) && DT.daysUntil(d, today) >= 0)
+      .slice(0, 30)
+      .map((d) => ({
+        id: d.id,
+        title: d.title || '',
+        recurring: d.section === 'recurring',
+        date: DT.nextOccurrenceKey(d, today),
+        since: d.section === 'recurring' && d.date ? d.date.slice(0, 4) : '',
+        note: d.note || '',
+        daysLeft: DT.daysUntil(d, today),
+      })),
   };
 }
 
@@ -189,6 +248,21 @@ function mountWatch(app, { engineService }) {
     } catch (error) {
       console.error('[watch] summary failed', error);
       res.status(500).json({ error: 'Could not build the summary' });
+    }
+  });
+
+  // Saved passwords, only when the watch opens that screen (never in the
+  // summary, which the watch keeps for its tile).
+  app.get('/api/watch/passwords', async (req, res) => {
+    try {
+      const items = (await load('passwords'))
+        .map((p) => ({ id: p.id, site: p.site || '', username: p.username || '', password: p.password || '' }))
+        .sort((a, b) => a.site.localeCompare(b.site, 'en', { sensitivity: 'base' }));
+      res.set('Cache-Control', 'no-store');
+      res.json({ items });
+    } catch (error) {
+      console.error('[watch] passwords failed', error.message);
+      res.status(500).json({ error: 'Could not load passwords' });
     }
   });
 
