@@ -55,9 +55,10 @@ export default function DashboardScreen() {
   const { items: movies } = useSyncedCollection('movies', '@diarybyte_movies');
   const { items: vouchers } = useSyncedCollection('vouchers', '@diarybyte_vouchers');
   const { items: demat } = useSyncedCollection('demat', '@diarybyte_demat');
+  const { items: spends } = useSyncedCollection('spends', '@diarybyte_spends');
 
   const month = currentMonthKey();
-  const worth = netWorth({ investments, debts, expenses, months, demat }, month);
+  const worth = netWorth({ investments, debts, expenses, months, demat, spends }, month);
   const positive = worth.total >= 0;
   const upcoming = upcomingItems({ autopays, investments, debts, tickets, dates, vouchers }, DAYS_AHEAD, todayKey());
   // Money due out (an expiring voucher's value isn't spending).

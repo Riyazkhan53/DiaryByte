@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { FlatList, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { cardOutstandingSummary, isCardOutstanding } from '../../utils/debts';
+import { cardBalance, cardOutstandingSummary, isCardOutstanding } from '../../utils/debts';
 import { savedCardLabel } from '../../utils/cards';
 import { confirmDelete } from '../../utils/confirm';
 
-// My Debts → Card Outstanding: each credit card's current outstanding and
-// available limit, typed in from the card's app. These outstandings are what
-// count in net worth and total debts (card bills don't).
+// My Debts → Card Outstanding: each credit card's outstanding and available
+// limit. You type them in from the card's app now and then; in between they
+// move by themselves (card spends add, paid card bills take off; see
+// cardBalance in utils/debts). These outstandings are what count in net
+// worth and total debts (card bills don't).
 
 const money = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
 const toNum = (text) => parseFloat(String(text ?? '').replace(/[^\d.]/g, ''));
@@ -32,10 +34,15 @@ function UsedBar({ pct, theme }) {
 }
 
 /** The section's list. `editing` is null (closed), {} (new) or an entry. */
-export function CardOutstandingList({ items, theme, cardStyle, onEdit }) {
-  const cards = items.filter(isCardOutstanding).sort((a, b) => (Number(b.outstanding) || 0) - (Number(a.outstanding) || 0));
-  const sum = cardOutstandingSummary(items);
+export function CardOutstandingList({ items, ctx, theme, cardStyle, onEdit }) {
+  const full = { debts: items, ...ctx };
+  const cards = items
+    .filter(isCardOutstanding)
+    .map((item) => ({ item, bal: cardBalance(item, full) }))
+    .sort((a, b) => b.bal.outstanding - a.bal.outstanding);
+  const sum = cardOutstandingSummary(items, ctx);
   const [now] = useState(() => Date.now());
+  const [openId, setOpenId] = useState(null);
 
   const header = (
     <View>
@@ -61,22 +68,23 @@ export function CardOutstandingList({ items, theme, cardStyle, onEdit }) {
           </>
         ) : null}
         <Text style={[styles.hint, { color: theme.textMuted }]}>
-          Copy each card&apos;s current outstanding and available limit from its app. Net worth and total debts use these
-          outstandings; credit card bills are only reminders and aren&apos;t counted again. Keeping usage under 30% helps
-          your credit score.
+          Enter each card&apos;s outstanding and available limit from its app. After that they update by themselves: card
+          spends (Total Spend, investments, money taken from the card) add to it, and paying the card&apos;s bill in Card
+          Bills takes it off. Tap a card to correct it any time. Net worth and total debts use these; card bills
+          aren&apos;t counted again.
         </Text>
       </View>
       {cards.length ? <Text style={[styles.listTitle, { color: theme.text }]}>My cards</Text> : null}
     </View>
   );
 
-  const renderCard = ({ item }) => {
-    const out = Number(item.outstanding) || 0;
-    const avail = Number(item.available) || 0;
-    const limit = out + avail;
-    const pct = limit > 0 ? Math.round((out / limit) * 100) : 0;
+  const renderCard = ({ item: row }) => {
+    const { item, bal } = row;
+    const pct = bal.usedPct;
+    const moved = bal.charges.length || bal.payments.length;
+    const open = openId === item.id;
     return (
-      <TouchableOpacity style={[styles.card, cardStyle]} activeOpacity={0.8} onPress={() => onEdit(item)} accessibilityLabel={`Edit ${item.name}`}>
+      <TouchableOpacity style={[styles.card, cardStyle]} activeOpacity={0.8} onPress={() => onEdit(item)} accessibilityLabel={`Update ${item.name}`}>
         <View style={styles.cardHead}>
           <View style={[styles.icon, { backgroundColor: '#FF950040' }]}>
             <Ionicons name="card-outline" size={19} color="#455A64" />
@@ -86,20 +94,46 @@ export function CardOutstandingList({ items, theme, cardStyle, onEdit }) {
               {item.name}
               {item.cardLast4 ? ` ··${item.cardLast4}` : ''}
             </Text>
-            <Text style={[styles.small, { color: theme.textMuted }]}>{updatedLabel(item.updatedAt || item.createdAt, now)}</Text>
+            <Text style={[styles.small, { color: theme.textMuted }]}>{updatedLabel(item.balanceAt || item.updatedAt || item.createdAt, now)}</Text>
           </View>
           <View style={styles.right}>
-            <Text style={[styles.cardAmount, { color: out > 0 ? '#E5383B' : theme.text }]}>{money(out)}</Text>
+            <Text style={[styles.cardAmount, { color: bal.outstanding > 0 ? '#E5383B' : theme.text }]}>{money(bal.outstanding)}</Text>
             <Text style={[styles.small, { color: theme.textMuted }]}>outstanding</Text>
           </View>
         </View>
         <UsedBar pct={pct} theme={theme} />
         <View style={styles.cardFoot}>
           <Text style={[styles.small, { color: theme.textSecondary }]}>
-            Available {money(avail)} · Limit {money(limit)}
+            Available {money(bal.available)} · Limit {money(bal.limit)}
           </Text>
           <Text style={[styles.small, styles.bold, { color: usedColor(pct) }]}>{pct}% used</Text>
         </View>
+        {moved ? (
+          <TouchableOpacity onPress={() => setOpenId(open ? null : item.id)} accessibilityLabel={`${open ? 'Hide' : 'Show'} changes since the last update`}>
+            <Text style={[styles.small, styles.moved, { color: theme.textSecondary }]}>
+              Since you updated it:
+              {bal.charged ? <Text style={{ color: '#E5383B' }}>{` +${money(bal.charged)} spent`}</Text> : null}
+              {bal.charged && bal.paid ? ' ·' : ''}
+              {bal.paid ? <Text style={{ color: '#2DA44E' }}>{` −${money(bal.paid)} paid`}</Text> : null}
+              {open ? '  ▴' : '  ▾'}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+        {open
+          ? [...bal.charges.map((c) => ({ ...c, sign: '+' })), ...bal.payments.map((p) => ({ ...p, sign: '−' }))]
+              .sort((a, b) => b.at - a.at)
+              .map((a) => (
+                <View key={a.key} style={styles.actRow}>
+                  <Text style={[styles.small, styles.flex, { color: theme.text }]} numberOfLines={1}>
+                    {a.title}
+                  </Text>
+                  <Text style={[styles.small, styles.bold, { color: a.sign === '+' ? '#E5383B' : '#2DA44E' }]}>
+                    {a.sign}
+                    {money(a.amount)}
+                  </Text>
+                </View>
+              ))
+          : null}
         {item.note ? (
           <Text style={[styles.small, { color: theme.textMuted }]} numberOfLines={2}>
             {item.note}
@@ -112,7 +146,7 @@ export function CardOutstandingList({ items, theme, cardStyle, onEdit }) {
   return (
     <FlatList
       data={cards}
-      keyExtractor={(item) => item.id}
+      keyExtractor={(row) => row.item.id}
       contentContainerStyle={styles.list}
       showsVerticalScrollIndicator={false}
       ListHeaderComponent={header}
@@ -130,14 +164,16 @@ export function CardOutstandingList({ items, theme, cardStyle, onEdit }) {
 }
 
 /** Add / edit sheet. `editing`: {} for a new card, or the entry to edit. */
-export function CardOutstandingForm({ editing, items, persist, creditCards, theme, onClose }) {
+export function CardOutstandingForm({ editing, items, ctx, persist, creditCards, theme, onClose }) {
   const isNew = !editing?.id;
+  // Start from the live figures, so an update only needs the numbers that changed.
+  const live = editing?.id ? cardBalance(editing, { debts: items, ...ctx }) : null;
   const [form, setForm] = useState(() =>
     editing?.id
       ? {
           name: editing.name || '',
-          outstanding: editing.outstanding != null ? String(editing.outstanding) : '',
-          available: editing.available != null ? String(editing.available) : '',
+          outstanding: String(live.outstanding),
+          available: String(live.available),
           note: editing.note || '',
           cardId: editing.cardId || null,
           cardLast4: editing.cardLast4 || '',
@@ -161,6 +197,8 @@ export function CardOutstandingForm({ editing, items, persist, creditCards, them
       cardId: form.cardId || undefined,
       cardLast4: form.cardLast4 || undefined,
       updatedAt: now,
+      // From now on, only charges and payments after this moment move it.
+      balanceAt: now,
     };
     if (isNew) persist([{ id: makeId(), section: 'cardout', createdAt: now, ...fields }, ...items]);
     else persist(items.map((i) => (i.id === editing.id ? { ...i, ...fields } : i)));
@@ -181,6 +219,12 @@ export function CardOutstandingForm({ editing, items, persist, creditCards, them
         <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
           <ScrollView keyboardShouldPersistTaps="handled">
             <Text style={[styles.modalTitle, { color: theme.text }]}>{isNew ? 'Add card outstanding' : 'Update card'}</Text>
+            {!isNew ? (
+              <Text style={[styles.small, { color: theme.textMuted, marginBottom: 10 }]}>
+                These are the live figures. Change them if your card&apos;s app shows something different; saving starts the count
+                again from here.
+              </Text>
+            ) : null}
             <TextInput
               style={input}
               placeholder="Card (e.g. HDFC Millennia)"
@@ -190,7 +234,7 @@ export function CardOutstandingForm({ editing, items, persist, creditCards, them
             />
             {creditCards.length ? (
               <>
-                <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Pick from your cards</Text>
+                <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Pick from your cards (so its spends and bills update it)</Text>
                 <View style={styles.chips}>
                   {creditCards.map((card) => {
                     const on = form.cardId === card.id;
@@ -276,6 +320,8 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 15, fontWeight: '700' },
   right: { alignItems: 'flex-end' },
   cardAmount: { fontSize: 17, fontWeight: '800' },
+  moved: { marginTop: 8, fontWeight: '600' },
+  actRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
   cardFoot: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
   empty: { alignItems: 'center', paddingVertical: 40, gap: 10 },
   emptyText: { fontSize: 14, textAlign: 'center', lineHeight: 20, paddingHorizontal: 20 },
