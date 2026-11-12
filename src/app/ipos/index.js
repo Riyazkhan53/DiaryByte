@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -13,9 +13,33 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Header from '../../components/Header';
 import { useTheme } from '../../hooks/useTheme';
 import { fetchIpoNews, fetchIpoReview, fetchIpos } from '../../services/api';
+
+// Saved on this device (IndexedDB on the web), so the screen opens instantly.
+const LIST_KEY = '@diarybyte_ipos';
+const REVIEWS_KEY = '@diarybyte_ipo_reviews';
+const MAX_SAVED_REVIEWS = 40;
+const readJson = async (key) => {
+  try {
+    return JSON.parse((await AsyncStorage.getItem(key)) || 'null');
+  } catch {
+    return null;
+  }
+};
+const writeJson = (key, value) => AsyncStorage.setItem(key, JSON.stringify(value)).catch(() => {});
+const reviewKey = (name) => String(name || '').trim().toLowerCase();
+
+async function saveReview(name, data) {
+  const all = (await readJson(REVIEWS_KEY)) || {};
+  all[reviewKey(name)] = { ...data, savedAt: new Date().toISOString() };
+  const keep = Object.entries(all)
+    .sort((a, b) => String(b[1].savedAt).localeCompare(String(a[1].savedAt)))
+    .slice(0, MAX_SAVED_REVIEWS);
+  await writeJson(REVIEWS_KEY, Object.fromEntries(keep));
+}
 
 const GREEN = '#2DA44E';
 const RED = '#E5383B';
@@ -212,8 +236,11 @@ function ReviewModal({ target, onClose, theme }) {
       if (!name) return;
       setState((s) => ({ ...s, loading: true, error: null }));
       fetchIpoReview(name, refresh)
-        .then((data) => setState({ loading: false, data, error: null }))
-        .catch((e) => setState((s) => ({ ...s, loading: false, error: errorText(e) })));
+        .then((data) => {
+          setState({ loading: false, data, error: null });
+          saveReview(name, data);
+        })
+        .catch((e) => setState((s) => ({ ...s, loading: false, error: s.data ? `${errorText(e)} Showing the saved review.` : errorText(e) })));
     },
     [name]
   );
@@ -221,6 +248,11 @@ function ReviewModal({ target, onClose, theme }) {
   useEffect(() => {
     if (!name) return undefined;
     let live = true;
+    // A saved review shows at once; the server's (usually cached) copy follows.
+    readJson(REVIEWS_KEY).then((all) => {
+      const saved = all?.[reviewKey(name)];
+      if (live && saved) setState((s) => (s.data ? s : { ...s, data: saved }));
+    });
     const start = setTimeout(() => load(false), 0);
     fetchIpoNews(name)
       .then((r) => live && setNews(r.items || []))
@@ -383,20 +415,54 @@ export default function IposScreen() {
   const [statusFilter, setStatusFilter] = useState('current');
   const [boardFilter, setBoardFilter] = useState('all');
 
+  const again = useRef({ timer: null, tries: 0 });
+  const [retry, setRetry] = useState(0);
+
   const load = useCallback((refresh) => {
     setState((s) => ({ ...s, loading: true, error: null }));
     fetchIpos(refresh)
       .then((data) => {
         setState({ loading: false, data, error: null });
         setNow(Date.now());
+        if (data.ipos?.length) writeJson(LIST_KEY, data);
+        // The server is searching in the background: ask again in a bit.
+        clearTimeout(again.current.timer);
+        if (data.refreshing && again.current.tries < 3) {
+          again.current.tries += 1;
+          again.current.timer = setTimeout(() => setRetry((n) => n + 1), 75000);
+        } else if (!data.refreshing) {
+          again.current.tries = 0;
+        }
       })
-      .catch((e) => setState((s) => ({ ...s, loading: false, error: errorText(e) })));
+      .catch((e) =>
+        setState((s) => ({ ...s, loading: false, error: s.data ? `${errorText(e)} Showing the saved list.` : errorText(e) }))
+      );
   }, []);
 
   useEffect(() => {
+    let live = true;
+    const pending = again.current;
+    // The saved list shows at once, then the server's answer replaces it.
+    readJson(LIST_KEY).then((saved) => {
+      if (live && saved?.ipos) {
+        setState((s) => (s.data ? s : { ...s, data: saved }));
+        setNow(Date.now());
+      }
+    });
+    const t = setTimeout(() => load(false), 0);
+    return () => {
+      live = false;
+      clearTimeout(t);
+      clearTimeout(pending.timer);
+    };
+  }, [load]);
+
+  // Asked again while the server searches in the background.
+  useEffect(() => {
+    if (!retry) return undefined;
     const t = setTimeout(() => load(false), 0);
     return () => clearTimeout(t);
-  }, [load]);
+  }, [retry, load]);
 
   const all = state.data?.ipos || [];
   const onBoard = all.filter((i) => boardFilter === 'all' || i.board === boardFilter);
@@ -437,11 +503,13 @@ export default function IposScreen() {
           <Text style={[styles.tiny, { color: theme.textMuted, flex: 1 }]}>
             {state.loading
               ? state.data
-                ? 'Searching for the latest…'
+                ? `Showing saved IPOs · checking for updates…`
                 : 'Finding IPOs… the first search takes about a minute.'
-              : state.data
-                ? `Updated ${ago(state.data.fetchedAt, now)} · tap an IPO for the AI review`
-                : ''}
+              : state.data?.refreshing
+                ? `Showing saved IPOs (searched ${ago(state.data.fetchedAt, now)}) · looking for new ones in the background…`
+                : state.data
+                  ? `Updated ${ago(state.data.fetchedAt, now)} · tap an IPO for the AI review`
+                  : ''}
           </Text>
           <TouchableOpacity onPress={() => load(true)} disabled={state.loading} accessibilityLabel="Refresh the IPO list">
             {state.loading ? <ActivityIndicator color={GREEN} /> : <Ionicons name="refresh" size={20} color={GREEN} />}
