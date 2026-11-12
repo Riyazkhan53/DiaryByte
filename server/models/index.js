@@ -327,6 +327,11 @@ const COLLECTIONS = {
       'createdAt',
     ],
   },
+  // IPO Watch: every IPO ever found (id = name slug), kept and updated by
+  // each search so nothing disappears between searches.
+  iporecords: {
+    fields: ['id', 'data', 'firstSeenAt', 'updatedAt'],
+  },
   // IPO Watch: cached AI web research (the IPO list and per-IPO reviews).
   ipocache: {
     expireDays: 3,

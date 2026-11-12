@@ -236,25 +236,111 @@ const once = (key, fn) => {
 
 // ---------------- public functions ----------------
 
-/** { ipos, fetchedAt, sources, cached } */
-async function listIpos({ refresh = false } = {}) {
-  const cached = await cacheGet('list').catch(() => null);
-  if (cached && !refresh && Date.now() - Date.parse(cached.fetchedAt) < LIST_TTL_MS) {
-    return { ...cached.data, fetchedAt: cached.fetchedAt, cached: true };
+// ---------------- the stored IPO list ----------------
+
+const KEEP_DAYS = 45; // a listed IPO stays in the list this long after listing
+const DAY = 86400000;
+
+/** Where an IPO stands today, from its dates (falls back to what was reported). */
+function statusOn(ipo, today) {
+  const { openDate: o, closeDate: c, listingDate: l } = ipo;
+  if (l && today >= l) return 'listed';
+  if (c && today > c) return ipo.status === 'listed' ? 'listed' : 'closed';
+  if (o && today >= o) return 'open';
+  if (o && today < o) return 'upcoming';
+  return ipo.status;
+}
+
+/** New values win; a field the new search left empty keeps the old value. */
+function mergeIpo(old, fresh) {
+  if (!old) return fresh;
+  const out = { ...old };
+  Object.entries(fresh).forEach(([k, v]) => {
+    if (v != null) out[k] = v;
+  });
+  if (fresh.subscription && old.subscription) {
+    out.subscription = { ...old.subscription };
+    Object.entries(fresh.subscription).forEach(([k, v]) => v != null && (out.subscription[k] = v));
   }
+  return out;
+}
+
+/** Save every IPO a search found into iporecords (merging into what's there). */
+async function storeIpos(ipos) {
+  const Records = getModel('iporecords');
+  const now = new Date().toISOString();
+  for (const ipo of ipos) {
+    const old = await Records.findOne({ id: ipo.id }).lean().catch(() => null);
+    await Records.updateOne(
+      { id: ipo.id },
+      { $set: { id: ipo.id, data: mergeIpo(old?.data, ipo), updatedAt: now, firstSeenAt: old?.firstSeenAt || now } },
+      { upsert: true }
+    );
+  }
+}
+
+/** The stored IPOs that still matter, with today's status and fresh scores. */
+async function storedIpos() {
+  const score = await scoring();
+  const today = istDate();
+  const cutoff = new Date(Date.now() - KEEP_DAYS * DAY).toISOString().slice(0, 10);
+  const docs = await getModel('iporecords').find({}).lean();
+  return docs
+    .map((d) => {
+      const ipo = { ...d.data, updatedAt: d.updatedAt };
+      ipo.status = statusOn(ipo, today);
+      ipo.score = score.ipoScore(ipo);
+      ipo.gmpPct = score.gmpPct(ipo);
+      ipo.minAmount = ipo.priceHigh && ipo.lotSize ? Math.round(ipo.priceHigh * ipo.lotSize) : null;
+      return ipo;
+    })
+    .filter((i) => {
+      if (i.status === 'listed') return (i.listingDate || i.closeDate || '9999') >= cutoff;
+      // Anything else not seen by a search for a long time is probably stale.
+      return String(i.updatedAt || '').slice(0, 10) >= cutoff;
+    })
+    .sort((a, b) => ORDER[a.status] - ORDER[b.status] || String(a.openDate || '9').localeCompare(String(b.openDate || '9')));
+}
+
+/** Run a new search and store what it found. */
+function searchAndStore() {
   return once('list', async () => {
     const score = await scoring();
     const today = istDate();
     const out = await research(LIST_SYSTEM, `Today is ${today} (India). Find the IPOs and report them.`, LIST_TOOL, 6);
     const seen = new Set();
-    const ipos = (out.input.ipos || [])
-      .map((r) => shapeIpo(r, score))
-      .filter((i) => i.id && !seen.has(i.id) && seen.add(i.id))
-      .sort((a, b) => ORDER[a.status] - ORDER[b.status] || String(a.openDate || '9').localeCompare(String(b.openDate || '9')));
-    const data = { ipos, sources: out.sources, searches: out.searches, model: out.model, today };
-    await cacheSet('list', data).catch((e) => console.error('[ipo] cache write failed', e.message));
-    return { ...data, fetchedAt: new Date().toISOString(), cached: false };
+    const ipos = (out.input.ipos || []).map((r) => shapeIpo(r, score)).filter((i) => i.id && !seen.has(i.id) && seen.add(i.id));
+    await storeIpos(ipos);
+    const meta = { sources: out.sources, searches: out.searches, model: out.model, today, found: ipos.length };
+    await cacheSet('list', meta);
+    return meta;
   });
+}
+
+/**
+ * { ipos, fetchedAt, sources, cached, refreshing }. Saved IPOs come back at
+ * once; when the last search is older than 6 hours a new one starts in the
+ * background (refreshing: true) and the app asks again a little later.
+ * `refresh` waits for a new search. With nothing saved yet, it waits too.
+ */
+async function listIpos({ refresh = false } = {}) {
+  const meta = await cacheGet('list').catch(() => null);
+  const fresh = meta && Date.now() - Date.parse(meta.fetchedAt) < LIST_TTL_MS;
+  let ipos = await storedIpos();
+  if (refresh || !ipos.length) {
+    if (refresh || !fresh) {
+      await searchAndStore();
+      const after = await cacheGet('list').catch(() => null);
+      ipos = await storedIpos();
+      return { ipos, fetchedAt: after?.fetchedAt || new Date().toISOString(), sources: after?.data?.sources || [], cached: false, refreshing: false };
+    }
+  }
+  let refreshing = inflight.has('list');
+  if (!fresh && !refreshing) {
+    refreshing = true;
+    searchAndStore().catch((e) => console.error('[ipo] background search failed', e.message));
+  }
+  return { ipos, fetchedAt: meta?.fetchedAt || null, sources: meta?.data?.sources || [], cached: true, refreshing };
 }
 
 /** { review, fetchedAt, cached } for one IPO by name. */
@@ -285,6 +371,12 @@ async function reviewIpo(name, { refresh = false } = {}) {
       valuation: s(r.valuation),
     };
     const data = { review, sources: out.sources, searches: out.searches, model: out.model };
+    // The review's numbers are the freshest for this IPO: keep them in the list too.
+    // (Only for IPOs already in the list, or ones with dates: a lookup of
+    // something that isn't a current IPO shouldn't land in the list.)
+    const facts = shapeIpo(r, score);
+    const known = await getModel('iporecords').findOne({ id: facts.id }).lean().catch(() => null);
+    if (known || facts.openDate) await storeIpos([facts]).catch((e) => console.error('[ipo] store failed', e.message));
     await cacheSet(key, data).catch((e) => console.error('[ipo] cache write failed', e.message));
     return { ...data, fetchedAt: new Date().toISOString(), cached: false };
   });
@@ -337,4 +429,4 @@ async function ipoNews(name) {
   return items;
 }
 
-module.exports = { listIpos, reviewIpo, ipoNews, configured: () => !!process.env.ANTHROPIC_API_KEY, _test: { parseRss, slug, shapeIpo } };
+module.exports = { listIpos, reviewIpo, ipoNews, configured: () => !!process.env.ANTHROPIC_API_KEY, _test: { parseRss, slug, shapeIpo, statusOn, mergeIpo } };
