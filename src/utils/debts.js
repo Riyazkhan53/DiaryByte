@@ -1,12 +1,16 @@
 // Debts maths: EMI schedules, bills and their link to expenditure.
 //
-// A debt lives in one of three sections:
+// A debt lives in one of four sections:
 //   'emi'  — loans. With a loan amount, rate, tenure and first EMI month the
 //            whole repayment schedule is generated, and the outstanding
 //            principal is worked out from the EMIs marked paid. Loans with no
 //            schedule (e.g. money borrowed from a friend) are "manual": the
 //            remaining amount is entered by hand.
-//   'card' — credit card bills, added by hand each month.
+//   'card' — credit card bills, added by hand each month (reminders and
+//            expenses only; they don't count towards what you owe).
+//   'cardout' — each credit card's current outstanding and available limit,
+//            updated by hand from the card's app. This is what counts in
+//            net worth and total debts.
 //   'bill' — other bills (electricity, rent, mobile...). Either one-off, or
 //            monthly (`recurring`): due on `dueDay` every month from
 //            `startMonth` (until `endMonth`, if set), paid month by month
@@ -89,6 +93,21 @@ export function calcTenure(principal, annualRate, emi) {
 // Section of an item. Older debts have no section: credit-card-type ones
 // were really loans too, so everything old is treated as a loan.
 export const sectionOf = (item) => item.section || 'emi';
+
+/** A card's "outstanding / available limit" entry (section 'cardout'). */
+export const isCardOutstanding = (item) => sectionOf(item) === 'cardout';
+
+/**
+ * Totals over the cards' outstanding entries: { outstanding, available,
+ * limit, usedPct, count }. limit = outstanding + available.
+ */
+export function cardOutstandingSummary(debts) {
+  const cards = debts.filter(isCardOutstanding);
+  const outstanding = round2(cards.reduce((s, c) => s + (Number(c.outstanding) || 0), 0));
+  const available = round2(cards.reduce((s, c) => s + (Number(c.available) || 0), 0));
+  const limit = round2(outstanding + available);
+  return { outstanding, available, limit, usedPct: limit > 0 ? Math.round((outstanding / limit) * 100) : 0, count: cards.length };
+}
 
 // A short loan repaid in one go about a month later (pay-later, salary
 // advance, money borrowed till next month): a one-time bill in Other Bills
@@ -272,6 +291,7 @@ export function duesForMonth(debts, month) {
   const dues = [];
   debts.forEach((item) => {
     const section = sectionOf(item);
+    if (section === 'cardout') return; // a balance, not a payment due
     if (section === 'emi') {
       const row = buildSchedule(item).find((r) => r.month === month);
       if (!row) return;
@@ -394,6 +414,7 @@ export function upcomingDues(debts, today = dateKeyOf(new Date()), emisPerLoan =
   const dues = [];
   debts.forEach((item) => {
     const section = sectionOf(item);
+    if (section === 'cardout') return;
     if (section === 'emi') {
       const paid = new Set(item.paidMonths || []);
       buildSchedule(item)

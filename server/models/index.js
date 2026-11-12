@@ -186,7 +186,9 @@ const COLLECTIONS = {
       'updatedAt',
       'createdAt',
       // section: 'emi' (loans) | 'card' (credit card bills) | 'bill' (other bills)
+      // | 'cardout' (a card's current outstanding + available limit)
       'section',
+      'available',
       // EMI schedule
       'manual',
       'tenure',
