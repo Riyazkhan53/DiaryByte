@@ -152,6 +152,11 @@ export default function DebtsScreen() {
   const { items: expenses, persist: persistExpenses } = useSyncedCollection('expenditure', EXPENSES_KEY);
   const { items: savedCards } = useSyncedCollection('cards', CARDS_KEY);
   const creditCards = savedCards.filter((c) => c.cardType === 'Credit');
+  // For each card's live outstanding: charges made on it since its last update.
+  const { items: spends } = useSyncedCollection('spends', '@diarybyte_spends');
+  const { items: investmentsList } = useSyncedCollection('investments', '@diarybyte_investments');
+  const { items: monthDocs } = useSyncedCollection('months', '@diarybyte_months');
+  const cardCtx = { spends, investments: investmentsList, months: monthDocs };
   const thisMonth = currentMonthKey();
   const today = todayKey();
 
@@ -524,7 +529,7 @@ export default function DebtsScreen() {
 
   const loanSummaries = Object.fromEntries(loans.map((l) => [l.id, loanSummary(l)]));
   const loansOutstanding = loans.reduce((s, l) => s + loanSummaries[l.id].outstanding, 0);
-  const cardsOutstanding = cardOutstandingSummary(items).outstanding;
+  const cardsOutstanding = cardOutstandingSummary(items, cardCtx).outstanding;
   // What's owed: loans plus each card's current outstanding (card bills aren't added again).
   const totalOutstanding = loansOutstanding + cardsOutstanding;
   const totalPrincipal = loans.reduce((s, l) => s + (Number(l.principal) || 0), 0);
@@ -990,7 +995,7 @@ export default function DebtsScreen() {
             }
           />
         ) : section === 'cardout' ? (
-          <CardOutstandingList items={items} theme={theme} cardStyle={cardStyle} onEdit={setCardOutEdit} />
+          <CardOutstandingList items={items} ctx={cardCtx} theme={theme} cardStyle={cardStyle} onEdit={setCardOutEdit} />
         ) : (
           <FlatList
             data={pendingBills}
@@ -1433,6 +1438,7 @@ export default function DebtsScreen() {
           key={cardOutEdit.id || 'new'}
           editing={cardOutEdit}
           items={items}
+          ctx={cardCtx}
           persist={persist}
           creditCards={creditCards}
           theme={theme}

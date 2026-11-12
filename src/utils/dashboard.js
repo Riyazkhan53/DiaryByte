@@ -2,7 +2,7 @@
 // Pure functions over the synced collections, so they're easy to test.
 
 import { addDays, daysBetween, occurrencesFrom, todayKey } from './autopay.js';
-import { addMonths, isRecurringBill, loanSummary, monthKeyOf, sectionOf, upcomingDues } from './debts.js';
+import { addMonths, cardBalance, isRecurringBill, loanSummary, monthKeyOf, sectionOf, upcomingDues } from './debts.js';
 import { hasSip, sipAmountFor, sipDueDate, upcomingSipMonths } from './sip.js';
 import { daysUntil as ticketDaysUntil, sortTickets, ticketType } from './tickets.js';
 import { daysUntil as dateDaysUntil, nextOccurrenceKey, sortDates } from './importantDates.js';
@@ -17,18 +17,20 @@ export const investmentsValue = (investments) =>
 
 /**
  * What you still owe: each loan's outstanding principal, each credit card's
- * current outstanding (from My Debts → Card Outstanding), and unpaid one-off
+ * live outstanding (My Debts → Card Outstanding: last update + card charges
+ * − bill payments since), and unpaid one-off
  * other bills. Credit card bills aren't counted (the card's outstanding
  * already includes them), and monthly bills (rent, etc.) aren't debt.
  */
-export function debtsOutstanding(debts) {
+export function debtsOutstanding(debts, ctx = {}) {
+  const full = { debts, ...ctx };
   let loans = 0;
   let cards = 0;
   let bills = 0;
   debts.forEach((item) => {
     const section = sectionOf(item);
     if (section === 'emi') loans += loanSummary(item).outstanding;
-    else if (section === 'cardout') cards += Number(item.outstanding) || 0;
+    else if (section === 'cardout') cards += cardBalance(item, full).outstanding;
     else if (section === 'bill' && !isRecurringBill(item) && !item.paid) bills += Number(item.amount) || 0;
   });
   return { loans: round2(loans), cards: round2(cards), bills: round2(bills), total: round2(loans + cards + bills) };
@@ -64,9 +66,9 @@ export function monthBalance(expenses, months, month) {
 }
 
 /** Net worth = investments + demat balances + this month's balance − debts. */
-export function netWorth({ investments, debts, expenses, months, demat = [] }, month) {
+export function netWorth({ investments, debts, expenses, months, demat = [], spends = [] }, month) {
   const invested = investmentsValue(investments);
-  const owed = debtsOutstanding(debts);
+  const owed = debtsOutstanding(debts, { spends, investments, months });
   const cash = monthBalance(expenses, months, month);
   const trading = dematSummary(demat).total;
   return { investments: invested, demat: trading, debts: owed, cash, total: round2(invested + trading + cash.balance - owed.total) };
@@ -102,8 +104,9 @@ export function upcomingItems(
     });
   });
 
+  // Credit card bills aren't listed: the card's outstanding covers them.
   upcomingDues(debts, today, 1)
-    .filter((due) => within(due.dueDate))
+    .filter((due) => due.kind !== 'card' && within(due.dueDate))
     .forEach((due) =>
       out.push({
         key: due.key,

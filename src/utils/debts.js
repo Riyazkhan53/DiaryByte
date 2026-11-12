@@ -97,15 +97,95 @@ export const sectionOf = (item) => item.section || 'emi';
 /** A card's "outstanding / available limit" entry (section 'cardout'). */
 export const isCardOutstanding = (item) => sectionOf(item) === 'cardout';
 
+// ------- live credit card outstanding -------
+//
+// A card's entry holds what you last typed in from the card's app
+// (`outstanding`, `available`) and when (`balanceAt`). From then on it moves
+// by itself: every charge on that card recorded after that time (Total Spend
+// paid by card, an investment bought on the card, money taken from the card
+// in My Income) adds to the outstanding, and every bill of that card marked
+// paid after that time takes it off. Worked out fresh each time, so editing,
+// deleting or un-ticking any of them corrects it. A manual update resets it.
+
+const norm = (s) => String(s || '').trim().toLowerCase();
+const sumAmounts = (list) => round2(list.reduce((t, x) => t + x.amount, 0));
+// When something was recorded: createdAt, or the timestamp its id starts with.
+const stampOf = (x) => {
+  const t = Date.parse(x?.createdAt || '');
+  if (Number.isFinite(t)) return t;
+  const m = /^(\d{13})/.exec(String(x?.id || ''));
+  return m ? Number(m[1]) : 0;
+};
+// Same card: by the saved card's id, or by name for a card typed in by hand.
+const onCard = (entry, cardId, label) => (entry.cardId ? cardId === entry.cardId : !cardId && !!label && norm(label) === norm(entry.name));
+
+/** When the card's figures were last typed in (ms). */
+export const cardBalanceAt = (entry) => Date.parse(entry.balanceAt || entry.updatedAt || entry.createdAt || '') || 0;
+
 /**
- * Totals over the cards' outstanding entries: { outstanding, available,
- * limit, usedPct, count }. limit = outstanding + available.
+ * Charges and bill payments on this card since its last manual update:
+ * { charges: [{ key, title, amount, at, kind }], payments: [...] }.
+ * `ctx`: { debts, spends, investments, months } (any may be missing).
  */
-export function cardOutstandingSummary(debts) {
-  const cards = debts.filter(isCardOutstanding);
-  const outstanding = round2(cards.reduce((s, c) => s + (Number(c.outstanding) || 0), 0));
-  const available = round2(cards.reduce((s, c) => s + (Number(c.available) || 0), 0));
-  const limit = round2(outstanding + available);
+export function cardActivity(entry, { debts = [], spends = [], investments = [], months = [] } = {}) {
+  const since = cardBalanceAt(entry);
+  const charges = [];
+  const payments = [];
+  spends.forEach((sp) => {
+    if (sp.source === 'card' && onCard(entry, sp.cardId, sp.cardLabel) && stampOf(sp) > since) {
+      charges.push({ key: `spend:${sp.id}`, title: sp.title || 'Spend', amount: Number(sp.amount) || 0, at: stampOf(sp), kind: 'spend' });
+    }
+  });
+  investments.forEach((inv) =>
+    (inv.payments || []).forEach((p) => {
+      if (p.via === 'card' && onCard(entry, p.cardId, p.cardLabel) && stampOf(p) > since) {
+        charges.push({ key: `invest:${p.id}`, title: `${inv.name || 'Investment'} (investment)`, amount: Number(p.amount) || 0, at: stampOf(p), kind: 'invest' });
+      }
+    })
+  );
+  months.forEach((m) =>
+    (m.incomes || []).forEach((inc) => {
+      if (inc.cardId && onCard(entry, inc.cardId, inc.cardLabel) && stampOf(inc) > since) {
+        charges.push({ key: `income:${inc.id}`, title: inc.note || 'Money taken from the card', amount: Number(inc.amount) || 0, at: stampOf(inc), kind: 'cash' });
+      }
+    })
+  );
+  debts.forEach((b) => {
+    const paidAt = Date.parse(b.paidAt || '') || 0;
+    if (sectionOf(b) === 'card' && b.paid && onCard(entry, b.cardId, b.name) && paidAt > since) {
+      payments.push({ key: `bill:${b.id}`, title: `${b.name} bill paid`, amount: Number(b.amount) || 0, at: paidAt, kind: 'bill' });
+    }
+  });
+  const newest = (a, b) => b.at - a.at;
+  return { charges: charges.sort(newest), payments: payments.sort(newest) };
+}
+
+/**
+ * A card's figures right now: { outstanding, available, limit, usedPct,
+ * charged, paid, charges, payments }. The limit stays what it was at the
+ * last update (outstanding + available then).
+ */
+export function cardBalance(entry, ctx = {}) {
+  const baseOut = Number(entry.outstanding) || 0;
+  const limit = round2(baseOut + (Number(entry.available) || 0));
+  const { charges, payments } = cardActivity(entry, ctx);
+  const charged = sumAmounts(charges);
+  const paid = sumAmounts(payments);
+  const outstanding = round2(Math.max(0, baseOut + charged - paid));
+  const available = round2(Math.max(0, limit - outstanding));
+  return { outstanding, available, limit, usedPct: limit > 0 ? Math.round((outstanding / limit) * 100) : 0, charged, paid, charges, payments };
+}
+
+/**
+ * Totals over the cards: { outstanding, available, limit, usedPct, count }.
+ * `ctx` as for cardActivity; `debts` alone already counts bill payments.
+ */
+export function cardOutstandingSummary(debts, ctx = {}) {
+  const full = { debts, ...ctx };
+  const cards = debts.filter(isCardOutstanding).map((c) => cardBalance(c, full));
+  const outstanding = round2(cards.reduce((t, c) => t + c.outstanding, 0));
+  const available = round2(cards.reduce((t, c) => t + c.available, 0));
+  const limit = round2(cards.reduce((t, c) => t + c.limit, 0));
   return { outstanding, available, limit, usedPct: limit > 0 ? Math.round((outstanding / limit) * 100) : 0, count: cards.length };
 }
 
