@@ -12,6 +12,7 @@ const {
 const { getQuotes, getCandles, getIntradayBundle, searchSymbols, isSymbol, getUsdInrOn } = require('./quotes');
 const { searchCoins, getCryptoPrices } = require('./crypto');
 const ai = require('./ai/agent');
+const ipo = require('./ai/ipo');
 const { mountAuth, issueToken } = require('./auth');
 const { mountWatch, mountWatchPublic } = require('./watch');
 const AnthropicSdk = require('@anthropic-ai/sdk');
@@ -70,6 +71,29 @@ async function estimatedMetal(metal) {
   return { buy: Math.round(sell * (1 + METAL_GST) * 100) / 100, sell, gst: METAL_GST * 100, source: 'estimate' };
 }
 const GOLD_CACHE_MS = 5 * 60 * 1000;
+
+/** Send a friendly error for a failed Claude call. */
+function aiError(res, error, label) {
+  const A = AnthropicSdk.default || AnthropicSdk;
+  let status = error.status || 502;
+  let message = error.message;
+  if (error instanceof A.AuthenticationError || error instanceof A.PermissionDeniedError) {
+    status = 503;
+    message = 'The Anthropic API key on the server was rejected. Check ANTHROPIC_API_KEY in Render.';
+  } else if (error instanceof A.RateLimitError) {
+    status = 429;
+    message = 'The AI is busy (rate limit). Try again in a minute.';
+  } else if (error instanceof A.BadRequestError && /credit|billing|balance/i.test(error.message)) {
+    status = 402;
+    message = 'Your Anthropic account is out of credit. Add credit at console.anthropic.com.';
+  } else if (error instanceof A.APIError) {
+    console.error(`[ai] ${label} failed`, error.status, error.message);
+    message = 'The AI service had a problem. Try again shortly.';
+  } else if (status >= 500 && !error.code) {
+    console.error(`[ai] ${label} failed`, error.message);
+  }
+  res.status(status).json({ error: message, code: error.code });
+}
 
 function createApp() {
   const express = require('express');
@@ -193,23 +217,34 @@ function createApp() {
       const out = await ai.ask(kind, req.body?.question, req.body?.history);
       res.json({ reply: out.reply, tools: out.tools, model: out.model });
     } catch (error) {
-      const A = AnthropicSdk.default || AnthropicSdk;
-      let status = error.status || 502;
-      let message = error.message;
-      if (error instanceof A.AuthenticationError || error instanceof A.PermissionDeniedError) {
-        status = 503;
-        message = 'The Anthropic API key on the server was rejected. Check ANTHROPIC_API_KEY in Render.';
-      } else if (error instanceof A.RateLimitError) {
-        status = 429;
-        message = 'The AI is busy (rate limit). Try again in a minute.';
-      } else if (error instanceof A.BadRequestError && /credit|billing|balance/i.test(error.message)) {
-        status = 402;
-        message = 'Your Anthropic account is out of credit. Add credit at console.anthropic.com.';
-      } else if (error instanceof A.APIError) {
-        console.error(`[ai] ${kind} failed`, error.status, error.message);
-        message = 'The AI service had a problem. Try again shortly.';
-      }
-      res.status(status).json({ error: message, code: error.code });
+      aiError(res, error, kind);
+    }
+  });
+
+  // IPO Watch (AI web research + free news headlines). Before /api/:collection.
+  // GET /api/ipos?refresh=1 → { ipos, fetchedAt, sources, cached }
+  app.get('/api/ipos', async (req, res) => {
+    try {
+      res.json(await ipo.listIpos({ refresh: req.query.refresh === '1' }));
+    } catch (error) {
+      aiError(res, error, 'ipo list');
+    }
+  });
+  // GET /api/ipos/review?name=…&refresh=1 → { review, sources, fetchedAt, cached }
+  app.get('/api/ipos/review', async (req, res) => {
+    try {
+      res.json(await ipo.reviewIpo(req.query.name, { refresh: req.query.refresh === '1' }));
+    } catch (error) {
+      aiError(res, error, 'ipo review');
+    }
+  });
+  // GET /api/ipos/news?name=… → { items: [{ title, url, source, publishedAt }] }
+  app.get('/api/ipos/news', async (req, res) => {
+    try {
+      res.json({ items: await ipo.ipoNews(req.query.name) });
+    } catch (error) {
+      console.error('[ipo] news failed', error.message);
+      res.status(502).json({ error: 'News is unavailable right now.' });
     }
   });
 

@@ -227,3 +227,20 @@ export function createWatchPairCode() {
 
 /** The server address the app talks to (the watch needs the same one). */
 export const serverAddress = () => API_URL;
+
+// ------- IPO Watch (AI web research on the server) -------
+
+/** { ipos, fetchedAt, sources, cached }. `refresh` runs a new search (costs AI credit). */
+export function fetchIpos(refresh = false) {
+  return request(`/api/ipos${refresh ? '?refresh=1' : ''}`);
+}
+
+/** AI review of one IPO by name: { review, sources, fetchedAt, cached }. */
+export function fetchIpoReview(name, refresh = false) {
+  return request(`/api/ipos/review?name=${encodeURIComponent(name)}${refresh ? '&refresh=1' : ''}`);
+}
+
+/** Latest news headlines about an IPO: { items: [{ title, url, source, publishedAt }] }. */
+export function fetchIpoNews(name) {
+  return request(`/api/ipos/news?name=${encodeURIComponent(name)}`);
+}

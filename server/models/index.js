@@ -327,6 +327,11 @@ const COLLECTIONS = {
       'createdAt',
     ],
   },
+  // IPO Watch: cached AI web research (the IPO list and per-IPO reviews).
+  ipocache: {
+    expireDays: 3,
+    fields: ['id', 'data', 'fetchedAt'],
+  },
   enginetrades: {
     fields: [
       'id', 'symbol', 'side', 'signalKey', 'signalTime', 'plan', 'score', 'ruleVersion', 'provider', 'indicators',
