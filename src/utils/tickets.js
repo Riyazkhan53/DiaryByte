@@ -1,5 +1,5 @@
 // Ticket helpers. Ticket dates are local 'YYYY-MM-DD' keys, like autopays.
-import { daysBetween, todayKey } from './autopay';
+import { daysBetween, todayKey } from './autopay.js';
 
 export const TICKETS_STORAGE_KEY = '@diarybyte_tickets';
 

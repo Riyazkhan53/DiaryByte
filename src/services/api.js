@@ -219,3 +219,11 @@ export function restoreFromTrash(collection, trashIds) {
     body: JSON.stringify({ trashIds }),
   });
 }
+
+/** A one-time 6-digit code to pair a Wear OS watch: { code, expiresAt }. */
+export function createWatchPairCode() {
+  return request('/api/watch/pair', { method: 'POST' });
+}
+
+/** The server address the app talks to (the watch needs the same one). */
+export const serverAddress = () => API_URL;

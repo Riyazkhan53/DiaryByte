@@ -9,7 +9,7 @@
 // the holding is valued that way), and is recorded in My Expenditure as an
 // "Investment" expense linked back with `sourceId: 'sip:<id>:<month>'`.
 
-import { addMonths, dueDateFor } from './debts';
+import { addMonths, dueDateFor } from './debts.js';
 
 export const SIP_CATEGORIES = ['Mutual Funds', 'Digital Gold', 'Digital Silver', 'Digital Platinum', 'Stocks', 'Crypto'];
 

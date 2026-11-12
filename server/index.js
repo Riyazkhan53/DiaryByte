@@ -1,3 +1,5 @@
+// Dates such as "today" and "this month" are the owner's (India).
+process.env.TZ = process.env.TZ || 'Asia/Kolkata';
 const mongoose = require('mongoose');
 const {
   TRASH_DAYS,
@@ -10,7 +12,8 @@ const {
 const { getQuotes, getCandles, getIntradayBundle, searchSymbols, isSymbol, getUsdInrOn } = require('./quotes');
 const { searchCoins, getCryptoPrices } = require('./crypto');
 const ai = require('./ai/agent');
-const { mountAuth } = require('./auth');
+const { mountAuth, issueToken } = require('./auth');
+const { mountWatch, mountWatchPublic } = require('./watch');
 const AnthropicSdk = require('@anthropic-ai/sdk');
 const engineService = require('./engine/service');
 const { kiteConfigured, kiteCreateSession, kiteLoginUrl } = require('./engine/providers');
@@ -101,6 +104,10 @@ function createApp() {
     res.json({ ok: true, db: mongoose.connection.readyState === 1 ? 'up' : 'down' });
   });
 
+  // Watch pairing answers before the API-key check: the watch gets the key here.
+  app.set('trust proxy', 1); // Render sits behind a proxy; needed for per-IP limits
+  mountWatchPublic(app, { issueToken });
+
   // Simple shared-secret auth for this personal app
   const apiKey = process.env.API_KEY;
   if (apiKey) {
@@ -115,8 +122,8 @@ function createApp() {
   }
 
   // Owner sign-in: /api/auth/*, and a token check on every private route.
-  app.set('trust proxy', 1); // Render sits behind a proxy; needed for per-IP login limits
   mountAuth(app);
+  mountWatch(app, { engineService });
 
   // Live digital gold, silver and platinum rates (₹/gram) from OroPocket's public feed, cached for
   // a few minutes to stay well inside its 10-requests-a-minute limit. Must be

@@ -1,4 +1,4 @@
-import { todayKey } from './autopay';
+import { todayKey } from './autopay.js';
 
 export const DATES_STORAGE_KEY = '@diarybyte_dates';
 

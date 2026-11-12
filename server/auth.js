@@ -170,4 +170,10 @@ function mountAuth(app) {
   });
 }
 
-module.exports = { mountAuth, isPublicPath };
+/** A fresh sign-in token for the owner (watch pairing), or null before an account exists. */
+async function issueToken() {
+  const user = await getOwner();
+  return user ? { username: user.username, token: signToken(user) } : null;
+}
+
+module.exports = { mountAuth, isPublicPath, issueToken };
