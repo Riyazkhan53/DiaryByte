@@ -16,17 +16,22 @@ export const investmentsValue = (investments) =>
   round2(investments.reduce((sum, i) => sum + (Number(i.current) || 0), 0));
 
 /**
- * What you still owe: each loan's outstanding principal, plus unpaid one-off
- * credit card and other bills. Monthly bills (rent, etc.) aren't debt.
+ * What you still owe: each loan's outstanding principal, each credit card's
+ * current outstanding (from My Debts → Card Outstanding), and unpaid one-off
+ * other bills. Credit card bills aren't counted (the card's outstanding
+ * already includes them), and monthly bills (rent, etc.) aren't debt.
  */
 export function debtsOutstanding(debts) {
   let loans = 0;
+  let cards = 0;
   let bills = 0;
   debts.forEach((item) => {
-    if (sectionOf(item) === 'emi') loans += loanSummary(item).outstanding;
-    else if (!isRecurringBill(item) && !item.paid) bills += Number(item.amount) || 0;
+    const section = sectionOf(item);
+    if (section === 'emi') loans += loanSummary(item).outstanding;
+    else if (section === 'cardout') cards += Number(item.outstanding) || 0;
+    else if (section === 'bill' && !isRecurringBill(item) && !item.paid) bills += Number(item.amount) || 0;
   });
-  return { loans: round2(loans), bills: round2(bills), total: round2(loans + bills) };
+  return { loans: round2(loans), cards: round2(cards), bills: round2(bills), total: round2(loans + cards + bills) };
 }
 
 const expenseMonth = (item) => item.month || monthKeyOf(new Date(item.date || item.createdAt));

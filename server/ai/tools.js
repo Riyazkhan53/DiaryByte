@@ -278,12 +278,17 @@ async function finances() {
   const spent = sum(expenses.filter((e) => (e.month || (e.date || e.createdAt || '').slice(0, 7)) === month));
   const loans = debts.filter((d) => (d.section || 'emi') === 'emi');
   const cards = debts.filter((d) => d.section === 'card' && !d.paid);
+  const cardOutstanding = debts
+    .filter((d) => d.section === 'cardout')
+    .map((d) => ({ card: d.name, outstanding: Number(d.outstanding) || 0, availableLimit: Number(d.available) || 0 }));
   return {
     month,
     incomeThisMonth: r2(sum(doc?.incomes || [])),
     spentThisMonth: r2(spent),
     loans: loans.map((l) => ({ name: l.name, principal: l.principal, outstanding: l.outstanding, ratePct: l.rate ?? l.interestRate, emi: l.emi })),
     unpaidCardBills: r2(sum(cards)),
+    // What's owed on each credit card right now (counts in net worth; card bills don't).
+    creditCardOutstanding: cardOutstanding,
   };
 }
 
@@ -330,7 +335,7 @@ const investTools = [
   },
   {
     name: 'my_finances',
-    description: "This month's income and spending, loans (outstanding, EMI) and unpaid credit card bills — for advice that depends on cash flow or debt (e.g. pay off a loan vs invest more).",
+    description: "This month's income and spending, loans (outstanding, EMI), credit card outstanding and available limits, and unpaid credit card bills — for advice that depends on cash flow or debt (e.g. pay off a loan vs invest more).",
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
     run: finances,
   },

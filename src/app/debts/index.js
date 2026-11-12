@@ -20,6 +20,7 @@ import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 import { confirmDelete } from '../../utils/confirm';
 import { todayKey } from '../../utils/autopay';
 import { savedCardLabel } from '../../utils/cards';
+import { CardOutstandingForm, CardOutstandingList } from '../../components/debts/CardOutstanding';
 import { investShare, spendShare } from '../../utils/spends';
 import {
   requestWebNotificationPermission,
@@ -42,6 +43,7 @@ import {
   ONE_MONTH_LOAN,
   oneMonthAfter,
   recurringBillDues,
+  cardOutstandingSummary,
   sectionOf,
   shortDate,
 } from '../../utils/debts';
@@ -52,7 +54,8 @@ const CARDS_KEY = '@diarybyte_cards';
 
 const SECTIONS = [
   { key: 'emi', label: 'My EMIs', icon: 'calendar-outline' },
-  { key: 'card', label: 'Credit Cards', icon: 'card-outline' },
+  { key: 'card', label: 'Card Bills', icon: 'card-outline' },
+  { key: 'cardout', label: 'Card Outstanding', icon: 'wallet-outline' },
   { key: 'bill', label: 'Other Bills', icon: 'receipt-outline' },
 ];
 
@@ -187,6 +190,9 @@ export default function DebtsScreen() {
   const [scheduleId, setScheduleId] = useState(null);
   const [manualId, setManualId] = useState(null);
   const [manualOutstanding, setManualOutstanding] = useState('');
+
+  // Card outstanding sheet: null (closed), {} (new) or the entry being edited.
+  const [cardOutEdit, setCardOutEdit] = useState(null);
 
   const [showPaid, setShowPaid] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -517,7 +523,10 @@ export default function DebtsScreen() {
   // ------- summaries -------
 
   const loanSummaries = Object.fromEntries(loans.map((l) => [l.id, loanSummary(l)]));
-  const totalOutstanding = loans.reduce((s, l) => s + loanSummaries[l.id].outstanding, 0);
+  const loansOutstanding = loans.reduce((s, l) => s + loanSummaries[l.id].outstanding, 0);
+  const cardsOutstanding = cardOutstandingSummary(items).outstanding;
+  // What's owed: loans plus each card's current outstanding (card bills aren't added again).
+  const totalOutstanding = loansOutstanding + cardsOutstanding;
   const totalPrincipal = loans.reduce((s, l) => s + (Number(l.principal) || 0), 0);
   // Completed: every scheduled EMI paid, or (no schedule) nothing left to repay.
   const isCompleted = (l) => {
@@ -537,7 +546,7 @@ export default function DebtsScreen() {
     })
     .sort((a, b) => a.row.dueDate.localeCompare(b.row.dueDate));
   const pendingEmiTotal = pendingEmis.reduce((s, x) => s + x.row.payment, 0);
-  const totalPaidOff = Math.max(0, totalPrincipal - totalOutstanding);
+  const totalPaidOff = Math.max(0, totalPrincipal - loansOutstanding);
   const paidPct = totalPrincipal > 0 ? Math.min((totalPaidOff / totalPrincipal) * 100, 100) : 0;
   const monthEmiRows = loans
     .map((l) => ({ loan: l, row: loanSummaries[l.id].rows.find((r) => r.month === thisMonth) }))
@@ -783,7 +792,7 @@ export default function DebtsScreen() {
               setShowPaid(false);
             }}
           >
-            <Text style={[styles.tabText, { color: selected ? theme.text : theme.textSecondary }]} numberOfLines={1}>
+            <Text style={[styles.tabText, { color: selected ? theme.text : theme.textSecondary }]} numberOfLines={2}>
               {s.label}
               {counts[s.key] ? ` (${counts[s.key]})` : ''}
             </Text>
@@ -800,6 +809,11 @@ export default function DebtsScreen() {
           <View style={styles.summaryCol}>
             <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>Total outstanding</Text>
             <Text style={[styles.summaryValue, { color: '#E5383B' }]}>{money(totalOutstanding)}</Text>
+            {cardsOutstanding > 0 ? (
+              <Text style={[styles.summarySub, { color: theme.textMuted }]}>
+                Loans {money(loansOutstanding)} · Cards {money(cardsOutstanding)}
+              </Text>
+            ) : null}
           </View>
           <View style={styles.summaryCol}>
             <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>EMIs in {monthLabel(thisMonth)}</Text>
@@ -938,7 +952,7 @@ export default function DebtsScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
-      <Header title="My Debts" subtitle="EMIs, credit card bills and other bills" />
+      <Header title="My Debts" subtitle="EMIs, credit cards and other bills" />
 
       <View style={styles.content}>
         <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} />
@@ -975,6 +989,8 @@ export default function DebtsScreen() {
               )
             }
           />
+        ) : section === 'cardout' ? (
+          <CardOutstandingList items={items} theme={theme} cardStyle={cardStyle} onEdit={setCardOutEdit} />
         ) : (
           <FlatList
             data={pendingBills}
@@ -990,7 +1006,7 @@ export default function DebtsScreen() {
 
       <TouchableOpacity
         style={[styles.fab, { backgroundColor: theme.secondary, shadowColor: theme.secondary }]}
-        onPress={section === 'emi' ? openAddLoan : openAddBill}
+        onPress={section === 'emi' ? openAddLoan : section === 'cardout' ? () => setCardOutEdit({}) : openAddBill}
         activeOpacity={0.8}
         accessibilityLabel="Add"
       >
@@ -1412,6 +1428,18 @@ export default function DebtsScreen() {
         </View>
       </Modal>
 
+      {cardOutEdit ? (
+        <CardOutstandingForm
+          key={cardOutEdit.id || 'new'}
+          editing={cardOutEdit}
+          items={items}
+          persist={persist}
+          creditCards={creditCards}
+          theme={theme}
+          onClose={() => setCardOutEdit(null)}
+        />
+      ) : null}
+
       {/* Manual loan: update remaining amount */}
       <Modal visible={!!manualId} transparent animationType="fade" onRequestClose={() => setManualId(null)}>
         <View style={styles.modalOverlay}>
@@ -1492,9 +1520,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   alertBtnText: { fontSize: 14, fontWeight: '600' },
-  tab: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center' },
+  tab: { flex: 1, paddingVertical: 7, paddingHorizontal: 2, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   tabSelected: { shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.12, shadowRadius: 3, elevation: 2 },
-  tabText: { fontSize: 13, fontWeight: '600' },
+  tabText: { fontSize: 12, fontWeight: '600', textAlign: 'center' },
   summaryCard: {
     borderRadius: 18,
     padding: 18,
