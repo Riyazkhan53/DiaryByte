@@ -1,12 +1,12 @@
 // Dashboard numbers: net worth and what's coming up in the next few days.
 // Pure functions over the synced collections, so they're easy to test.
 
-import { addDays, daysBetween, occurrencesFrom, todayKey } from './autopay';
-import { addMonths, isRecurringBill, loanSummary, monthKeyOf, sectionOf, upcomingDues } from './debts';
-import { hasSip, sipAmountFor, sipDueDate, upcomingSipMonths } from './sip';
-import { daysUntil as ticketDaysUntil, sortTickets, ticketType } from './tickets';
-import { daysUntil as dateDaysUntil, nextOccurrenceKey, sortDates } from './importantDates';
-import { dematSummary } from './demat';
+import { addDays, daysBetween, occurrencesFrom, todayKey } from './autopay.js';
+import { addMonths, isRecurringBill, loanSummary, monthKeyOf, sectionOf, upcomingDues } from './debts.js';
+import { hasSip, sipAmountFor, sipDueDate, upcomingSipMonths } from './sip.js';
+import { daysUntil as ticketDaysUntil, sortTickets, ticketType } from './tickets.js';
+import { daysUntil as dateDaysUntil, nextOccurrenceKey, sortDates } from './importantDates.js';
+import { dematSummary } from './demat.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const sumOf = (list) => list.reduce((sum, x) => sum + (Number(x.amount) || 0), 0);

@@ -77,6 +77,11 @@ DiaryByte greets you by name on a personal dashboard and keeps your daily journa
 - Dark mode toggle (persisted)
 - Reset all data with confirmation
 
+### Wear OS watch
+- Net worth, today's demat P/L, watchlist signals, the next 5 days and your to-do list on the watch
+- A tile and two watch-face complications (net worth, today's P/L)
+- Pair from Settings → Wear OS watch with a one-time code; see [wear/README.md](wear/README.md) to install
+
 ## Tech Stack
 
 - [Expo SDK 57](https://expo.dev) + React Native

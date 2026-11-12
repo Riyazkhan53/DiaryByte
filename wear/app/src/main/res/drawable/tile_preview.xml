@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Round launcher icon: an open diary on the DiaryByte gradient. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path android:pathData="M24,0a24,24 0,1 1,0 48a24,24 0,1 1,0 -48z">
+        <aapt:attr xmlns:aapt="http://schemas.android.com/aapt" name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0" android:startY="0"
+                android:endX="48" android:endY="48"
+                android:startColor="#FF6A88"
+                android:endColor="#7B5CFF" />
+        </aapt:attr>
+    </path>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,15c4,-1.5 8,-1.5 11,1v18c-3,-2.5 -7,-2.5 -11,-1z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.85"
+        android:pathData="M36,15c-4,-1.5 -8,-1.5 -11,1v18c3,-2.5 7,-2.5 11,-1z" />
+</vector>

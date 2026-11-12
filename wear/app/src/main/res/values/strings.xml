@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DiaryByte</string>
+    <string name="tile_label">DiaryByte summary</string>
+    <string name="complication_networth">DiaryByte net worth</string>
+    <string name="complication_pnl">DiaryByte today\'s P/L</string>
+</resources>

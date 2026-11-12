@@ -20,6 +20,7 @@ import { pullAllFromServer, SYNCED_COLLECTIONS } from '../services/sync';
 import { AppUpdatesSection } from '../components/AppUpdates';
 import { DeleteProtectionSection } from '../components/DeleteProtectionSection';
 import { VaultCodeSection } from '../components/VaultCodeSection';
+import { WatchPairSection } from '../components/WatchPairSection';
 import { confirmDelete } from '../utils/confirm';
 import { getSession, isGuest, signOut } from '../services/session';
 
@@ -227,6 +228,19 @@ export default function SettingsScreen() {
         />
 
         <DeleteProtectionSection
+          sectionStyle={[
+            styles.section,
+            {
+              backgroundColor: theme.surface,
+              borderColor: theme.border,
+              shadowColor: theme.shadow,
+            },
+          ]}
+          titleStyle={[styles.sectionTitle, { color: theme.text }]}
+          hintStyle={styles.hint}
+        />
+
+        <WatchPairSection
           sectionStyle={[
             styles.section,
             {
