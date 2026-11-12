@@ -90,6 +90,14 @@ const TABS = [
     gradient: ['#FF8A65', '#E5383B'],
   },
   {
+    key: 'ipos',
+    label: 'IPO Watch',
+    description: 'Open and upcoming IPOs with an AI view',
+    icon: 'rocket-outline',
+    route: '/ipos',
+    gradient: ['#34C759', '#0E8A6A'],
+  },
+  {
     key: 'balance',
     label: 'Account Balance',
     description: 'Bank balances at a glance',

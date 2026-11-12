@@ -77,6 +77,12 @@ DiaryByte greets you by name on a personal dashboard and keeps your daily journa
 - Dark mode toggle (persisted)
 - Reset all data with confirmation
 
+### IPO Watch
+- Indian IPOs open now, upcoming and just listed, found by AI web search (needs ANTHROPIC_API_KEY on the server)
+- Price band, lot size and minimum amount, live subscription by category (QIB / NII / retail), GMP
+- A rule-based demand score (QIB 40, overall 20, retail 10, GMP 30 points) and an AI review: Apply / Neutral / Avoid with reasons, risks and sources
+- Latest news headlines for each IPO (Google News)
+
 ### Wear OS watch
 - Net worth, today's demat P/L, watchlist signals, the next 5 days, investments, tickets, dates, passwords and your to-do list on the watch
 - A tile and two watch-face complications (net worth, today's P/L)
