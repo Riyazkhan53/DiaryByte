@@ -28,6 +28,44 @@ const SECTIONS = [
   { key: 'listed', title: 'Listed recently', icon: 'trending-up', color: '#AF52DE' },
 ];
 
+// Which IPOs to show. Default: the ones you can still apply for.
+const STATUS_FILTERS = [
+  { key: 'current', label: 'Open & upcoming', statuses: ['open', 'upcoming'] },
+  { key: 'closed', label: 'Closed', statuses: ['closed'] },
+  { key: 'listed', label: 'Listed', statuses: ['listed'] },
+  { key: 'all', label: 'All', statuses: ['open', 'upcoming', 'closed', 'listed'] },
+];
+const BOARD_FILTERS = [
+  { key: 'all', label: 'All boards' },
+  { key: 'mainboard', label: 'Mainboard' },
+  { key: 'sme', label: 'SME' },
+];
+
+function FilterChips({ options, value, onChange, counts, theme }) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+      {options.map((o) => {
+        const on = o.key === value;
+        return (
+          <TouchableOpacity
+            key={o.key}
+            onPress={() => onChange(o.key)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: on }}
+            accessibilityLabel={`Show ${o.label}`}
+            style={[styles.filterChip, { backgroundColor: on ? GREEN : theme.surface, borderColor: on ? GREEN : theme.border }]}
+          >
+            <Text style={[styles.filterText, { color: on ? '#fff' : theme.text }]}>
+              {o.label}
+              {counts && counts[o.key] != null ? ` · ${counts[o.key]}` : ''}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
 const VERDICT = {
   APPLY: { color: GREEN, icon: 'checkmark-circle', label: 'Apply' },
   NEUTRAL: { color: AMBER, icon: 'remove-circle', label: 'Neutral' },
@@ -342,6 +380,8 @@ export default function IposScreen() {
   const [open, setOpen] = useState(null);
   const [lookup, setLookup] = useState('');
   const [now, setNow] = useState(0);
+  const [statusFilter, setStatusFilter] = useState('current');
+  const [boardFilter, setBoardFilter] = useState('all');
 
   const load = useCallback((refresh) => {
     setState((s) => ({ ...s, loading: true, error: null }));
@@ -358,7 +398,14 @@ export default function IposScreen() {
     return () => clearTimeout(t);
   }, [load]);
 
-  const ipos = state.data?.ipos || [];
+  const all = state.data?.ipos || [];
+  const onBoard = all.filter((i) => boardFilter === 'all' || i.board === boardFilter);
+  const statuses = STATUS_FILTERS.find((f) => f.key === statusFilter).statuses;
+  const ipos = onBoard.filter((i) => statuses.includes(i.status));
+  const statusCounts = Object.fromEntries(STATUS_FILTERS.map((f) => [f.key, onBoard.filter((i) => f.statuses.includes(i.status)).length]));
+  const boardCounts = Object.fromEntries(
+    BOARD_FILTERS.map((f) => [f.key, all.filter((i) => statuses.includes(i.status) && (f.key === 'all' || i.board === f.key)).length])
+  );
   const findIpo = () => {
     const q = lookup.trim();
     if (q.length >= 2) setOpen({ name: q });
@@ -401,8 +448,18 @@ export default function IposScreen() {
           </TouchableOpacity>
         </View>
         {state.error ? <Text style={[styles.line, { color: RED, marginBottom: 10 }]}>{state.error}</Text> : null}
+        {state.data ? (
+          <>
+            <FilterChips options={STATUS_FILTERS} value={statusFilter} onChange={setStatusFilter} counts={statusCounts} theme={theme} />
+            <FilterChips options={BOARD_FILTERS} value={boardFilter} onChange={setBoardFilter} counts={boardCounts} theme={theme} />
+          </>
+        ) : null}
         {!state.loading && state.data && !ipos.length ? (
-          <Text style={[styles.line, { color: theme.textMuted }]}>No IPOs found right now. Pull a refresh later, or look one up by name.</Text>
+          <Text style={[styles.line, { color: theme.textMuted }]}>
+            {all.length
+              ? `No ${STATUS_FILTERS.find((f) => f.key === statusFilter).label.toLowerCase()} IPOs${boardFilter === 'all' ? '' : ` on ${boardFilter === 'sme' ? 'SME' : 'Mainboard'}`} right now. Try another filter, or look one up by name.`
+              : 'No IPOs found right now. Pull a refresh later, or look one up by name.'}
+          </Text>
         ) : null}
 
         {SECTIONS.map((sec) => {
@@ -441,6 +498,9 @@ const styles = StyleSheet.create({
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 10 },
   searchInput: { flex: 1, fontSize: 15, paddingVertical: 2 },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  chips: { gap: 8, paddingBottom: 8 },
+  filterChip: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6 },
+  filterText: { fontSize: 13, fontWeight: '700' },
   sectionHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12, marginBottom: 8 },
   sectionTitle: { fontSize: 15, fontWeight: '800', flexShrink: 1 },
   card: { borderRadius: 18, borderWidth: 1, padding: 14, marginBottom: 12, gap: 4, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
