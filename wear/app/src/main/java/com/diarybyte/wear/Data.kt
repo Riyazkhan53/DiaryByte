@@ -34,6 +34,16 @@ data class Signal(
     val target: Double?,
 )
 
+data class Holding(val name: String, val current: Double, val invested: Double)
+data class InvestCategory(val category: String, val current: Double, val invested: Double, val holdings: List<Holding>)
+data class Investments(val current: Double, val invested: Double, val gain: Double, val count: Int, val categories: List<InvestCategory>)
+data class Ticket(
+    val id: String, val type: String, val title: String, val from: String, val to: String, val venue: String,
+    val date: String, val time: String, val seat: String, val bookingRef: String, val daysLeft: Int,
+)
+data class DateItem(val id: String, val title: String, val recurring: Boolean, val date: String, val since: String, val note: String, val daysLeft: Int)
+data class Password(val id: String, val site: String, val username: String, val password: String)
+
 data class Summary(
     val generatedAt: String,
     val today: String,
@@ -52,6 +62,9 @@ data class Summary(
     val lastScanAt: String?,
     val openTrades: Int,
     val signals: List<Signal>,
+    val portfolio: Investments,
+    val tickets: List<Ticket>,
+    val dates: List<DateItem>,
 ) {
     companion object {
         private fun JSONObject.dbl(k: String) = if (isNull(k)) null else optDouble(k).takeIf { !it.isNaN() }
@@ -65,6 +78,7 @@ data class Summary(
             val nw = o.optJSONObject("netWorth") ?: JSONObject()
             val dm = o.optJSONObject("demat") ?: JSONObject()
             val sg = o.optJSONObject("signals")
+            val inv = o.optJSONObject("investments") ?: JSONObject()
             return Summary(
                 generatedAt = o.optString("generatedAt"),
                 today = o.optString("today"),
@@ -97,6 +111,28 @@ data class Summary(
                         stop = it.dbl("stop"),
                         target = it.dbl("target"),
                     )
+                },
+                portfolio = Investments(
+                    current = inv.optDouble("current", 0.0),
+                    invested = inv.optDouble("invested", 0.0),
+                    gain = inv.optDouble("gain", 0.0),
+                    count = inv.optInt("count", 0),
+                    categories = inv.optJSONArray("categories").list { c ->
+                        InvestCategory(
+                            c.optString("category"), c.optDouble("current", 0.0), c.optDouble("invested", 0.0),
+                            c.optJSONArray("holdings").list { h -> Holding(h.optString("name"), h.optDouble("current", 0.0), h.optDouble("invested", 0.0)) },
+                        )
+                    },
+                ),
+                tickets = o.optJSONArray("tickets").list {
+                    Ticket(
+                        it.optString("id"), it.optString("type"), it.optString("title"), it.optString("from"), it.optString("to"),
+                        it.optString("venue"), it.optString("date"), it.optString("time"), it.optString("seat"), it.optString("bookingRef"),
+                        it.optInt("daysLeft"),
+                    )
+                },
+                dates = o.optJSONArray("dates").list {
+                    DateItem(it.optString("id"), it.optString("title"), it.optBoolean("recurring"), it.optString("date"), it.optString("since"), it.optString("note"), it.optInt("daysLeft"))
                 },
             )
         }
@@ -204,8 +240,53 @@ class Api(private val context: Context) {
         return parsed
     }
 
+    /** Saved passwords: kept in memory only, never written to the watch. */
+    suspend fun passwords(): List<Password> {
+        val r = call("GET", "/api/watch/passwords")
+        val a = r.optJSONArray("items") ?: JSONArray()
+        return (0 until a.length()).map { i ->
+            a.getJSONObject(i).let { Password(it.optString("id"), it.optString("site"), it.optString("username"), it.optString("password")) }
+        }
+    }
+
     suspend fun todoDone(id: String) {
         call("POST", "/api/watch/todo/${java.net.URLEncoder.encode(id, "UTF-8")}/done")
+    }
+}
+
+// ---------------- new version of the watch app ----------------
+
+const val RELEASE_APK_URL = "https://github.com/${BuildConfig.GITHUB_REPO}/releases/download/wear-latest/DiaryByte-Wear.apk"
+
+/**
+ * The newest published build number (from the "wear-latest" GitHub release),
+ * checked at most every 6 hours; null if unknown. Newer than
+ * BuildConfig.VERSION_CODE means an update is waiting.
+ */
+suspend fun latestBuild(context: Context, force: Boolean = false): Int? = withContext(Dispatchers.IO) {
+    val prefs = context.applicationContext.getSharedPreferences("diarybyte", Context.MODE_PRIVATE)
+    val known = prefs.getInt("latestBuild", 0).takeIf { it > 0 }
+    if (!force && System.currentTimeMillis() - prefs.getLong("latestCheckedAt", 0L) < 6 * 3600_000L) return@withContext known
+    try {
+        val conn = (URL("https://api.github.com/repos/${BuildConfig.GITHUB_REPO}/releases/tags/wear-latest").openConnection() as HttpURLConnection).apply {
+            connectTimeout = 10_000
+            readTimeout = 15_000
+            setRequestProperty("Accept", "application/vnd.github+json")
+            setRequestProperty("User-Agent", "DiaryByteWear")
+        }
+        try {
+            if (conn.responseCode != 200) return@withContext known
+            val body = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+            val build = Regex("build (\\d+)").find(body.optString("body") + " " + body.optString("name"))?.groupValues?.get(1)?.toIntOrNull()
+            val edit = prefs.edit().putLong("latestCheckedAt", System.currentTimeMillis())
+            if (build != null) edit.putInt("latestBuild", build)
+            edit.apply()
+            build ?: known
+        } finally {
+            conn.disconnect()
+        }
+    } catch (e: Exception) {
+        known
     }
 }
 

@@ -6,6 +6,10 @@ A small watch app that shows, from your DiaryByte server:
 - **Signals:** each watchlist stock's latest engine decision (long/short entry with entry, stop and target, or why it's waiting)
 - **Next 5 days:** EMIs, bills, SIPs, autopays, tickets, birthdays and expiring vouchers
 - **To-do:** open tasks; tap one to mark it done
+- **Investments:** total value and gain, each category's share and return; tap a category for its holdings
+- **Tickets:** upcoming trips and shows with route or venue, time, seat and booking reference
+- **Dates:** birthdays, anniversaries and occasions with a countdown
+- **Passwords:** tap a site to see its username; tap **Show for 30 s** to see the password. They are fetched each time you open the screen and never saved on the watch, and the screen only works when the watch has a screen lock.
 - **Tile** (swipe from the watch face): net worth, today's P/L, the next two items due
 - **Complications** for any watch face: *DiaryByte net worth* and *DiaryByte today's P/L*
 
@@ -28,7 +32,7 @@ Apps from outside the Play Store are installed over Wi-Fi from your phone:
 5. **Phone:** in that app, install **DiaryByte-Wear.apk** onto the watch.
 6. Turn *ADB debugging* off again when you're done if you like.
 
-Later builds install over this one the same way (they're signed with the same key, so no uninstall is needed).
+When a newer build is published, the watch's home screen shows **Update available**. Tap it to open the download on your phone (or get it from Releases), then install it the same way. Later builds install over this one (they're signed with the same key, so no uninstall is needed).
 
 ## 3. Pair it with your account
 
@@ -48,7 +52,7 @@ Both refresh about every 15–30 minutes, and right away whenever you open the a
 
 ## For developers
 
-Kotlin, Jetpack Compose for Wear OS, Tiles (ProtoLayout) and complication data sources. The server side lives in `server/watch.js` (`/api/watch/pair`, `/api/watch/redeem`, `/api/watch/summary`, `/api/watch/todo/:id/done`).
+Kotlin, Jetpack Compose for Wear OS, Tiles (ProtoLayout) and complication data sources. The server side lives in `server/watch.js` (`/api/watch/pair`, `/api/watch/redeem`, `/api/watch/summary`, `/api/watch/passwords`, `/api/watch/todo/:id/done`).
 
 ```bash
 cd wear

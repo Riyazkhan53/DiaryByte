@@ -18,6 +18,7 @@ android {
         versionCode = buildNumber
         versionName = "1.0.$buildNumber"
         buildConfigField("String", "DEFAULT_SERVER", "\"$server\"")
+        buildConfigField("String", "GITHUB_REPO", "\"${findProperty("githubRepo") ?: "Riyazkhan53/DiaryByte"}\"")
     }
 
     // One fixed key (checked in, not secret) so each new build installs over
@@ -65,7 +66,9 @@ dependencies {
     implementation("androidx.wear.protolayout:protolayout:1.2.1")
     implementation("androidx.wear.protolayout:protolayout-material:1.2.1")
     implementation("androidx.wear.watchface:watchface-complications-data-source-ktx:1.2.1")
+    implementation("androidx.wear:wear-remote-interactions:1.0.0")
     implementation("androidx.concurrent:concurrent-futures-ktx:1.2.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.8.1")
     implementation("com.google.guava:guava:33.3.1-android")
 }

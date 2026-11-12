@@ -72,13 +72,6 @@ import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
 import kotlinx.coroutines.launch
 
-private val Pink = Color(0xFFFF8FA6)
-private val Violet = Color(0xFF9B87FF)
-private val Green = Color(0xFF34C759)
-private val Red = Color(0xFFFF5A5F)
-private val Amber = Color(0xFFF5A623)
-private val Muted = Color(0xFFB0B3BA)
-private val CardBg = Color(0xFF1E1F24)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -123,7 +116,10 @@ fun App() {
         }
     }
 
+    var latest by remember { mutableStateOf<Int?>(null) }
+
     LaunchedEffect(paired) { if (paired) refresh() }
+    LaunchedEffect(Unit) { latest = latestBuild(context) }
 
     SwipeDismissableNavHost(navController = nav, startDestination = "home") {
         composable("home") {
@@ -133,7 +129,7 @@ fun App() {
                     refreshSurfaces(context)
                 }
             } else {
-                HomeScreen(summary, savedAt, loading, error, ::refresh, onOpen = { nav.navigate(it) }, onUnpair = {
+                HomeScreen(summary, savedAt, loading, error, latest, ::refresh, onOpen = { nav.navigate(it) }, onUnpair = {
                     store.unpair()
                     summary = null
                     paired = false
@@ -148,6 +144,10 @@ fun App() {
                 summary = summary?.let { s -> s.copy(todos = s.todos.filterNot { it.id == id }) }
             })
         }
+        composable("investments") { InvestmentsScreen(summary) }
+        composable("tickets") { TicketsScreen(summary) }
+        composable("dates") { DatesScreen(summary) }
+        composable("passwords") { PasswordsScreen(api) }
         composable("server") { ServerScreen(store) { nav.popBackStack() } }
     }
 }
@@ -166,23 +166,12 @@ fun Screen(content: ScalingLazyListScope.() -> Unit) {
             state = state,
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(6.dp),
-            content = content,
-        )
+        ) {
+            // A little room at the top, so the first card opens in view.
+            item { Spacer(Modifier.height(8.dp)) }
+            content()
+        }
     }
-}
-
-@Composable
-private fun Line(text: String, color: Color = Muted, size: Int = 12, weight: FontWeight = FontWeight.Normal, lines: Int = 1) {
-    Text(
-        text,
-        color = color,
-        fontSize = size.sp,
-        fontWeight = weight,
-        maxLines = lines,
-        overflow = TextOverflow.Ellipsis,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth(),
-    )
 }
 
 // ---------------- home ----------------
@@ -193,13 +182,13 @@ fun HomeScreen(
     savedAt: Long,
     loading: Boolean,
     error: String?,
+    latest: Int?,
     onRefresh: () -> Unit,
     onOpen: (String) -> Unit,
     onUnpair: () -> Unit,
 ) {
     var confirmUnpair by remember { mutableStateOf(false) }
     Screen {
-        item { Spacer(Modifier.height(14.dp)) }
         if (s == null) {
             item {
                 if (loading) CircularProgressIndicator(modifier = Modifier.size(32.dp), indicatorColor = Pink)
@@ -207,13 +196,21 @@ fun HomeScreen(
             }
             item { Line("A sleeping server can take a minute to wake.", Muted, 11, lines = 2) }
         } else {
-            item { Line("NET WORTH", Pink, 11, FontWeight.Bold) }
-            item { Line(inr(s.netWorth).let { if (s.netWorth < 0) "−$it" else it }, Color.White, 24, FontWeight.ExtraBold) }
             item {
-                if (s.pnlTodayEntered) Line("Today ${signedInr(s.pnlToday)}", if (s.pnlToday < 0) Red else Green, 13, FontWeight.SemiBold)
-                else Line("Today's P/L not entered", Muted, 12)
+                HeroCard("NET WORTH", inr(s.netWorth).let { if (s.netWorth < 0) "−$it" else it }, Hue.worth) {
+                    if (s.pnlTodayEntered) {
+                        Pill("${if (s.pnlToday < 0) "▼" else "▲"} ${inr(s.pnlToday)} today", if (s.pnlToday < 0) Color(0xFFFFB3B5) else Color(0xFFB8F5C8))
+                    } else {
+                        Pill("Today's P/L not entered", Color.White.copy(alpha = 0.85f))
+                    }
+                    Text(
+                        "Month ${signedCompact(s.pnlMonth)} · Demat ${compactInr(s.demat)}",
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(top = 3.dp),
+                    )
+                }
             }
-            item { Line("Month ${signedCompact(s.pnlMonth)} · Demat ${compactInr(s.demat)}", Muted, 11) }
             item {
                 Line(
                     if (loading) "Updating…" else error ?: ageLabel(savedAt),
@@ -222,26 +219,42 @@ fun HomeScreen(
                     lines = 2,
                 )
             }
+            if (latest != null && latest > BuildConfig.VERSION_CODE) item { UpdateChip(latest) }
             val candidates = s.signals.count { it.state == "BUY CANDIDATE" || it.state == "SELL CANDIDATE" }
             item {
-                NavChip(
+                GradChip(
+                    "📈",
                     "Signals",
                     if (candidates > 0) "$candidates entry signal${if (candidates == 1) "" else "s"}"
                     else if (s.marketOpen) "No entries · ${s.signals.size} watched" else "Market closed",
-                    if (candidates > 0) Green else Violet,
+                    Hue.signals,
                 ) { onOpen("signals") }
             }
             item {
                 val next = s.upcoming.firstOrNull()
-                NavChip(
-                    "Next 5 days",
-                    if (next == null) "Nothing due" else "${dayLabel(next.date, next.daysLeft)} · ${next.title}",
-                    Amber,
-                ) { onOpen("upcoming") }
+                GradChip("📅", "Next 5 days", if (next == null) "Nothing due" else "${dayLabel(next.date, next.daysLeft)} · ${next.title}", Hue.upcoming) { onOpen("upcoming") }
             }
             item {
-                NavChip("To-do", if (s.todos.isEmpty()) "All done" else "${s.todos.size} open", Pink) { onOpen("todo") }
+                val inv = s.portfolio
+                GradChip(
+                    "💰",
+                    "Investments",
+                    if (inv.count == 0) "None yet" else "${compactInr(inv.current)} · ${signedCompact(inv.gain)}",
+                    Hue.invest,
+                ) { onOpen("investments") }
             }
+            item {
+                val t = s.tickets.firstOrNull()
+                GradChip("🎫", "Tickets", if (t == null) "None upcoming" else "${dayLabel(t.date, t.daysLeft)} · ${t.title}", Hue.tickets) { onOpen("tickets") }
+            }
+            item {
+                val d = s.dates.firstOrNull()
+                GradChip("🎂", "Dates", if (d == null) "None saved" else "${dayLabel(d.date, d.daysLeft)} · ${d.title}", Hue.dates) { onOpen("dates") }
+            }
+            item {
+                GradChip("✅", "To-do", if (s.todos.isEmpty()) "All done" else "${s.todos.size} open", Hue.todo) { onOpen("todo") }
+            }
+            item { GradChip("🔑", "Passwords", "Tap to unlock", Hue.passwords) { onOpen("passwords") } }
         }
         item {
             CompactChip(
@@ -258,19 +271,8 @@ fun HomeScreen(
                 colors = ChipDefaults.chipColors(backgroundColor = CardBg, contentColor = if (confirmUnpair) Red else Muted),
             )
         }
+        item { Line("Version ${BuildConfig.VERSION_NAME}", Muted.copy(alpha = 0.6f), 9) }
     }
-}
-
-@Composable
-private fun NavChip(label: String, sub: String, color: Color, onClick: () -> Unit) {
-    Chip(
-        onClick = onClick,
-        label = { Text(label, fontWeight = FontWeight.SemiBold) },
-        secondaryLabel = { Text(sub, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        icon = { Box(Modifier.size(10.dp).background(color, CircleShape)) },
-        colors = ChipDefaults.chipColors(backgroundColor = CardBg, contentColor = Color.White, secondaryContentColor = Muted),
-        modifier = Modifier.fillMaxWidth(),
-    )
 }
 
 // ---------------- signals ----------------
@@ -290,7 +292,7 @@ private fun stateLabel(sig: Signal) = when (sig.state) {
 }
 
 fun ScalingLazyListScope.signalsList(s: Summary?) {
-    item { ListHeader { Text("Signals", color = Pink) } }
+    item { ListHeader { Text("📈 Signals", color = Color(0xFF5FE0A8), fontWeight = FontWeight.Bold) } }
     if (s == null || s.signals.isEmpty()) {
         item { Line(if (s == null) "No data yet" else "Your watchlist is empty", Muted, 12, lines = 2) }
         return
@@ -303,7 +305,7 @@ fun ScalingLazyListScope.signalsList(s: Summary?) {
         )
     }
     items(s.signals) { sig ->
-        Card(onClick = {}, backgroundPainter = ColorPainter(CardBg), modifier = Modifier.fillMaxWidth()) {
+        TintCard(stateColor(sig.state)) {
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(shortSymbol(sig.symbol), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
@@ -331,8 +333,18 @@ fun ScalingLazyListScope.signalsList(s: Summary?) {
 
 // ---------------- next 5 days ----------------
 
+private val KIND_LOOK = mapOf(
+    "autopay" to ("🔁" to Color(0xFFFF9500)),
+    "sip" to ("📈" to Color(0xFFAF52DE)),
+    "emi" to ("🏦" to Color(0xFFE5383B)),
+    "bill" to ("🧾" to Color(0xFFFF375F)),
+    "ticket" to ("🎫" to Color(0xFF5C6BC0)),
+    "date" to ("🎂" to Color(0xFFF5A623)),
+    "voucher" to ("🎁" to Color(0xFFFF6A88)),
+)
+
 fun ScalingLazyListScope.upcomingList(s: Summary?) {
-    item { ListHeader { Text("Next 5 days", color = Amber) } }
+    item { ListHeader { Text("📅 Next 5 days", color = Color(0xFFFFB347), fontWeight = FontWeight.Bold) } }
     if (s == null || s.upcoming.isEmpty()) {
         item { Line(if (s == null) "No data yet" else "Nothing due. Enjoy!", Muted, 12) }
         return
@@ -345,8 +357,11 @@ fun ScalingLazyListScope.upcomingList(s: Summary?) {
             item { Line(dayLabel(u.date, u.daysLeft).uppercase(), Pink, 11, FontWeight.Bold) }
         }
         item {
-            Card(onClick = {}, backgroundPainter = ColorPainter(CardBg), modifier = Modifier.fillMaxWidth()) {
+            val (emoji, tint) = KIND_LOOK[u.kind] ?: ("📌" to Violet)
+            TintCard(tint) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    Badge(emoji, 24)
+                    Spacer(Modifier.width(6.dp))
                     Column(Modifier.weight(1f)) {
                         Text(u.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         if (u.sub.isNotBlank()) Text(u.sub, color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -369,7 +384,7 @@ fun TodoScreen(s: Summary?, api: Api, onDone: (String) -> Unit) {
     var busy by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     Screen {
-        item { ListHeader { Text("To-do", color = Pink) } }
+        item { ListHeader { Text("✅ To-do", color = Pink, fontWeight = FontWeight.Bold) } }
         val todos = s?.todos.orEmpty()
         if (todos.isEmpty()) item { Line(if (s == null) "No data yet" else "All done", Muted, 12) }
         if (error != null) item { Line(error!!, Amber, 11, lines = 2) }
@@ -393,7 +408,12 @@ fun TodoScreen(s: Summary?, api: Api, onDone: (String) -> Unit) {
                 label = { Text(t.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
                 secondaryLabel = { Text(if (busy == t.id) "Saving…" else "Tap when done") },
                 icon = { Icon(Icons.Filled.Check, contentDescription = "Mark done", tint = if (busy == t.id) Green else Muted) },
-                colors = ChipDefaults.chipColors(backgroundColor = CardBg, contentColor = Color.White, secondaryContentColor = Muted),
+                colors = ChipDefaults.gradientBackgroundChipColors(
+                    startBackgroundColor = Hue.todo.first.copy(alpha = 0.6f),
+                    endBackgroundColor = CardBg,
+                    contentColor = Color.White,
+                    secondaryContentColor = Color.White.copy(alpha = 0.8f),
+                ),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
