@@ -15,7 +15,7 @@ const money = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
 const toNum = (text) => parseFloat(String(text ?? '').replace(/[^\d.]/g, ''));
 const makeId = () => `${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`;
 const usedColor = (pct) => (pct < 30 ? '#2DA44E' : pct < 70 ? '#F59E0B' : '#E5383B');
-const EMPTY = { name: '', outstanding: '', available: '', note: '', cardId: null, cardLast4: '' };
+const EMPTY = { name: '', limit: '', available: '', note: '', cardId: null, cardLast4: '' };
 
 function updatedLabel(iso, now) {
   if (!iso || !now) return '';
@@ -49,7 +49,7 @@ export function CardOutstandingList({ items, ctx, theme, cardStyle, onEdit }) {
       <View style={[styles.summary, cardStyle]}>
         <View style={styles.row}>
           <View style={styles.col}>
-            <Text style={[styles.label, { color: theme.textMuted }]}>Total outstanding</Text>
+            <Text style={[styles.label, { color: theme.textMuted }]}>Limit used (outstanding)</Text>
             <Text style={[styles.big, { color: '#E5383B' }]}>{money(sum.outstanding)}</Text>
           </View>
           <View style={styles.col}>
@@ -68,7 +68,7 @@ export function CardOutstandingList({ items, ctx, theme, cardStyle, onEdit }) {
           </>
         ) : null}
         <Text style={[styles.hint, { color: theme.textMuted }]}>
-          Enter each card&apos;s outstanding and available limit from its app. After that they update by themselves: card
+          Enter each card&apos;s total and available limit from its app; the limit used is worked out from them. After that they update by themselves: card
           spends (Total Spend, investments, money taken from the card) add to it, and paying the card&apos;s bill in Card
           Bills takes it off. Tap a card to correct it any time. Net worth and total debts use these; card bills
           aren&apos;t counted again.
@@ -98,13 +98,13 @@ export function CardOutstandingList({ items, ctx, theme, cardStyle, onEdit }) {
           </View>
           <View style={styles.right}>
             <Text style={[styles.cardAmount, { color: bal.outstanding > 0 ? '#E5383B' : theme.text }]}>{money(bal.outstanding)}</Text>
-            <Text style={[styles.small, { color: theme.textMuted }]}>outstanding</Text>
+            <Text style={[styles.small, { color: theme.textMuted }]}>limit used</Text>
           </View>
         </View>
         <UsedBar pct={pct} theme={theme} />
         <View style={styles.cardFoot}>
           <Text style={[styles.small, { color: theme.textSecondary }]}>
-            Available {money(bal.available)} · Limit {money(bal.limit)}
+            Available {money(bal.available)} of {money(bal.limit)}
           </Text>
           <Text style={[styles.small, styles.bold, { color: usedColor(pct) }]}>{pct}% used</Text>
         </View>
@@ -155,7 +155,7 @@ export function CardOutstandingList({ items, ctx, theme, cardStyle, onEdit }) {
         <View style={styles.empty}>
           <Ionicons name="card-outline" size={52} color={theme.textMuted} />
           <Text style={[styles.emptyText, { color: theme.textMuted }]}>
-            No cards yet. Tap + and enter a card&apos;s current outstanding and available limit.
+            No cards yet. Tap + and enter a card&apos;s total limit and available limit.
           </Text>
         </View>
       }
@@ -172,7 +172,7 @@ export function CardOutstandingForm({ editing, items, ctx, persist, creditCards,
     editing?.id
       ? {
           name: editing.name || '',
-          outstanding: String(live.outstanding),
+          limit: String(live.limit),
           available: String(live.available),
           note: editing.note || '',
           cardId: editing.cardId || null,
@@ -181,17 +181,21 @@ export function CardOutstandingForm({ editing, items, ctx, persist, creditCards,
       : EMPTY
   );
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
-  const out = toNum(form.outstanding);
+  // You enter the total and available limits; limit used (the outstanding) follows.
+  const limit = toNum(form.limit);
   const avail = toNum(form.available);
-  const valid = form.name.trim() && Number.isFinite(out) && out >= 0 && Number.isFinite(avail) && avail >= 0;
-  const limit = (Number.isFinite(out) ? out : 0) + (Number.isFinite(avail) ? avail : 0);
+  const both = Number.isFinite(limit) && limit > 0 && Number.isFinite(avail) && avail >= 0;
+  const tooHigh = both && avail > limit;
+  const out = both && !tooHigh ? Math.round((limit - avail) * 100) / 100 : null;
+  const valid = form.name.trim() && both && !tooHigh;
 
   const save = () => {
     if (!valid) return;
     const now = new Date().toISOString();
     const fields = {
       name: form.name.trim(),
-      outstanding: Math.round(out * 100) / 100,
+      creditLimit: Math.round(limit * 100) / 100,
+      outstanding: out,
       available: Math.round(avail * 100) / 100,
       note: form.note.trim() || undefined,
       cardId: form.cardId || undefined,
@@ -218,7 +222,7 @@ export function CardOutstandingForm({ editing, items, ctx, persist, creditCards,
       <View style={styles.overlay}>
         <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
           <ScrollView keyboardShouldPersistTaps="handled">
-            <Text style={[styles.modalTitle, { color: theme.text }]}>{isNew ? 'Add card outstanding' : 'Update card'}</Text>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{isNew ? 'Add card' : 'Update card'}</Text>
             {!isNew ? (
               <Text style={[styles.small, { color: theme.textMuted, marginBottom: 10 }]}>
                 These are the live figures. Change them if your card&apos;s app shows something different; saving starts the count
@@ -258,18 +262,23 @@ export function CardOutstandingForm({ editing, items, ctx, persist, creditCards,
             ) : null}
             <View style={styles.row}>
               <View style={styles.flex}>
-                <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Current outstanding (₹)</Text>
-                <TextInput style={input} keyboardType="decimal-pad" placeholder="e.g. 23450" placeholderTextColor={theme.textMuted} value={form.outstanding} onChangeText={set('outstanding')} />
+                <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Total limit (₹)</Text>
+                <TextInput style={input} keyboardType="decimal-pad" placeholder="e.g. 100000" placeholderTextColor={theme.textMuted} value={form.limit} onChangeText={set('limit')} />
               </View>
               <View style={styles.flex}>
                 <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Available limit (₹)</Text>
                 <TextInput style={input} keyboardType="decimal-pad" placeholder="e.g. 76550" placeholderTextColor={theme.textMuted} value={form.available} onChangeText={set('available')} />
               </View>
             </View>
-            {limit > 0 ? (
-              <Text style={[styles.small, { color: theme.textSecondary, marginTop: 6 }]}>
-                Total limit {money(limit)} · {Math.round(((Number.isFinite(out) ? out : 0) / limit) * 100)}% used
-              </Text>
+            {tooHigh ? (
+              <Text style={[styles.small, { color: '#E5383B', marginTop: 6 }]}>Available can&apos;t be more than the total limit.</Text>
+            ) : out != null ? (
+              <View style={[styles.usedBox, { backgroundColor: theme.surfaceAlt }]}>
+                <Text style={[styles.small, { color: theme.textSecondary }]}>Limit used (outstanding)</Text>
+                <Text style={[styles.usedValue, { color: out > 0 ? '#E5383B' : theme.text }]}>
+                  {money(out)} <Text style={[styles.small, styles.bold, { color: usedColor(Math.round((out / limit) * 100)) }]}>· {Math.round((out / limit) * 100)}% used</Text>
+                </Text>
+              </View>
             ) : null}
             <TextInput
               style={[input, styles.note]}
@@ -320,6 +329,8 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 15, fontWeight: '700' },
   right: { alignItems: 'flex-end' },
   cardAmount: { fontSize: 17, fontWeight: '800' },
+  usedBox: { borderRadius: 12, padding: 10, marginTop: 10 },
+  usedValue: { fontSize: 18, fontWeight: '800', marginTop: 2 },
   moved: { marginTop: 8, fontWeight: '600' },
   actRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
   cardFoot: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },

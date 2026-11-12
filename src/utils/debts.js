@@ -167,7 +167,8 @@ export function cardActivity(entry, { debts = [], spends = [], investments = [],
  */
 export function cardBalance(entry, ctx = {}) {
   const baseOut = Number(entry.outstanding) || 0;
-  const limit = round2(baseOut + (Number(entry.available) || 0));
+  // The card's total limit as entered (older entries: outstanding + available then).
+  const limit = round2(Number(entry.creditLimit) || baseOut + (Number(entry.available) || 0));
   const { charges, payments } = cardActivity(entry, ctx);
   const charged = sumAmounts(charges);
   const paid = sumAmounts(payments);

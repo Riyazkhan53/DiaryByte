@@ -189,6 +189,7 @@ const COLLECTIONS = {
       // | 'cardout' (a card's current outstanding + available limit)
       'section',
       'available',
+      'creditLimit',
       // card outstanding: when outstanding/available were last typed in
       'balanceAt',
       // EMI schedule
