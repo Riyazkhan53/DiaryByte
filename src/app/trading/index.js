@@ -10,7 +10,7 @@ import CompletedTrades from '../../components/trading/CompletedTrades';
 import TradeForm from '../../components/trading/TradeForm';
 import Signals from '../../components/trading/Signals';
 import History from '../../components/trading/History';
-import { DEFAULT_CONFIG } from '../../engine/risk.js';
+import { marketConfig } from '../../utils/engineMarket';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 
@@ -29,7 +29,10 @@ export default function TradingScreen() {
     TRADES_KEY
   );
   const { items: configDocs } = useSyncedCollection('tradingconfig', '@diarybyte_tradingconfig');
-  const config = { ...DEFAULT_CONFIG, ...(configDocs[0] || {}) };
+  // Engine screens (Signals, History) show one market at a time: India or US.
+  const [engineMarket, setEngineMarket] = useState('NSE');
+  const config = marketConfig(configDocs, 'NSE').config;
+  const marketWatchlist = marketConfig(configDocs, engineMarket).watchlist;
   const [tab, setTab] = useState('setup');
   const tabScroll = useRef(null);
   // Trade form: `initial` is a trade to edit, a draft, or null; the key resets it.
@@ -126,9 +129,9 @@ export default function TradingScreen() {
       {tab === 'setup' ? (
         <SetupCheck header={tabBar} onPaperTrade={tradeFromCheck} trades={trades} />
       ) : tab === 'signals' ? (
-        <Signals header={tabBar} onPaperTrade={tradeFromSignal} />
+        <Signals header={tabBar} onPaperTrade={tradeFromSignal} market={engineMarket} onMarket={setEngineMarket} />
       ) : tab === 'history' ? (
-        <History header={tabBar} watchlist={config.watchlist || []} />
+        <History header={tabBar} watchlist={marketWatchlist} market={engineMarket} onMarket={setEngineMarket} />
       ) : tab === 'open' ? (
         <OpenTrades
           header={tabBar}

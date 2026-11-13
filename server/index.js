@@ -17,6 +17,7 @@ const { mountAuth, issueToken } = require('./auth');
 const { mountWatch, mountWatchPublic } = require('./watch');
 const AnthropicSdk = require('@anthropic-ai/sdk');
 const engineService = require('./engine/service');
+const backtest = require('./engine/backtest');
 const { kiteConfigured, kiteCreateSession, kiteLoginUrl } = require('./engine/providers');
 
 async function connectDatabase() {
@@ -286,9 +287,10 @@ function createApp() {
 
   // ------- intraday signal engine (decision support, paper trading only) -------
 
+  // Every engine route takes ?market=US (or { market: 'US' }) for NASDAQ; NSE otherwise.
   app.get('/api/engine/status', async (req, res) => {
     try {
-      res.json(await engineService.status());
+      res.json(await engineService.status(req.query.market));
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -299,7 +301,7 @@ function createApp() {
     const symbol = String(req.query.symbol || '').toUpperCase();
     if (!isSymbol(symbol)) return res.status(400).json({ error: 'Bad symbol' });
     try {
-      res.json(await engineService.evaluate(symbol));
+      res.json(await engineService.evaluate(symbol, { market: req.query.market }));
     } catch (error) {
       console.error('[api] engine evaluate failed', error.message);
       res.status(502).json({ error: `Could not evaluate ${symbol}: ${error.message}` });
@@ -309,7 +311,7 @@ function createApp() {
   // Run the watchlist scan now (it also runs every 5 minutes in session).
   app.post('/api/engine/scan', async (req, res) => {
     try {
-      res.json(await engineService.scan());
+      res.json(await engineService.scan(req.body?.market || req.query.market));
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -320,7 +322,7 @@ function createApp() {
     const symbol = String(req.body?.symbol || '').toUpperCase();
     if (!isSymbol(symbol)) return res.status(400).json({ error: 'Bad symbol' });
     try {
-      res.json({ trade: await engineService.startDemo(symbol, req.body?.side) });
+      res.json({ trade: await engineService.startDemo(symbol, req.body?.side, req.body?.market) });
     } catch (error) {
       res.status(error.status || 502).json({ error: error.message });
     }
@@ -348,11 +350,29 @@ function createApp() {
           timeframe: req.query.timeframe ? String(req.query.timeframe) : undefined,
           days: Number(req.query.days) || 0,
           limit: Number(req.query.limit) || 500,
+          market: req.query.market,
         })
       );
     } catch (error) {
       console.error('[api] engine history failed', error.message);
       res.status(500).json({ error: 'Could not load signal history' });
+    }
+  });
+
+  // Backtest: replay ~60 days of 5-minute candles through the engine.
+  // GET ?market= → { running, summary }; POST { market } starts a run.
+  app.get('/api/engine/backtest', async (req, res) => {
+    try {
+      res.json(await backtest.backtestStatus(req.query.market));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+  app.post('/api/engine/backtest', (req, res) => {
+    try {
+      res.json(backtest.startBacktest(req.body?.market || req.query.market));
+    } catch (error) {
+      res.status(error.status || 500).json({ error: error.message });
     }
   });
 

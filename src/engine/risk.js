@@ -1,6 +1,6 @@
 // Risk-first trade planning: stop from volatility (ATR), target from a
-// reward:risk multiple, quantity from the rupee risk budget and the cash
-// available, and estimated costs counted inside the risk.
+// reward:risk multiple, quantity from the risk budget (₹ for NSE, $ for US)
+// and the cash available, and estimated costs counted inside the risk.
 
 // Estimated NSE intraday (MIS) equity charges, modelled on a discount
 // broker. These are estimates — check your broker's contract note — and
@@ -14,6 +14,17 @@ export const DEFAULT_CHARGES = {
   sebiPerCrore: 10, // ₹ per ₹1 crore turnover
   gstPct: 18, // on brokerage + exchange + SEBI
   stampBuyPct: 0.003, // on the buy side
+};
+
+// Estimated US (NASDAQ) costs: commission-free broker plus the regulatory
+// fees on sells. Change them in the trading settings if your platform
+// charges a commission or an FX fee per trade.
+export const DEFAULT_CHARGES_US = {
+  model: 'us',
+  commissionPerOrder: 0, // $ per order
+  secFeePerMillion: 27.8, // SEC fee: $ per $1 million sold
+  tafPerShare: 0.000166, // FINRA trading activity fee, $ per share sold
+  tafCap: 8.3, // $ per trade
 };
 
 export const DEFAULT_CONFIG = {
@@ -35,16 +46,44 @@ export const DEFAULT_CONFIG = {
   weakExit: true, // exit when a 5-min candle closes back across VWAP with EMA 9/21 flipped
   allowShort: true, // intraday shorts (MIS) only
   learnOn: true, // ask for a higher score where past trades have been losing
+  market: 'NSE',
   charges: DEFAULT_CHARGES,
 };
+
+// US (NASDAQ) defaults: the same rules, a dollar capital, commission-free
+// costs and no fixed share cap (US prices are higher per share).
+export const DEFAULT_CONFIG_US = {
+  ...DEFAULT_CONFIG,
+  capital: 1000, // $
+  maxQuantity: 0,
+  market: 'US',
+  watchlist: ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'AMD', 'TSLA'],
+  charges: DEFAULT_CHARGES_US,
+};
+
+/** Default settings for a market ('NSE' | 'US'). */
+export const defaultConfig = (market = 'NSE') => (market === 'US' ? DEFAULT_CONFIG_US : DEFAULT_CONFIG);
+/** Default charges for a market. */
+export const defaultCharges = (market = 'NSE') => (market === 'US' ? DEFAULT_CHARGES_US : DEFAULT_CHARGES);
 
 // Engine targets are at least 1:2. A higher setting moves the target out.
 export const MIN_REWARD_RISK = 2;
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
-/** Estimated charges for one round trip (buy and sell). */
-export function estimateCosts(buyValue, sellValue, charges = DEFAULT_CHARGES) {
+/**
+ * Estimated charges for one round trip (buy and sell). `quantity` is used
+ * by per-share fees (US FINRA TAF); without it they're left out.
+ */
+export function estimateCosts(buyValue, sellValue, charges = DEFAULT_CHARGES, quantity = 0) {
+  if (charges?.model === 'us') {
+    const c = { ...DEFAULT_CHARGES_US, ...charges };
+    const orders = (buyValue > 0 ? 1 : 0) + (sellValue > 0 ? 1 : 0);
+    const commission = orders * (Number(c.commissionPerOrder) || 0);
+    const sec = (sellValue * (Number(c.secFeePerMillion) || 0)) / 1e6;
+    const taf = quantity > 0 ? Math.min(quantity * (Number(c.tafPerShare) || 0), Number(c.tafCap) || Infinity) : 0;
+    return round2(commission + sec + taf);
+  }
   const c = { ...DEFAULT_CHARGES, ...charges };
   const perOrder = (value) =>
     value > 0 ? Math.min(Math.max((value * c.brokeragePct) / 100, c.brokerageMin || 0), c.brokerageCap) : 0;
@@ -58,6 +97,9 @@ export function estimateCosts(buyValue, sellValue, charges = DEFAULT_CHARGES) {
   return round2(brokerage + exchange + sebi + stt + stamp + gst);
 }
 
+// A market's charges with its defaults filled in.
+const chargesFor = (cfg) => ({ ...defaultCharges(cfg.market), ...cfg.charges });
+
 /**
  * Quantity for a given entry and stop: as many shares as fit the rupee
  * risk budget (including slippage and estimated charges) and the cash, up
@@ -67,7 +109,9 @@ export function estimateCosts(buyValue, sellValue, charges = DEFAULT_CHARGES) {
  * moved to make it fit.
  */
 export function sizeForStop({ side = 'long', entry, stop, cash, config = DEFAULT_CONFIG }) {
-  const cfg = { ...DEFAULT_CONFIG, ...config, charges: { ...DEFAULT_CHARGES, ...config?.charges } };
+  const base = { ...DEFAULT_CONFIG, ...config };
+  const cfg = { ...base, charges: chargesFor(base) };
+  const cur = base.market === 'US' ? '$' : '₹';
   const riskBudget = round2((cfg.capital * cfg.riskPct) / 100);
   const available = cash ?? cfg.capital;
   const d = side === 'short' ? -1 : 1;
@@ -79,7 +123,7 @@ export function sizeForStop({ side = 'long', entry, stop, cash, config = DEFAULT
   const slip = (entry * cfg.slippagePct) / 100;
   const riskPerShare = distance + 2 * slip;
   const maxByCash = Math.floor(available / entry);
-  const lossAt = (qty) => qty * riskPerShare + estimateCosts(entry * qty, stop * qty, cfg.charges);
+  const lossAt = (qty) => qty * riskPerShare + estimateCosts(entry * qty, stop * qty, cfg.charges, qty);
   let quantity = Math.min(Math.floor(riskBudget / riskPerShare), maxByCash);
   // Costs count against the risk budget: trim quantity until it fits.
   while (quantity > 0 && lossAt(quantity) > riskBudget) quantity -= 1;
@@ -92,7 +136,7 @@ export function sizeForStop({ side = 'long', entry, stop, cash, config = DEFAULT
     capped,
     riskPerShare: round2(riskPerShare),
     quantity,
-    costs: quantity ? estimateCosts(entry * quantity, stop * quantity, cfg.charges) : 0,
+    costs: quantity ? estimateCosts(entry * quantity, stop * quantity, cfg.charges, quantity) : 0,
     maxLoss: quantity ? round2(lossAt(quantity)) : 0,
     cashUsed: round2(quantity * entry),
   };
@@ -102,10 +146,10 @@ export function sizeForStop({ side = 'long', entry, stop, cash, config = DEFAULT
       ok: false,
       reason:
         maxByCash < 1
-          ? `One share costs more than the ₹${round2(available)} available`
+          ? `One share costs more than the ${cur}${round2(available)} available`
           : riskPerShare <= riskBudget
-            ? `Charges are too high for this trade: one share's stop loss ₹${round2(riskPerShare)} + est. charges ₹${round2(lossAt(1) - riskPerShare)} = ₹${round2(lossAt(1))}, over the ₹${riskBudget} budget`
-            : `Stop is too wide: one share risks ₹${round2(lossAt(1))}, over the ₹${riskBudget} budget`,
+            ? `Charges are too high for this trade: one share's stop loss ${cur}${round2(riskPerShare)} + est. charges ${cur}${round2(lossAt(1) - riskPerShare)} = ${cur}${round2(lossAt(1))}, over the ${cur}${riskBudget} budget`
+            : `Stop is too wide: one share risks ${cur}${round2(lossAt(1))}, over the ${cur}${riskBudget} budget`,
     };
   }
   return { ...result, ok: true };
@@ -133,9 +177,9 @@ export function planTrade({ side = 'long', entry, atr, cash, config = DEFAULT_CO
   const size = sizeForStop({ side, entry, stop, cash, config: cfg });
   // What the target pays after slippage on both fills and charges.
   const q = size.quantity || 0;
-  const charges = { ...DEFAULT_CHARGES, ...cfg.charges };
+  const charges = chargesFor(cfg);
   const slip = (entry * cfg.slippagePct) / 100;
-  const costsAtTarget = q ? estimateCosts(d > 0 ? entry * q : target * q, d > 0 ? target * q : entry * q, charges) : 0;
+  const costsAtTarget = q ? estimateCosts(d > 0 ? entry * q : target * q, d > 0 ? target * q : entry * q, charges, q) : 0;
   const netReward = q ? round2(q * (Math.abs(target - entry) - 2 * slip) - costsAtTarget) : 0;
   return {
     ...base,

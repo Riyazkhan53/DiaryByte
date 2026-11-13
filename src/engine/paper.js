@@ -11,24 +11,23 @@
 //   candle closes on the wrong side of VWAP *and* EMA 9 has crossed EMA 21
 //   against it (two things together, not one indicator flipping);
 // - a gap through the stop fills at the open (worse than the stop);
-// - open positions are squared off at 15:20 IST (intraday);
+// - open positions are squared off at the market's square-off time
+//   (15:20 IST on NSE, 15:50 New York time in the US);
 // - estimated charges come off the gross P/L.
 
 import { estimateCosts, DEFAULT_CONFIG } from './risk.js';
 import { emaSeries } from './indicators.js';
-import { istMinutes, istParts } from './time.js';
+import { hhmm, marketOf, marketParts, sessionTimes } from './time.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
-const SQUARE_OFF = istMinutes('15:20');
-const SQUARE_OFF_WARN = istMinutes('15:10');
 
-/** Session VWAP at every candle (resets each IST day). */
-function vwapSeries(candles) {
+/** Session VWAP at every candle (resets each trading day, in the market's time). */
+function vwapSeries(candles, market = 'NSE') {
   let day = null;
   let pv = 0;
   let vol = 0;
   return candles.map((c) => {
-    const d = istParts(c.t).dateKey;
+    const d = marketParts(c.t, market).dateKey;
     if (d !== day) {
       day = d;
       pv = 0;
@@ -78,14 +77,18 @@ export function simulateTrade(plan, candles, signalTime, config = DEFAULT_CONFIG
   const after = candles.slice(firstAfter);
   const trailAtR = config.trailAtR ?? DEFAULT_CONFIG.trailAtR;
   const weakExit = config.weakExit ?? DEFAULT_CONFIG.weakExit;
+  const market = config.market || 'NSE';
+  const parts = (t) => marketParts(t, market);
+  const { squareOff: SQUARE_OFF, squareOffWarn: SQUARE_OFF_WARN } = sessionTimes(market);
+  const cur = marketOf(market).symbol;
   const closes = candles.map((c) => c.close);
   const e9 = emaSeries(closes, 9);
   const e21 = emaSeries(closes, 21);
-  const vwap = vwapSeries(candles);
+  const vwap = vwapSeries(candles, market);
 
   const entryCandle = after[0];
   const entryPrice = round2(entryCandle.open * (1 + d * slipPct));
-  const entryDay = istParts(entryCandle.t).dateKey;
+  const entryDay = parts(entryCandle.t).dateKey;
   // The plan's stop/target distances, re-anchored on the actual fill.
   const stop = round2(entryPrice - (plan.entry - plan.stop));
   const target = round2(entryPrice + (plan.target - plan.entry));
@@ -102,7 +105,7 @@ export function simulateTrade(plan, candles, signalTime, config = DEFAULT_CONFIG
     const grossPnl = round2((exitPrice - entryPrice) * qty * d);
     const buy = d > 0 ? entryPrice * qty : exitPrice * qty;
     const sell = d > 0 ? exitPrice * qty : entryPrice * qty;
-    const costs = estimateCosts(buy, sell, config.charges);
+    const costs = estimateCosts(buy, sell, config.charges, qty);
     const riskPerShare = Math.abs(entryPrice - stop);
     return {
       ...base,
@@ -122,9 +125,9 @@ export function simulateTrade(plan, candles, signalTime, config = DEFAULT_CONFIG
   const maxHoldMs = (config.maxHoldMin ?? DEFAULT_CONFIG.maxHoldMin) * 60000;
   for (let i = 0; i < after.length; i += 1) {
     const c = after[i];
-    const { dateKey, minutes } = istParts(c.t);
+    const { dateKey, minutes } = parts(c.t);
     if (dateKey !== entryDay || minutes >= SQUARE_OFF) {
-      // Square off at the open of the first candle at/after 15:20 (or next day's open).
+      // Square off at the open of the first candle at/after the square-off time (or next day's open).
       return close(c.t, c.open, 'eod');
     }
     if (maxHoldMs > 0 && c.t - entryCandle.t >= maxHoldMs) return close(c.t, c.open, 'time');
@@ -167,15 +170,15 @@ export function simulateTrade(plan, candles, signalTime, config = DEFAULT_CONFIG
   const last = after[after.length - 1];
   const lastPrice = last.close;
   const gross = (lastPrice - entryPrice) * qty * d;
-  const estCosts = estimateCosts(d > 0 ? entryPrice * qty : lastPrice * qty, d > 0 ? lastPrice * qty : entryPrice * qty, config.charges);
-  const lateNow = istParts(last.t).minutes + 5 >= SQUARE_OFF_WARN;
+  const estCosts = estimateCosts(d > 0 ? entryPrice * qty : lastPrice * qty, d > 0 ? lastPrice * qty : entryPrice * qty, config.charges, qty);
+  const lateNow = parts(last.t).minutes + 5 >= SQUARE_OFF_WARN;
   const [liveAction, actionNote] = lateNow
-    ? ['SQUARE OFF', 'Close to 15:20: square off this position']
+    ? ['SQUARE OFF', `Close to ${hhmm(SQUARE_OFF)}: square off this position`]
     : weakPending
       ? ['EXIT / TRAIL SL', `Setup broke: closed ${d > 0 ? 'below' : 'above'} VWAP with EMA 9 ${d > 0 ? 'under' : 'over'} EMA 21 — exits at the next candle's open`]
       : stopMoved
-        ? ['TRAIL SL', `In profit by ${trailAtR}R: stop moved to entry ₹${entryPrice}, so it can't turn into a loss`]
-        : ['HOLD', `Stop ₹${stopNow} · target ₹${target}`];
+        ? ['TRAIL SL', `In profit by ${trailAtR}R: stop moved to entry ${cur}${entryPrice}, so it can't turn into a loss`]
+        : ['HOLD', `Stop ${cur}${stopNow} · target ${cur}${target}`];
   return {
     ...base,
     status: 'open',
@@ -188,11 +191,11 @@ export function simulateTrade(plan, candles, signalTime, config = DEFAULT_CONFIG
   };
 }
 
-/** Net P/L of trades closed on IST day `dateKey`. */
-export function dayNetPnl(trades, dateKey) {
+/** Net P/L of trades closed on the market's trading day `dateKey`. */
+export function dayNetPnl(trades, dateKey, market = 'NSE') {
   return round2(
     trades
-      .filter((t) => t.status === 'closed' && t.exitTime && istParts(t.exitTime).dateKey === dateKey)
+      .filter((t) => t.status === 'closed' && t.exitTime && marketParts(t.exitTime, market).dateKey === dateKey)
       .reduce((s, t) => s + (t.netPnl || 0), 0)
   );
 }

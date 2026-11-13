@@ -1,7 +1,7 @@
 // Candle normalisation and data-quality checks. A candle is
 // { t (start, ms since epoch), open, high, low, close, volume }.
 
-import { istParts, isNseOpen, toMs } from './time.js';
+import { isMarketOpen, marketParts, toMs } from './time.js';
 
 const finite = (n) => typeof n === 'number' && Number.isFinite(n);
 
@@ -45,9 +45,9 @@ export function completedCandles(candles, intervalMin, now = Date.now()) {
  * During the session, the last completed candle must have ended within
  * `maxDelayMin` minutes (delayed feeds lag); otherwise the data is stale.
  */
-export function checkFreshness(completed, { intervalMin, now = Date.now(), maxDelayMin = 20 } = {}) {
+export function checkFreshness(completed, { intervalMin, now = Date.now(), maxDelayMin = 20, market = 'NSE' } = {}) {
   const nowMs = toMs(now);
-  const marketOpen = isNseOpen(nowMs);
+  const marketOpen = isMarketOpen(nowMs, market);
   const issues = [];
   if (!completed.length) {
     return { status: 'empty', marketOpen, ageMin: null, lastCandle: null, gaps: 0, issues: ['No completed candles'] };
@@ -56,8 +56,8 @@ export function checkFreshness(completed, { intervalMin, now = Date.now(), maxDe
   const ageMin = Math.max(0, Math.round((nowMs - (last.t + intervalMin * 60000)) / 60000));
 
   // Missing candles inside today's session (not overnight or weekends).
-  const today = istParts(last.t).dateKey;
-  const session = completed.filter((c) => istParts(c.t).dateKey === today);
+  const today = marketParts(last.t, market).dateKey;
+  const session = completed.filter((c) => marketParts(c.t, market).dateKey === today);
   let gaps = 0;
   for (let i = 1; i < session.length; i += 1) {
     const missing = Math.round((session[i].t - session[i - 1].t) / (intervalMin * 60000)) - 1;

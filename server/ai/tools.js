@@ -136,7 +136,9 @@ const stockTools = [
       "The user's trading setup and record: watchlist, engine settings (capital, risk %, threshold, charges), the engine's open and recent closed paper/demo trades with stats, and the user's own paper trades (open positions and closed results). Use for 'how am I doing', 'review my watchlist' or 'what should I do with my open trades'.",
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
     run: async () => {
-      const [cfg, engineTrades, paper] = await Promise.all([engineService.getConfig(), all('enginetrades'), all('trades')]);
+      const [cfg, allEngineTrades, paper] = await Promise.all([engineService.getConfig('NSE'), all('enginetrades'), all('trades')]);
+      // StockByte covers NSE; the US (NASDAQ) engine has its own trades.
+      const engineTrades = allEngineTrades.filter((t) => engineService.marketOfRecord(t) === 'NSE');
       const { performanceStats } = await import('../../src/engine/stats.js');
       const monthAgo = Date.now() - 30 * 86400000;
       const pick = (t) => ({
