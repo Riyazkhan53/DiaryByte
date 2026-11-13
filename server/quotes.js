@@ -235,9 +235,10 @@ async function searchSymbols(query, market) {
  * [{ t (ms), open, high, low, close, volume }], oldest first, including a
  * possibly still-forming last candle (the engine drops it).
  */
-async function getIntradayCandles(symbol, intervalMin) {
+async function getIntradayCandles(symbol, intervalMin, rangeOverride) {
   if (!isSymbol(symbol)) throw new Error('Bad symbol');
-  const range = intervalMin <= 5 ? '5d' : '1mo';
+  // Backtests ask for more history (Yahoo keeps 60 days of 5-minute candles).
+  const range = rangeOverride || (intervalMin <= 5 ? '5d' : '1mo');
   const body = await getJson(
     `${CHART_URL}${encodeURIComponent(symbol.toUpperCase())}?range=${range}&interval=${intervalMin}m`
   );

@@ -72,6 +72,11 @@ DiaryByte greets you by name on a personal dashboard and keeps your daily journa
 - **Open / Done**: your own paper trades with live P/L and R, a daily loss stop, sizing from your
   risk budget, and a review page (win rate, net after charges, average R, by signal).
 
+### US trading (NASDAQ) and backtests
+- The intraday signal engine runs on US stocks too: My Trading → Signals → 🇺🇸 US · NASDAQ, with its own watchlist, $ capital and risk settings, US costs (commission-free + SEC/FINRA fees), paper trades, report card and learning
+- New York hours with daylight saving worked out (09:30–16:00 ET, last entry 15:15, square-off 15:50); the server scans and paper-trades entries by itself. No phone alerts for the US
+- Backtest: replays ~60 days of 5-minute candles for a market's watchlist through the same rules (no look-ahead) and feeds the results to the engine's learning; refreshed weekly by the server, or on demand
+
 ### Settings
 - Change your name (used in the dashboard greeting)
 - Dark mode toggle (persisted)

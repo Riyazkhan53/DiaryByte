@@ -1,7 +1,7 @@
 // Indicators on candles (oldest first). Every function returns null when
 // there isn't enough history ("warm-up"), never a partial value.
 
-import { istParts } from './time.js';
+import { marketParts } from './time.js';
 
 /** EMA series, seeded with the simple average of the first `period` values. */
 export function emaSeries(values, period) {
@@ -68,16 +68,17 @@ export function atr(candles, period = 14) {
 }
 
 /**
- * Session VWAP: typical price × volume over the candles of the same IST
- * trading day as the last candle (it resets every session). Null when the
- * session has no volume yet.
+ * Session VWAP: typical price × volume over the candles of the same
+ * trading day (in the market's local time) as the last candle; it resets
+ * every session. Null when the session has no volume yet.
  */
-export function sessionVwap(candles) {
+export function sessionVwap(candles, market = 'NSE') {
   if (!candles.length) return null;
-  const day = istParts(candles[candles.length - 1].t).dateKey;
+  const dayOf = (t) => marketParts(t, market).dateKey;
+  const day = dayOf(candles[candles.length - 1].t);
   let pv = 0;
   let vol = 0;
-  for (let i = candles.length - 1; i >= 0 && istParts(candles[i].t).dateKey === day; i -= 1) {
+  for (let i = candles.length - 1; i >= 0 && dayOf(candles[i].t) === day; i -= 1) {
     const c = candles[i];
     pv += ((c.high + c.low + c.close) / 3) * c.volume;
     vol += c.volume;
@@ -102,12 +103,13 @@ const EARLY_MIN_DAYS = 2;
  * Returns { volume, avg, ratio, count, needed, basis }; avg and ratio are
  * null while neither is available (`needed` = candles today required).
  */
-export function volumeStats(candles, n = 20) {
+export function volumeStats(candles, n = 20, market = 'NSE') {
   if (!candles.length) return { volume: null, avg: null, ratio: null, count: 0, needed: EARLY_MIN_CANDLES, basis: null };
+  const parts = (t) => marketParts(t, market);
   const last = candles[candles.length - 1];
-  const { dateKey: day, minutes: slot } = istParts(last.t);
+  const { dateKey: day, minutes: slot } = parts(last.t);
   const prior = [];
-  for (let i = candles.length - 2; i >= 0 && prior.length < n && istParts(candles[i].t).dateKey === day; i -= 1) {
+  for (let i = candles.length - 2; i >= 0 && prior.length < n && parts(candles[i].t).dateKey === day; i -= 1) {
     prior.push(candles[i]);
   }
   let avg = null;
@@ -118,7 +120,7 @@ export function volumeStats(candles, n = 20) {
     basis = 'session';
   } else {
     const sameSlot = candles.filter((c) => {
-      const p = istParts(c.t);
+      const p = parts(c.t);
       return p.dateKey !== day && p.minutes === slot && c.volume > 0;
     });
     if (sameSlot.length >= EARLY_MIN_DAYS) {
@@ -140,8 +142,8 @@ export function volumeStats(candles, n = 20) {
 }
 
 /** Same-session average volume of the `n` candles before the last one (see volumeStats). */
-export function volumeAverage(candles, n = 20) {
-  return volumeStats(candles, n).avg;
+export function volumeAverage(candles, n = 20, market = 'NSE') {
+  return volumeStats(candles, n, market).avg;
 }
 
 /** Highest high / lowest low of the `n` candles before the last one. */

@@ -11,8 +11,11 @@
 // and trades that only just cleared the threshold.
 //
 // Input records: { side: 'long' | 'short', symbol, r (result in R, or null),
-// net (₹ after charges), score (side's score at entry, or null), minutes
-// (IST minutes of the day at the signal, or null) }.
+// net (money after charges), score (side's score at entry, or null), minutes
+// (minutes of the day at the signal, in the market's local time, or null) }.
+// Each market (NSE, US) learns from its own trades only.
+
+import { hhmm, marketOf, sessionTimes } from './time.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
@@ -21,12 +24,27 @@ export const LEARN_MAX_BUMP = 20;
 const MIN_BUCKET = 8; // trades needed in a situation (6 for one stock)
 const MIN_SYMBOL = 6;
 
-export const TIME_BUCKETS = [
-  { id: 'open', label: 'the first 90 minutes (09:15–10:45)', from: 9 * 60 + 15, to: 10 * 60 + 45 },
-  { id: 'mid', label: 'midday (10:45–13:00)', from: 10 * 60 + 45, to: 13 * 60 },
-  { id: 'late', label: 'the afternoon (13:00–14:45)', from: 13 * 60, to: 15 * 60 + 30 },
+// Parts of the session, as minutes after the open: the first 90 minutes,
+// midday, and the rest (the last entry comes before the close).
+const BUCKET_SPANS = [
+  { id: 'open', name: 'the first 90 minutes', from: 0, to: 90 },
+  { id: 'mid', name: 'midday', from: 90, to: 225 },
+  { id: 'late', name: 'the afternoon', from: 225, to: 24 * 60 },
 ];
-export const timeBucket = (minutes) => (minutes == null ? null : TIME_BUCKETS.find((b) => minutes >= b.from && minutes < b.to) || null);
+
+/** The session's time buckets in local minutes, with labels like "the first 90 minutes (09:15–10:45)". */
+export function timeBuckets(market = 'NSE') {
+  const { open, lastEntry } = sessionTimes(market);
+  const zone = marketOf(market).zone;
+  return BUCKET_SPANS.map((b) => {
+    const from = open + b.from;
+    const to = Math.min(open + b.to, lastEntry);
+    return { id: b.id, label: `${b.name} (${hhmm(from)}–${hhmm(to)} ${zone})`, from, to: b.id === 'late' ? 24 * 60 : to };
+  });
+}
+export const TIME_BUCKETS = timeBuckets('NSE');
+export const timeBucket = (minutes, market = 'NSE') =>
+  minutes == null ? null : timeBuckets(market).find((b) => minutes >= b.from && minutes < b.to) || null;
 
 function stats(list) {
   const n = list.length;
@@ -43,14 +61,15 @@ function bumpFor(s) {
   return s.avgR != null && s.avgR <= -0.4 ? 10 : 5;
 }
 
-const money = (n) => `${n < 0 ? '−' : '+'}₹${Math.abs(Math.round(n)).toLocaleString('en-IN')}`;
-const describe = (s) => `${s.n} trades, ${s.winRate}% won, ${money(s.net)}${s.avgR != null ? `, avg ${s.avgR}R` : ''}`;
+const money = (n, cur = '₹') => `${n < 0 ? '−' : '+'}${cur}${Math.abs(Math.round(n)).toLocaleString(cur === '$' ? 'en-US' : 'en-IN')}`;
+const describe = (s, cur) => `${s.n} trades, ${s.winRate}% won, ${money(s.net, cur)}${s.avgR != null ? `, avg ${s.avgR}R` : ''}`;
 
 /**
  * What the results teach: { trades, active, rules: [{ id, kind, match,
  * bump, note }] }. `threshold` is the base score needed.
  */
-export function learnFromTrades(records, threshold = 65) {
+export function learnFromTrades(records, threshold = 65, market = 'NSE') {
+  const cur = marketOf(market).symbol;
   const trades = (records || []).filter((t) => t && (t.side === 'long' || t.side === 'short') && Number.isFinite(Number(t.net)));
   const out = { trades: trades.length, active: trades.length >= LEARN_MIN_TRADES, needed: LEARN_MIN_TRADES, rules: [] };
   if (!out.active) return out;
@@ -58,13 +77,13 @@ export function learnFromTrades(records, threshold = 65) {
     if (list.length < min) return;
     const s = stats(list);
     const bump = bumpFor(s);
-    if (bump) out.rules.push({ id, kind, match, bump, note: `${label} have been losing (${describe(s)}): needs +${bump} points` });
+    if (bump) out.rules.push({ id, kind, match, bump, note: `${label} have been losing (${describe(s, cur)}): needs +${bump} points` });
   };
   ['long', 'short'].forEach((side) =>
     add(`side:${side}`, 'side', { side }, trades.filter((t) => t.side === side), MIN_BUCKET, side === 'long' ? 'Long trades' : 'Short trades')
   );
-  TIME_BUCKETS.forEach((b) =>
-    add(`time:${b.id}`, 'time', { bucket: b.id }, trades.filter((t) => timeBucket(t.minutes)?.id === b.id), MIN_BUCKET, `Trades in ${b.label}`)
+  timeBuckets(market).forEach((b) =>
+    add(`time:${b.id}`, 'time', { bucket: b.id }, trades.filter((t) => timeBucket(t.minutes, market)?.id === b.id), MIN_BUCKET, `Trades in ${b.label}`)
   );
   [...new Set(trades.map((t) => t.symbol).filter(Boolean))].forEach((symbol) =>
     add(`symbol:${symbol}`, 'symbol', { symbol }, trades.filter((t) => t.symbol === symbol), MIN_SYMBOL, `${String(symbol).replace(/\.(NS|BO)$/, '')} trades`)
@@ -85,9 +104,9 @@ export function learnFromTrades(records, threshold = 65) {
  * Extra points needed right now for `side` on `symbol` at `minutes`:
  * { bump, notes: [text] }. Capped at LEARN_MAX_BUMP.
  */
-export function learnedBump(learned, { side, symbol, minutes }) {
+export function learnedBump(learned, { side, symbol, minutes }, market = 'NSE') {
   if (!learned?.active) return { bump: 0, notes: [] };
-  const bucket = timeBucket(minutes)?.id;
+  const bucket = timeBucket(minutes, market)?.id;
   const hits = learned.rules.filter(
     (r) =>
       (r.kind === 'side' && r.match.side === side) ||

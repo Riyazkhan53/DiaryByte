@@ -5,6 +5,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { fetchSignalHistory } from '../../services/api';
 import { VERDICT_COLOR, engineReport, setupReport } from '../../utils/reportCard';
 import { formatPnl, formatR, pnlColor } from './format';
+import { moneyMarket } from '../../utils/engineMarket';
 
 function Shell({ title, verdict, summary, children }) {
   const { theme } = useTheme();
@@ -52,13 +53,14 @@ function Grid({ items }) {
 }
 
 /** Signals tab: how the engine's paper/demo trades did in the last 30 days, and why it waited today. */
-export function EngineReportCard({ trades, learning }) {
+export function EngineReportCard({ trades, learning, market = 'NSE' }) {
   const { theme } = useTheme();
+  const mm = moneyMarket(market);
   const [signals, setSignals] = useState([]);
   useEffect(() => {
     let cancelled = false;
     const load = () =>
-      fetchSignalHistory({ days: 1, timeframe: '5m' })
+      fetchSignalHistory({ days: 1, timeframe: '5m', market })
         .then((r) => !cancelled && setSignals(r?.signals || []))
         .catch(() => {});
     load();
@@ -67,11 +69,11 @@ export function EngineReportCard({ trades, learning }) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [market]);
   const report = engineReport(trades, signals);
   const s = report.stats;
   const summary = s.trades
-    ? `${s.trades} trades · ${s.winRate}% win · ${formatPnl(s.netPnl, 'IN')} net (30 days)`
+    ? `${s.trades} trades · ${s.winRate}% win · ${formatPnl(s.netPnl, mm)} net (30 days)`
     : 'Engine paper trades, last 30 days';
   const scanned = report.counts.candidates + report.counts.wait + report.counts.noTrade + report.counts.neutral;
   return (
@@ -81,10 +83,10 @@ export function EngineReportCard({ trades, learning }) {
           items={[
             ['Closed trades', String(s.trades)],
             ['Win rate', `${s.winRate}%`],
-            ['Net after charges', formatPnl(s.netPnl, 'IN'), pnlColor(s.netPnl)],
+            ['Net after charges', formatPnl(s.netPnl, mm), pnlColor(s.netPnl)],
             ['Avg result', s.avgR != null ? formatR(s.avgR) : null, pnlColor(s.avgR)],
             ['Profit factor', s.profitFactor != null ? `${s.profitFactor}×` : 'no losses'],
-            ['Worst drawdown', formatPnl(s.maxDrawdown, 'IN'), s.maxDrawdown < 0 ? '#E5383B' : null],
+            ['Worst drawdown', formatPnl(s.maxDrawdown, mm), s.maxDrawdown < 0 ? '#E5383B' : null],
           ]}
         />
       ) : null}

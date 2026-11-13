@@ -14,12 +14,15 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
-import { DEFAULT_CONFIG, MIN_REWARD_RISK } from '../../engine/risk.js';
+import { MIN_REWARD_RISK } from '../../engine/risk.js';
 import { maxDrawdown } from '../../engine/stats.js';
 import { confirmDelete } from '../../utils/confirm';
 import { searchStocks } from '../../services/stocks';
 import AlertsCard from './AlertsCard';
 import { EngineReportCard } from './ReportCard';
+import BacktestCard from './BacktestCard';
+import MarketSwitch from './MarketSwitch';
+import { marketConfig, moneyMarket, shortSymbol, withMarketChanges } from '../../utils/engineMarket';
 import {
   evaluateSymbol,
   fetchCollection,
@@ -57,7 +60,7 @@ const STATE_COLORS = {
 // lowest value saved (anything lower is raised to it); default min is
 // just above zero. `rupees` shows the % of capital as an amount.
 const SETTINGS = [
-  { key: 'capital', label: 'Practice capital (₹)' },
+  { key: 'capital', label: 'Practice capital' },
   { key: 'riskPct', label: 'Risk per trade (%)', rupees: true },
   { key: 'dailyLossPct', label: 'Daily loss stop (%)', rupees: true },
   { key: 'maxOpenPositions', label: 'Open positions at once (when limited)' },
@@ -67,17 +70,24 @@ const SETTINGS = [
   { key: 'slippagePct', label: 'Slippage per fill (%)' },
   { key: 'threshold', label: 'Score needed (of 100)' },
   { key: 'maxDelayMin', label: 'Stale after (minutes)' },
-  { key: 'maxHoldMin', label: 'Max hold, minutes (0 = till 15:20)', min: 0, integer: true },
+  { key: 'maxHoldMin', label: 'Max hold, minutes (0 = till square-off)', min: 0, integer: true },
   { key: 'minNetRR', label: 'Warn below net reward:risk after charges', min: 0 },
   { key: 'trailAtR', label: 'Move stop to entry at (× risk, 0 = off)', min: 0 },
 ];
 
 // Your broker's charges per order (check a contract note); stored under `charges`.
-const CHARGE_SETTINGS = [
-  { key: 'brokeragePct', label: 'Brokerage per order (%)' },
-  { key: 'brokerageMin', label: 'Minimum brokerage per order (₹)' },
-  { key: 'brokerageCap', label: 'Maximum brokerage per order (₹)' },
-];
+const CHARGE_SETTINGS = {
+  NSE: [
+    { key: 'brokeragePct', label: 'Brokerage per order (%)' },
+    { key: 'brokerageMin', label: 'Minimum brokerage per order (₹)' },
+    { key: 'brokerageCap', label: 'Maximum brokerage per order (₹)' },
+  ],
+  US: [
+    { key: 'commissionPerOrder', label: 'Commission per order ($)' },
+    { key: 'secFeePerMillion', label: 'SEC fee ($ per $1M sold)' },
+    { key: 'tafPerShare', label: 'FINRA fee ($ per share sold)' },
+  ],
+};
 
 const CHECK_LABEL = {
   session: 'Market session',
@@ -105,6 +115,9 @@ const problemText = (e) =>
       ? `The server could not answer (${e.status}). Try again in a minute.`
       : "Couldn't reach your server. It may be waking up; try again in a minute.";
 
+// Engine trades of the market on screen (old ones have no market: NSE).
+const inMarketOf = (market) => (t) => (t.market === 'US') === (market === 'US');
+
 const timeOf = (iso) =>
   iso ? new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '—';
 
@@ -118,7 +131,7 @@ const timeOf = (iso) =>
 // time, and a new 5-minute candle's signal then shows within seconds.
 const REFRESH_MS = 15000;
 
-export default function Signals({ header, onPaperTrade }) {
+export default function Signals({ header, onPaperTrade, market = 'NSE', onMarket }) {
   const { theme } = useTheme();
   const {
     items: configDocs,
@@ -126,9 +139,11 @@ export default function Signals({ header, onPaperTrade }) {
     persist: persistConfig,
     pullNow: pullConfig,
   } = useSyncedCollection('tradingconfig', CONFIG_KEY);
-  const configDoc = configDocs[0] || null;
-  const config = { ...DEFAULT_CONFIG, ...(configDoc || {}) };
-  const watchlist = configDoc?.watchlist || [];
+  // This market's settings (India: NSE in ₹; US: NASDAQ in $).
+  const { doc: configDoc, config, watchlist, info } = marketConfig(configDocs, market);
+  const mm = moneyMarket(market);
+  const cur = info.symbol;
+  const chargeSettings = CHARGE_SETTINGS[market] || CHARGE_SETTINGS.NSE;
 
   const [status, setStatus] = useState(null);
   // 'outdated' (server too old for signals) or 'offline'
@@ -147,8 +162,9 @@ export default function Signals({ header, onPaperTrade }) {
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const inMarket = inMarketOf(market);
 
-  const symbol = selected || watchlist[0] || null;
+  const symbol = (selected && watchlist.includes(selected) ? selected : null) || watchlist[0] || null;
 
   // First time on this device: fetch the settings saved from another one.
   useEffect(() => {
@@ -160,7 +176,7 @@ export default function Signals({ header, onPaperTrade }) {
   useEffect(() => {
     let cancelled = false;
     const load = (quiet) => {
-      fetchEngineStatus()
+      fetchEngineStatus(market)
         .then((s) => {
           if (cancelled) return;
           setStatus(s);
@@ -172,11 +188,11 @@ export default function Signals({ header, onPaperTrade }) {
           setStatusProblem(e?.status === 404 ? 'outdated' : 'offline');
         });
       fetchCollection('enginetrades')
-        .then((trades) => !cancelled && setLedger({ trades }))
+        .then((trades) => !cancelled && setLedger({ trades: trades.filter(inMarket) }))
         .catch(() => {});
       if (!symbol) return;
       if (quiet !== true) setLoading(true);
-      evaluateSymbol(symbol)
+      evaluateSymbol(symbol, market)
         .then((r) => {
           if (cancelled) return;
           setEvaluation(r);
@@ -191,14 +207,12 @@ export default function Signals({ header, onPaperTrade }) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [symbol, version]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- inMarket follows `market`
+  }, [symbol, version, market]);
 
   const refresh = () => setVersion((v) => v + 1);
 
-  const saveConfig = (changes) => {
-    const doc = { ...(configDoc || { id: 'default' }), ...changes, updatedAt: new Date().toISOString() };
-    persistConfig([doc]);
-  };
+  const saveConfig = (changes) => persistConfig(withMarketChanges(configDocs, market, changes));
 
   const addSymbol = (s) => {
     if (!watchlist.includes(s.symbol)) saveConfig({ watchlist: [...watchlist, s.symbol].slice(0, 10) });
@@ -208,7 +222,7 @@ export default function Signals({ header, onPaperTrade }) {
   };
 
   const removeSymbol = (s) =>
-    confirmDelete('Remove from watchlist', `Stop scanning ${s.replace(/\.NS$/, '')}?`, () => removeSymbolNow(s));
+    confirmDelete('Remove from watchlist', `Stop scanning ${shortSymbol(s)}?`, () => removeSymbolNow(s));
   const removeSymbolNow = (s) => {
     saveConfig({ watchlist: watchlist.filter((x) => x !== s) });
     if (selected === s) setSelected(null);
@@ -218,7 +232,7 @@ export default function Signals({ header, onPaperTrade }) {
     if (query.trim().length < 2) return;
     setSearching(true);
     try {
-      setResults(await searchStocks(query, 'IN'));
+      setResults(await searchStocks(query, mm));
     } catch (_e) {
       setResults([]);
     } finally {
@@ -229,7 +243,7 @@ export default function Signals({ header, onPaperTrade }) {
   const scanNow = async () => {
     setScanning(true);
     try {
-      await runEngineScan();
+      await runEngineScan(market);
     } catch (_e) {
       // Shown through status.lastError.
     } finally {
@@ -247,19 +261,19 @@ export default function Signals({ header, onPaperTrade }) {
     }
   };
 
-  const charges = { ...DEFAULT_CONFIG.charges, ...configDoc?.charges };
+  const charges = config.charges;
 
   // "What would happen if I took this now?" — the server simulates it.
   const startDemo = (side) => {
     setDemo({ busy: true, message: null, error: false });
-    startDemoTrade(symbol, side)
+    startDemoTrade(symbol, side, market)
       .then(({ trade }) => {
         setDemo({
           busy: false,
           error: false,
-          message: `Demo ${side} started on ${symbol.replace(/\.NS$/, '')}: enters at the next candle's open, then follows the exit plan. Watch it below.`,
+          message: `Demo ${side} started on ${shortSymbol(symbol)}: enters at the next candle's open, then follows the exit plan. Watch it below.`,
         });
-        return fetchCollection('enginetrades').then((trades) => setLedger({ trades }));
+        return fetchCollection('enginetrades').then((trades) => setLedger({ trades: trades.filter(inMarket) }));
       })
       .catch((e) =>
         setDemo({
@@ -272,7 +286,7 @@ export default function Signals({ header, onPaperTrade }) {
   const openSettings = () => {
     setDrafts({
       ...Object.fromEntries(SETTINGS.map((s) => [s.key, String(config[s.key])])),
-      ...Object.fromEntries(CHARGE_SETTINGS.map((s) => [`charges.${s.key}`, String(charges[s.key])])),
+      ...Object.fromEntries(chargeSettings.map((s) => [`charges.${s.key}`, String(charges[s.key] ?? 0)])),
     });
     setSettingsOpen(true);
   };
@@ -287,7 +301,7 @@ export default function Signals({ header, onPaperTrade }) {
       else if (v > 0) changes[s.key] = v;
     });
     const chargeChanges = {};
-    CHARGE_SETTINGS.forEach((s) => {
+    chargeSettings.forEach((s) => {
       const v = parseFloat(drafts[`charges.${s.key}`]);
       if (Number.isFinite(v) && v >= 0) chargeChanges[s.key] = v;
     });
@@ -325,13 +339,14 @@ export default function Signals({ header, onPaperTrade }) {
     <>
       <ScrollView style={styles.content} contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         {header}
+        {onMarket ? <MarketSwitch market={market} onChange={onMarket} /> : null}
 
         {/* Status strip */}
         <View style={[cardStyle, styles.strip]}>
           <View style={styles.stripRow}>
             <View style={[styles.dot, { backgroundColor: status?.marketOpen ? PROFIT : '#8E8E93' }]} />
             <Text style={[styles.stripText, { color: theme.text }]}>
-              NSE {status ? (status.marketOpen ? 'open' : 'closed') : '—'}
+              {info.label} {status ? (status.marketOpen ? 'open' : 'closed') : '—'}
             </Text>
             <Text style={[styles.stripText, styles.flex, { color: theme.textSecondary }]} numberOfLines={1}>
               {status
@@ -366,19 +381,20 @@ export default function Signals({ header, onPaperTrade }) {
           {status?.provider.note ? (
             <Text style={[styles.stripSub, { color: '#FF9500' }]}>{status.provider.note}</Text>
           ) : null}
-          {status?.kite.wanted && status.kite.configured && !status.kite.connected ? (
+          {status?.kite?.wanted && status.kite.configured && !status.kite.connected ? (
             <TouchableOpacity style={[styles.outlineBtn, { borderColor: theme.primary }]} onPress={connectKite}>
               <Text style={[styles.outlineText, { color: theme.primary }]}>Log in to Kite for today</Text>
             </TouchableOpacity>
           ) : null}
         </View>
 
-        <EngineReportCard trades={ledger.trades} learning={ev?.learning} />
-        <AlertsCard configDoc={configDoc} saveConfig={saveConfig} />
+        <EngineReportCard trades={ledger.trades} learning={ev?.learning} market={market} />
+        <BacktestCard key={market} market={market} cardStyle={cardStyle} />
+        {market === 'NSE' ? <AlertsCard configDoc={configDoc} saveConfig={saveConfig} /> : null}
 
         {/* Watchlist */}
         <View style={cardStyle}>
-          <Text style={[styles.title, { color: theme.text }]}>Watchlist (NSE)</Text>
+          <Text style={[styles.title, { color: theme.text }]}>Watchlist ({market === 'US' ? 'NASDAQ' : 'NSE'})</Text>
           <View style={styles.chips}>
             {watchlist.map((s) => (
               <TouchableOpacity
@@ -387,14 +403,14 @@ export default function Signals({ header, onPaperTrade }) {
                 onLongPress={() => removeSymbol(s)}
                 style={[styles.chip, { backgroundColor: s === symbol ? theme.primary : theme.surfaceAlt, borderColor: s === symbol ? theme.primary : theme.borderNeutral }]}
               >
-                <Text style={[styles.chipText, { color: s === symbol ? theme.onPrimary : theme.text }]}>{s.replace(/\.NS$/, '')}</Text>
+                <Text style={[styles.chipText, { color: s === symbol ? theme.onPrimary : theme.text }]}>{shortSymbol(s)}</Text>
               </TouchableOpacity>
             ))}
           </View>
           <View style={styles.searchRow}>
             <TextInput
               style={[styles.input, styles.flex, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
-              placeholder="Add a stock (e.g. DLF, infosys)"
+              placeholder={market === 'US' ? 'Add a stock (e.g. AAPL, nvidia)' : 'Add a stock (e.g. DLF, infosys)'}
               placeholderTextColor={theme.textMuted}
               value={query}
               onChangeText={setQuery}
@@ -419,7 +435,8 @@ export default function Signals({ header, onPaperTrade }) {
             </TouchableOpacity>
           ))}
           <Text style={[styles.hint, { color: theme.textMuted }]}>
-            Up to 10 stocks. Long-press one to remove it. The server scans them every 5 minutes in market hours.
+            Up to 10 stocks. Long-press one to remove it. The server scans them every 5 minutes in market hours
+            {market === 'US' ? ` (${info.open}–${info.close} New York, about 8 pm–2:30 am IST in winter, 7 pm–1:30 am in summer) and paper-trades the entries by itself.` : '.'}
           </Text>
           <TouchableOpacity style={[styles.outlineBtn, { borderColor: theme.primary }]} onPress={scanNow} disabled={scanning || !watchlist.length}>
             {scanning ? <ActivityIndicator size="small" color={theme.primary} /> : <Text style={[styles.outlineText, { color: theme.primary }]}>Scan watchlist now</Text>}
@@ -519,7 +536,7 @@ export default function Signals({ header, onPaperTrade }) {
             {/* Where the price came from and when, to compare with a broker app. */}
             <View style={[styles.priceCheck, { backgroundColor: theme.surfaceAlt }]}>
               <Text style={[styles.priceLine, { color: theme.text }]}>
-                <Text style={styles.bold}>Price used {formatMoney(ev.indicators.price, 'IN')}</Text>
+                <Text style={styles.bold}>Price used {formatMoney(ev.indicators.price, mm)}</Text>
                 {ev.candle
                   ? ` = close of the ${istTime(ev.candle.t, false)}–${istTime(ev.candle.t + 5 * 60000, false)} IST candle`
                   : ''}
@@ -530,7 +547,7 @@ export default function Signals({ header, onPaperTrade }) {
               </Text>
               {ev.quote?.price ? (
                 <Text style={[styles.priceLine, { color: theme.textSecondary }]}>
-                  Last traded {formatMoney(ev.quote.price, 'IN')}
+                  Last traded {formatMoney(ev.quote.price, mm)}
                   {ev.quote.time ? ` at ${istTime(ev.quote.time)} IST` : ''}
                   {ev.quote.fetchedAt ? ` (fetched ${istTime(ev.quote.fetchedAt)})` : ''}
                 </Text>
@@ -576,7 +593,7 @@ export default function Signals({ header, onPaperTrade }) {
         {ev?.plan ? (
           <View style={cardStyle}>
             <Text style={[styles.title, { color: theme.text }]}>
-              If you take this trade · {ev.plan.side === 'short' ? 'SHORT' : 'LONG'} · ₹
+              If you take this trade · {ev.plan.side === 'short' ? 'SHORT' : 'LONG'} · {cur}
               {Math.round((config.capital * config.riskPct) / 100)} risk
               {config.maxQuantity > 0 ? `, max ${config.maxQuantity} share${config.maxQuantity > 1 ? 's' : ''}` : ''}
             </Text>
@@ -584,14 +601,14 @@ export default function Signals({ header, onPaperTrade }) {
               <>
                 <View style={styles.grid}>
                   {[
-                    [ev.plan.side === 'short' ? 'Sell (entry) ~' : 'Buy (entry) ~', formatMoney(ev.plan.entry, 'IN')],
-                    ['Stop loss', formatMoney(ev.plan.stop, 'IN'), LOSS],
-                    ['Target', formatMoney(ev.plan.target, 'IN'), PROFIT],
+                    [ev.plan.side === 'short' ? 'Sell (entry) ~' : 'Buy (entry) ~', formatMoney(ev.plan.entry, mm)],
+                    ['Stop loss', formatMoney(ev.plan.stop, mm), LOSS],
+                    ['Target', formatMoney(ev.plan.target, mm), PROFIT],
                     ['Quantity', String(ev.plan.quantity)],
-                    ['Cash used', formatMoney(ev.plan.cashUsed, 'IN')],
-                    ['Est. charges', formatMoney(ev.plan.costsAtTarget ?? ev.plan.costs, 'IN')],
-                    ['Net profit at target', ev.plan.netReward != null ? formatPnl(ev.plan.netReward, 'IN') : '—', PROFIT],
-                    ['Net loss at stop', `−${formatMoney(ev.plan.maxLoss, 'IN')}`, LOSS],
+                    ['Cash used', formatMoney(ev.plan.cashUsed, mm)],
+                    ['Est. charges', formatMoney(ev.plan.costsAtTarget ?? ev.plan.costs, mm)],
+                    ['Net profit at target', ev.plan.netReward != null ? formatPnl(ev.plan.netReward, mm) : '—', PROFIT],
+                    ['Net loss at stop', `−${formatMoney(ev.plan.maxLoss, mm)}`, LOSS],
                     ['Net reward : risk', ev.plan.netRR != null ? `${ev.plan.netRR} : 1` : '—'],
                   ].map(([label, value, color]) => (
                     <View key={label} style={styles.cell}>
@@ -602,15 +619,15 @@ export default function Signals({ header, onPaperTrade }) {
                 </View>
                 <Text style={[styles.subTitle, { color: theme.textSecondary }]}>Exit plan</Text>
                 {[
-                  `BOOK PROFIT at ${formatMoney(ev.plan.target, 'IN')} (target, ${ev.plan.rewardRisk ?? config.rewardRisk}× the stop distance)`,
-                  `EXIT NOW if price ${ev.plan.side === 'short' ? 'rises to' : 'falls to'} ${formatMoney(ev.plan.stop, 'IN')} (stop loss, ${config.atrMultiple} × ATR)`,
+                  `BOOK PROFIT at ${formatMoney(ev.plan.target, mm)} (target, ${ev.plan.rewardRisk ?? config.rewardRisk}× the stop distance)`,
+                  `EXIT NOW if price ${ev.plan.side === 'short' ? 'rises to' : 'falls to'} ${formatMoney(ev.plan.stop, mm)} (stop loss, ${config.atrMultiple} × ATR)`,
                   config.trailAtR > 0
                     ? `TRAIL SL: once ${config.trailAtR}× the risk in profit, move the stop to the entry price`
                     : null,
                   config.weakExit !== false
                     ? `EXIT if a 5-min candle closes ${ev.plan.side === 'short' ? 'above' : 'below'} VWAP with EMA 9 ${ev.plan.side === 'short' ? 'over' : 'under'} EMA 21 (one indicator flipping isn't enough)`
                     : null,
-                  'SQUARE OFF by 15:20 whatever happens (intraday)',
+                  `SQUARE OFF by ${info.squareOff} ${info.zone} whatever happens (intraday)`,
                 ]
                   .filter(Boolean)
                   .map((line) => (
@@ -643,15 +660,15 @@ export default function Signals({ header, onPaperTrade }) {
                   {demo.message ||
                     (ev.data.marketOpen
                       ? 'Records what would happen if you took it now: entry at the next candle, then the exit plan above, with charges. Results below and in History.'
-                      : 'Demo trades run in market hours (09:15–15:30 IST).')}
+                      : `Demo trades run in market hours (${info.open}–${info.close} ${info.zone}).`)}
                 </Text>
                 <TouchableOpacity
                   style={[styles.outlineBtn, { borderColor: theme.secondary }]}
                   onPress={() =>
                     onPaperTrade({
                       symbol,
-                      name: symbol.replace(/\.NS$/, ''),
-                      market: 'IN',
+                      name: shortSymbol(symbol),
+                      market: mm,
                       side: ev.plan.side,
                       entryPrice: ev.plan.entry,
                       quantity: ev.plan.quantity,
@@ -676,7 +693,7 @@ export default function Signals({ header, onPaperTrade }) {
           <Text style={[styles.title, { color: theme.text }]}>Demo &amp; engine trades</Text>
           <Text style={[styles.hint, { color: theme.textMuted }]}>
             {config.autoPaper !== false
-              ? 'Your demo trades, plus every LONG/SHORT ENTRY from the scanner, are simulated on real candles: entry at the next candle’s open, the exit plan (stop, target, trailing stop, setup break, 15:20 square-off), charges deducted.'
+              ? `Your demo trades, plus every LONG/SHORT ENTRY from the scanner, are simulated on real candles: entry at the next candle’s open, the exit plan (stop, target, trailing stop, setup break, ${info.squareOff} ${info.zone} square-off), charges deducted.`
               : 'Your demo trades are simulated on real candles with the exit plan and charges. Automatic paper trading of scanner signals is off in settings.'}
           </Text>
           <View style={styles.grid}>
@@ -684,9 +701,9 @@ export default function Signals({ header, onPaperTrade }) {
               ['Closed', String(closed.length)],
               ['Open', String(openTrades.length)],
               ['Win rate', closed.length ? `${Math.round((wins / closed.length) * 100)}%` : '—'],
-              ['Net P/L', formatPnl(net, 'IN'), pnlColor(net)],
+              ['Net P/L', formatPnl(net, mm), pnlColor(net)],
               ['Avg R', avgR != null ? formatR(avgR) : '—', pnlColor(avgR)],
-              ['Max drawdown', formatMoney(maxDrawdown(closed), 'IN'), maxDrawdown(closed) < 0 ? LOSS : undefined],
+              ['Max drawdown', formatMoney(maxDrawdown(closed), mm), maxDrawdown(closed) < 0 ? LOSS : undefined],
             ].map(([label, value, color]) => (
               <View key={label} style={styles.cell}>
                 <Text style={[styles.cellLabel, { color: theme.textMuted }]}>{label}</Text>
@@ -702,7 +719,7 @@ export default function Signals({ header, onPaperTrade }) {
                 <Text style={[styles.ledgerSide, { color: t.side === 'short' ? LOSS : PROFIT }]}>{t.side === 'short' ? 'S' : 'L'}</Text>
                 <View style={styles.flex}>
                   <Text style={[styles.ledgerName, { color: theme.text }]}>
-                    {t.symbol.replace(/\.NS$/, '')} · {t.plan?.quantity} @ {formatMoney(t.entryPrice ?? t.plan?.entry, 'IN')}
+                    {shortSymbol(t.symbol)} · {t.plan?.quantity} @ {formatMoney(t.entryPrice ?? t.plan?.entry, mm)}
                     <Text style={{ color: theme.textMuted }}> · {t.source === 'demo' ? 'Demo' : 'Auto'}</Text>
                   </Text>
                   {t.status === 'closed' ? (
@@ -711,7 +728,7 @@ export default function Signals({ header, onPaperTrade }) {
                       <Text style={[styles.bold, { color: t.exitReason === 'target' ? PROFIT : theme.text }]}>
                         {EXIT_ACTION[t.exitReason] || t.exitReason}
                       </Text>{' '}
-                      at {formatMoney(t.exitPrice, 'IN')} · {t.ruleVersion}
+                      at {formatMoney(t.exitPrice, mm)} · {t.ruleVersion}
                     </Text>
                   ) : (
                     <>
@@ -719,9 +736,9 @@ export default function Signals({ header, onPaperTrade }) {
                         <Text style={[styles.bold, { color: ACTION_COLOR[t.liveAction] || theme.text }]}>
                           {t.liveAction || (t.status === 'pending' ? 'ENTRY PENDING' : 'HOLD')}
                         </Text>
-                        {t.lastPrice != null ? ` · now ${formatMoney(t.lastPrice, 'IN')}` : ''}
-                        {t.stopMoved ? ` · stop at entry ${formatMoney(t.finalStop, 'IN')}` : ` · stop ${formatMoney(t.plan?.stop, 'IN')}`}
-                        {` · target ${formatMoney(t.plan?.target, 'IN')}`}
+                        {t.lastPrice != null ? ` · now ${formatMoney(t.lastPrice, mm)}` : ''}
+                        {t.stopMoved ? ` · stop at entry ${formatMoney(t.finalStop, mm)}` : ` · stop ${formatMoney(t.plan?.stop, mm)}`}
+                        {` · target ${formatMoney(t.plan?.target, mm)}`}
                       </Text>
                       {t.actionNote ? (
                         <Text style={[styles.hint, styles.noTop, { color: theme.textMuted }]}>{t.actionNote}</Text>
@@ -731,14 +748,14 @@ export default function Signals({ header, onPaperTrade }) {
                 </View>
                 {t.status === 'closed' ? (
                   <View style={styles.right}>
-                    <Text style={[styles.ledgerPnl, { color: pnlColor(t.netPnl, theme.text) }]}>{formatPnl(t.netPnl, 'IN')}</Text>
+                    <Text style={[styles.ledgerPnl, { color: pnlColor(t.netPnl, theme.text) }]}>{formatPnl(t.netPnl, mm)}</Text>
                     <Text style={[styles.hint, styles.noTop, { color: theme.textMuted }]}>
-                      {formatR(t.r)} · fees {formatMoney(t.costs, 'IN')}
+                      {formatR(t.r)} · fees {formatMoney(t.costs, mm)}
                     </Text>
                   </View>
                 ) : t.openPnl != null ? (
                   <View style={styles.right}>
-                    <Text style={[styles.ledgerPnl, { color: pnlColor(t.openPnl, theme.text) }]}>{formatPnl(t.openPnl, 'IN')}</Text>
+                    <Text style={[styles.ledgerPnl, { color: pnlColor(t.openPnl, theme.text) }]}>{formatPnl(t.openPnl, mm)}</Text>
                     <Text style={[styles.hint, styles.noTop, { color: theme.textMuted }]}>open, after charges</Text>
                   </View>
                 ) : null}
@@ -759,14 +776,14 @@ export default function Signals({ header, onPaperTrade }) {
         <View style={styles.overlay}>
           <View style={[styles.sheet, { backgroundColor: theme.sheet }]}>
             <ScrollView keyboardShouldPersistTaps="handled">
-              <Text style={[styles.sheetTitle, { color: theme.text }]}>Signal settings</Text>
+              <Text style={[styles.sheetTitle, { color: theme.text }]}>Signal settings · {info.label}</Text>
               <View style={styles.grid}>
                 {SETTINGS.map((s) => (
                   <View key={s.key} style={styles.field}>
                     <Text style={[styles.cellLabel, { color: theme.textSecondary }]}>
-                      {s.label}
+                      {s.key === 'capital' ? `${s.label} (${cur})` : s.key === 'maxHoldMin' ? s.label.replace('square-off', info.squareOff) : s.label}
                       {s.rupees && parseFloat(drafts.capital) > 0 && parseFloat(drafts[s.key]) > 0
-                        ? ` = ₹${Math.round((parseFloat(drafts.capital) * parseFloat(drafts[s.key])) / 100)}`
+                        ? ` = ${cur}${Math.round((parseFloat(drafts.capital) * parseFloat(drafts[s.key])) / 100)}`
                         : ''}
                     </Text>
                     <TextInput
@@ -781,7 +798,7 @@ export default function Signals({ header, onPaperTrade }) {
               </View>
               <Text style={[styles.subTitle, { color: theme.textSecondary }]}>Your broker&apos;s charges</Text>
               <View style={styles.grid}>
-                {CHARGE_SETTINGS.map((s) => (
+                {chargeSettings.map((s) => (
                   <View key={s.key} style={styles.field}>
                     <Text style={[styles.cellLabel, { color: theme.textSecondary }]}>{s.label}</Text>
                     <TextInput
@@ -795,8 +812,9 @@ export default function Signals({ header, onPaperTrade }) {
                 ))}
               </View>
               <Text style={[styles.hint, { color: theme.textMuted }]}>
-                Match these to a contract note: if a small trade cost you about ₹13 in charges, your broker likely has a
-                minimum brokerage per order. STT, exchange, SEBI, stamp duty and GST are added at the standard rates.
+                {market === 'US'
+                  ? 'Most US brokers charge no commission; the SEC and FINRA fees apply only when selling. Add a commission or your platform’s per-trade fee if it has one.'
+                  : 'Match these to a contract note: if a small trade cost you about ₹13 in charges, your broker likely has a minimum brokerage per order. STT, exchange, SEBI, stamp duty and GST are added at the standard rates.'}
               </Text>
               {[
                 { key: 'allowShort', label: 'Allow intraday shorts' },
@@ -809,7 +827,7 @@ export default function Signals({ header, onPaperTrade }) {
                 <View key={s.key} style={styles.switchRow}>
                   <Text style={[styles.flex, { color: theme.text }]}>{s.label}</Text>
                   <Switch
-                    value={configDoc?.[s.key] ?? DEFAULT_CONFIG[s.key] ?? true}
+                    value={config[s.key] ?? true}
                     onValueChange={(v) => saveConfig({ [s.key]: v })}
                   />
                 </View>

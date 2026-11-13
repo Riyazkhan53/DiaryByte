@@ -283,6 +283,8 @@ const COLLECTIONS = {
   tradingconfig: {
     fields: [
       'id',
+      // 'US' for the NASDAQ settings; the NSE settings have none (or 'NSE')
+      'market',
       'capital',
       'riskPct',
       'dailyLossPct',
@@ -327,10 +329,22 @@ const COLLECTIONS = {
     expireDays: 1,
     indexes: [{ candleTime: -1 }, { symbol: 1, candleTime: -1 }],
     fields: [
-      'id', 'symbol', 'timeframe', 'candleTime', 'key', 'state', 'side', 'score', 'rawScore', 'threshold',
+      'id', 'market', 'symbol', 'timeframe', 'candleTime', 'key', 'state', 'side', 'score', 'rawScore', 'threshold',
       'failedConditions', 'nextAction', 'ruleVersion', 'provider', 'dataStatus', 'indicators', 'plan', 'tradeId',
       'createdAt',
     ],
+  },
+  // Engine backtests: the latest run's simulated trades per market (they
+  // teach the engine like live paper trades), and each run's summary.
+  backtesttrades: {
+    indexes: [{ market: 1 }],
+    fields: [
+      'id', 'market', 'runId', 'symbol', 'side', 'signalTime', 'entryTime', 'exitTime', 'entryPrice', 'exitPrice',
+      'quantity', 'exitReason', 'grossPnl', 'costs', 'netPnl', 'r', 'score', 'status', 'createdAt',
+    ],
+  },
+  backtests: {
+    fields: ['id', 'data', 'ranAt'],
   },
   // IPO Watch: every IPO ever found (id = name slug), kept and updated by
   // each search so nothing disappears between searches.
@@ -344,7 +358,7 @@ const COLLECTIONS = {
   },
   enginetrades: {
     fields: [
-      'id', 'symbol', 'side', 'signalKey', 'signalTime', 'plan', 'score', 'ruleVersion', 'provider', 'indicators',
+      'id', 'market', 'symbol', 'side', 'signalKey', 'signalTime', 'plan', 'score', 'ruleVersion', 'provider', 'indicators',
       'status', 'entryTime', 'entryPrice', 'stop', 'target', 'quantity', 'exitTime', 'exitPrice', 'exitReason',
       'grossPnl', 'costs', 'netPnl', 'r', 'bothTouched', 'resolvedBy', 'createdAt', 'updatedAt',
       // source: 'auto' (scanner) | 'demo' (started from the app); exit engine state

@@ -1,8 +1,14 @@
 // Server side of the intraday signal engine: evaluates symbols with the
-// shared engine (src/engine), scans a watchlist every 5 minutes during the
-// NSE session, and keeps a paper-trade ledger of candidates that is
+// shared engine (src/engine), scans each market's watchlist every 5 minutes
+// during its session, and keeps a paper-trade ledger of candidates that is
 // simulated on later candles. Signals are decision support only; nothing
 // here can place an order.
+//
+// Markets: 'NSE' (India) and 'US' (NASDAQ). Each has its own settings
+// (tradingconfig: the NSE doc, and the doc with market 'US'), watchlist,
+// paper trades, signal history and learning. Records saved before the US
+// market existed have no `market` and count as NSE. Phone alerts are for
+// NSE only.
 //
 // Note: on a free host that sleeps when idle, the scanner only runs while
 // the server is awake.
@@ -16,38 +22,54 @@ let engineModule = null;
 // The engine is shared ES-module code; load it once.
 const engine = () => (engineModule ||= import('../../src/engine/index.js'));
 
+const MARKET_IDS = ['NSE', 'US'];
 const MAX_WATCHLIST = 10;
 const SCAN_DELAY_MS = 20000; // let the feed publish the candle that just closed
 
+/** 'US' or 'NSE' (anything else). */
+const marketId = (m) => (String(m || '').toUpperCase() === 'US' ? 'US' : 'NSE');
+/** Which market a saved record belongs to (old records have none: NSE). */
+const marketOfRecord = (r) => (r?.market === 'US' ? 'US' : 'NSE');
+
+const blankState = () => ({ lastScanAt: null, lastError: null, scanning: false, lastBoundary: null });
 const state = {
-  lastScanAt: null,
-  lastError: null,
-  scanning: false,
-  latest: {}, // symbol → last evaluation
   timer: null,
-  lastBoundary: null,
-  summaryDay: null, // IST day the morning summary went out
+  latest: {}, // `${market}:${symbol}` → last evaluation
+  summaryDay: null, // IST day the NSE morning summary went out
+  markets: { NSE: blankState(), US: blankState() },
 };
 
 const newId = () => `${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`;
 
-/** Trading settings saved from the app, over the engine defaults. */
-async function getConfig() {
-  const { DEFAULT_CONFIG } = await engine();
-  const doc = await getModel('tradingconfig').findOne({}).lean().catch(() => null);
-  const cfg = { ...DEFAULT_CONFIG };
+// ------- settings -------
+
+/** The settings doc for a market (US: market 'US'; NSE: any other). */
+async function configDoc(market) {
+  const docs = await getModel('tradingconfig').find({}).lean().catch(() => []);
+  return docs.find((d) => marketOfRecord(d) === market) || null;
+}
+
+/** Trading settings for a market, saved from the app, over the engine defaults. */
+async function getConfig(market = 'NSE') {
+  market = marketId(market);
+  const E = await engine();
+  const defaults = E.defaultConfig(market);
+  const doc = await configDoc(market);
+  const cfg = { ...defaults };
   if (doc) {
-    Object.keys(DEFAULT_CONFIG).forEach((k) => {
-      if (k !== 'charges' && doc[k] != null) cfg[k] = doc[k];
+    Object.keys(defaults).forEach((k) => {
+      if (k !== 'charges' && k !== 'watchlist' && k !== 'market' && doc[k] != null) cfg[k] = doc[k];
     });
     // Your broker's charges, set in the app, over the estimates.
-    if (doc.charges && typeof doc.charges === 'object') cfg.charges = { ...DEFAULT_CONFIG.charges, ...doc.charges };
+    if (doc.charges && typeof doc.charges === 'object') cfg.charges = { ...defaults.charges, ...doc.charges };
   }
-  cfg.watchlist = (doc?.watchlist || []).filter((s) => typeof s === 'string').slice(0, MAX_WATCHLIST);
+  cfg.market = market;
+  const list = Array.isArray(doc?.watchlist) ? doc.watchlist : defaults.watchlist || [];
+  cfg.watchlist = list.filter((s) => typeof s === 'string').slice(0, MAX_WATCHLIST);
   cfg.scannerOn = doc?.scannerOn !== false;
   cfg.autoPaper = doc?.autoPaper !== false;
-  // Phone alerts (ntfy): on once a topic is set, each kind on unless turned off.
-  cfg.alertTopic = isTopic(doc?.alertTopic) ? doc.alertTopic : null;
+  // Phone alerts (ntfy), NSE only: on once a topic is set, each kind on unless turned off.
+  cfg.alertTopic = market === 'NSE' && isTopic(doc?.alertTopic) ? doc.alertTopic : null;
   cfg.alertsOn = !!cfg.alertTopic && doc?.alertsOn !== false;
   cfg.alertEntries = doc?.alertEntries !== false;
   cfg.alertExits = doc?.alertExits !== false;
@@ -55,10 +77,13 @@ async function getConfig() {
   return cfg;
 }
 
-/** Open positions, cash in use, today's net P/L and last signal per symbol. */
-async function ledgerContext() {
-  const { istParts, dayNetPnl } = await engine();
-  const trades = await getModel('enginetrades').find({}).lean();
+// ------- ledger -------
+
+/** A market's open positions, cash in use, today's net P/L and last signal per symbol. */
+async function ledgerContext(market = 'NSE') {
+  market = marketId(market);
+  const { marketParts, dayNetPnl } = await engine();
+  const trades = (await getModel('enginetrades').find({}).lean()).filter((t) => marketOfRecord(t) === market);
   const open = trades.filter((t) => t.status === 'pending' || t.status === 'open');
   const cashInUse = open.reduce((s, t) => s + (t.plan?.cashUsed || 0), 0);
   const lastKeys = {};
@@ -69,26 +94,38 @@ async function ledgerContext() {
     trades,
     openPositions: open.length,
     cashInUse,
-    dayPnl: dayNetPnl(trades, istParts(Date.now()).dateKey),
+    dayPnl: dayNetPnl(trades, marketParts(Date.now(), market).dateKey, market),
     lastKeys,
   };
 }
 
+// ------- learning -------
+
 const LEARN_CACHE_MS = 5 * 60 * 1000;
-let learnCache = null; // { at, threshold, learned }
+const learnCache = {}; // market → { at, threshold, learned }
+/** Forget what was learned (after a backtest or settings change). */
+const resetLearning = (market) => {
+  if (market) delete learnCache[marketId(market)];
+  else MARKET_IDS.forEach((m) => delete learnCache[m]);
+};
 
 /**
- * What past results teach (see src/engine/learn.js): from the engine's closed
- * paper and demo trades, and your own closed paper trades on NSE stocks.
+ * What past results teach (see src/engine/learn.js), per market: from the
+ * engine's closed paper and demo trades, the latest backtest's trades, and
+ * your own closed paper trades in that market.
  */
 async function learned(cfg) {
-  if (learnCache && Date.now() - learnCache.at < LEARN_CACHE_MS && learnCache.threshold === cfg.threshold) return learnCache.learned;
+  const market = marketId(cfg.market);
+  const hit = learnCache[market];
+  if (hit && Date.now() - hit.at < LEARN_CACHE_MS && hit.threshold === cfg.threshold) return hit.learned;
   const E = await engine();
-  const [engineTrades, paper] = await Promise.all([
+  const [engineTrades, backtest, paper] = await Promise.all([
     getModel('enginetrades').find({ status: 'closed' }).lean(),
+    getModel('backtesttrades').find({ market }).lean().catch(() => []),
     getModel('trades').find({ status: 'closed' }).lean().catch(() => []),
   ]);
-  const records = engineTrades
+  const minutesOf = (t) => (t ? E.marketParts(t, market).minutes : null);
+  const records = [...engineTrades.filter((t) => marketOfRecord(t) === market), ...backtest]
     .filter((t) => Number.isFinite(t.netPnl))
     .map((t) => ({
       side: t.side,
@@ -96,10 +133,12 @@ async function learned(cfg) {
       r: t.r ?? null,
       net: t.netPnl,
       score: t.score ? t.score[t.side === 'short' ? 'short' : 'long'] : null,
-      minutes: t.signalTime ? E.istParts(t.signalTime).minutes : null,
+      minutes: minutesOf(t.signalTime),
     }));
+  // Your own paper trades: market 'IN' (NSE) or 'US'.
+  const paperMarket = market === 'US' ? 'US' : 'IN';
   paper
-    .filter((t) => (t.market || 'IN') === 'IN' && t.entryPrice > 0 && t.exitPrice > 0 && t.quantity > 0)
+    .filter((t) => (t.market || 'IN') === paperMarket && t.entryPrice > 0 && t.exitPrice > 0 && t.quantity > 0)
     .forEach((t) => {
       const dir = t.side === 'short' ? -1 : 1;
       const risk = t.stopLoss > 0 ? Math.abs(t.entryPrice - t.stopLoss) : 0;
@@ -112,17 +151,29 @@ async function learned(cfg) {
         minutes: null,
       });
     });
-  const result = E.learnFromTrades(records, cfg.threshold);
-  learnCache = { at: Date.now(), threshold: cfg.threshold, learned: result };
+  const result = E.learnFromTrades(records, cfg.threshold, market);
+  learnCache[market] = { at: Date.now(), threshold: cfg.threshold, learned: result };
   return result;
 }
 
-/** Evaluate one symbol now. Adds the provider used to the result. */
-async function evaluate(symbol, { config, context } = {}) {
+/** The data provider for a market: Kite (if set up) or Yahoo for NSE, Yahoo for US. */
+async function providerFor(market) {
+  if (market === 'US') {
+    const { yahoo } = require('./providers');
+    return { provider: yahoo, note: null };
+  }
+  return activeProvider();
+}
+
+// ------- evaluate -------
+
+/** Evaluate one symbol now in `market`. Adds the provider used to the result. */
+async function evaluate(symbol, { config, context, market } = {}) {
   const E = await engine();
-  const cfg = config || (await getConfig());
-  const ctx = context || (await ledgerContext());
-  const { provider, note } = await activeProvider();
+  const mkt = marketId(market || config?.market);
+  const cfg = config || (await getConfig(mkt));
+  const ctx = context || (await ledgerContext(mkt));
+  const { provider, note } = await providerFor(mkt);
   const [candles5, candles15] = await Promise.all([provider.getCandles(symbol, 5), provider.getCandles(symbol, 15)]);
   const lessons = await learned(cfg).catch(() => null);
   const result = E.evaluateSignal({
@@ -152,21 +203,25 @@ async function evaluate(symbol, { config, context } = {}) {
   } catch (_error) {
     result.quote = null;
   }
-  state.latest[symbol] = result;
+  state.latest[`${mkt}:${symbol}`] = result;
   return result;
 }
 
-/** Re-simulate pending/open engine trades on the latest candles. */
+// ------- paper trades -------
+
+/** Re-simulate pending/open engine trades (both markets) on the latest candles. */
 async function updateOpenTrades() {
   const E = await engine();
-  const cfg = await getConfig();
   const Trades = getModel('enginetrades');
   const open = await Trades.find({ status: { $in: ['pending', 'open'] } }).lean();
   if (!open.length) return 0;
-  const { provider } = await activeProvider();
+  const configs = {};
   let changed = 0;
   for (const t of open) {
+    const market = marketOfRecord(t);
     try {
+      const cfg = (configs[market] ||= await getConfig(market));
+      const { provider } = await providerFor(market);
       const candles = E.normalizeCandles(await provider.getCandles(t.symbol, 5));
       const done = E.completedCandles(candles, 5, Date.now());
       let sim = E.simulateTrade(t.plan, done, t.signalTime, cfg);
@@ -183,12 +238,13 @@ async function updateOpenTrades() {
       if (moved) {
         await Trades.updateOne({ id: t.id }, { $set: { ...sim, updatedAt: new Date().toISOString() } });
         changed += 1;
-        if (sim.status === 'closed' && t.status !== 'closed' && cfg.alertsOn && cfg.alertExits) {
-          await sendAlert(cfg.alertTopic, closedAlert({ ...t, ...sim }));
+        if (sim.status === 'closed' && t.status !== 'closed') {
+          resetLearning(market);
+          if (cfg.alertsOn && cfg.alertExits) await sendAlert(cfg.alertTopic, closedAlert({ ...t, ...sim }));
         }
       }
     } catch (error) {
-      state.lastError = `${t.symbol}: ${error.message}`;
+      state.markets[market].lastError = `${t.symbol}: ${error.message}`;
     }
   }
   return changed;
@@ -205,6 +261,7 @@ async function logSignal(r, tradeId) {
   const id = `${r.symbol}:${r.candle.t}`;
   const record = {
     id,
+    market: r.market || 'NSE',
     symbol: r.symbol,
     timeframe: '5m',
     candleTime: r.candle.t,
@@ -232,23 +289,23 @@ async function logSignal(r, tradeId) {
 const HISTORY_STATES = ['BUY CANDIDATE', 'SELL CANDIDATE', 'WAIT', 'NEUTRAL', 'NO TRADE'];
 
 /**
- * Signal history, newest first, with the paper trade of each candidate.
- * Filters: symbol, state, days (back from now), timeframe. Up to `limit`.
+ * Signal history of a market, newest first, with the paper trade of each
+ * candidate. Filters: symbol, state, days (back from now), timeframe. Up to `limit`.
  */
-async function history({ symbol, state: wanted, days, timeframe, limit = 500 } = {}) {
+async function history({ symbol, state: wanted, days, timeframe, limit = 500, market } = {}) {
+  const mkt = marketId(market);
   const filter = {};
   if (symbol) filter.symbol = symbol;
   if (HISTORY_STATES.includes(wanted)) filter.state = wanted;
   if (timeframe) filter.timeframe = timeframe;
   if (days > 0) filter.candleTime = { $gte: Date.now() - days * 86400000 };
-  const signals = await getModel('tradingsignals')
-    .find(filter)
-    .sort({ candleTime: -1 })
-    .limit(Math.min(Math.max(1, limit), 2000))
-    .lean();
+  const max = Math.min(Math.max(1, limit), 2000);
+  const signals = (await getModel('tradingsignals').find(filter).sort({ candleTime: -1 }).limit(max * 2).lean())
+    .filter((s) => marketOfRecord(s) === mkt)
+    .slice(0, max);
   const tradeFilter = { signalTime: filter.candleTime || { $gte: 0 } };
   if (symbol) tradeFilter.symbol = symbol;
-  const trades = await getModel('enginetrades').find(tradeFilter).lean();
+  const trades = (await getModel('enginetrades').find(tradeFilter).lean()).filter((t) => marketOfRecord(t) === mkt);
   const strip = ({ _id, __v, loggedAt, ...rest }) => rest;
   return { signals: signals.map(strip), trades: trades.map(strip) };
 }
@@ -258,15 +315,19 @@ async function history({ symbol, state: wanted, days, timeframe, limit = 500 } =
  * given side (default: the engine's side) from the live price and ATR with
  * your risk settings, and opens an engine paper trade that the scanner
  * simulates like the automatic ones (next-candle entry, stop, target,
- * trailing stop, weak-setup exit, 15:20 square-off, charges). It does not
- * need a BUY/SELL candidate, so any signal can be tested.
+ * trailing stop, weak-setup exit, square-off, charges). It does not need a
+ * BUY/SELL candidate, so any signal can be tested.
  */
-async function startDemo(symbol, side) {
+async function startDemo(symbol, side, market = 'NSE') {
   const E = await engine();
-  const cfg = await getConfig();
-  const ctx = await ledgerContext();
-  const r = await evaluate(symbol, { config: cfg, context: ctx });
-  if (!r.data.marketOpen) throw Object.assign(new Error('NSE is closed: demo trades run in market hours (09:15–15:30 IST)'), { status: 400 });
+  const mkt = marketId(market);
+  const cfg = await getConfig(mkt);
+  const ctx = await ledgerContext(mkt);
+  const r = await evaluate(symbol, { config: cfg, context: ctx, market: mkt });
+  if (!r.data.marketOpen) {
+    const m = E.marketOf(mkt);
+    throw Object.assign(new Error(`${m.label} is closed: demo trades run in market hours (${m.open}–${m.close} ${m.zone})`), { status: 400 });
+  }
   if (!r.candle) throw Object.assign(new Error('No completed candle yet'), { status: 400 });
   const chosen = side === 'long' || side === 'short' ? side : r.side;
   const plan = E.planTrade({
@@ -281,6 +342,7 @@ async function startDemo(symbol, side) {
   const trade = {
     id: newId(),
     source: 'demo',
+    market: mkt,
     symbol,
     side: chosen,
     signalKey: `${symbol}:${r.candle.t}:${chosen}:demo`,
@@ -299,18 +361,22 @@ async function startDemo(symbol, side) {
   return trade;
 }
 
-/** One scan: evaluate the watchlist, log every decision, open paper trades. */
-async function scan() {
-  if (state.scanning) return { skipped: true };
-  state.scanning = true;
+// ------- scanning -------
+
+/** One scan of a market: evaluate its watchlist, log every decision, open paper trades. */
+async function scan(market = 'NSE') {
+  const mkt = marketId(market);
+  const ms = state.markets[mkt];
+  if (ms.scanning) return { skipped: true };
+  ms.scanning = true;
   const results = [];
   try {
-    const cfg = await getConfig();
+    const cfg = await getConfig(mkt);
     await updateOpenTrades();
-    const ctx = await ledgerContext();
+    const ctx = await ledgerContext(mkt);
     for (const symbol of cfg.watchlist) {
       try {
-        const r = await evaluate(symbol, { config: cfg, context: ctx });
+        const r = await evaluate(symbol, { config: cfg, context: ctx, market: mkt });
         results.push({ symbol, state: r.state, score: r.score, failedConditions: r.failedConditions, nextAction: r.nextAction });
         const candidate = r.state === 'BUY CANDIDATE' || r.state === 'SELL CANDIDATE';
         const tradeId = candidate && cfg.autoPaper ? newId() : null;
@@ -323,6 +389,7 @@ async function scan() {
           await getModel('enginetrades').create({
             id: tradeId,
             source: 'auto',
+            market: mkt,
             symbol,
             side: r.side,
             signalKey: r.key,
@@ -341,13 +408,13 @@ async function scan() {
           ctx.lastKeys[symbol] = { key: r.key, at: new Date().toISOString() };
         }
       } catch (error) {
-        state.lastError = `${symbol}: ${error.message}`;
+        ms.lastError = `${symbol}: ${error.message}`;
         results.push({ symbol, error: error.message });
       }
     }
-    state.lastScanAt = new Date().toISOString();
-    // Once a day, after 09:20 IST: where every watchlist stock stands.
-    if (cfg.alertsOn && cfg.alertSummary && results.length) {
+    ms.lastScanAt = new Date().toISOString();
+    // NSE, once a day after 09:20 IST: where every watchlist stock stands.
+    if (mkt === 'NSE' && cfg.alertsOn && cfg.alertSummary && results.length) {
       const E = await engine();
       const now = Date.now();
       const day = new Date(now + 330 * 60000).toISOString().slice(0, 10);
@@ -358,50 +425,69 @@ async function scan() {
         await sendAlert(cfg.alertTopic, summaryAlert(results, hhmm));
       }
     }
-    return { results };
+    return { market: mkt, results };
   } finally {
-    state.scanning = false;
+    ms.scanning = false;
   }
 }
 
-/** Start the 5-minute scanner (call once when the server starts). */
+/** Start the 5-minute scanner for every market (call once when the server starts). */
 function startScanner() {
   if (state.timer) return;
   state.timer = setInterval(async () => {
+    const E = await engine().catch(() => null);
+    if (!E) return;
+    const now = Date.now();
+    const boundary = Math.floor(now / 300000);
+    if (now - boundary * 300000 < SCAN_DELAY_MS) return;
+    for (const market of MARKET_IDS) {
+      const ms = state.markets[market];
+      try {
+        if (boundary === ms.lastBoundary) continue;
+        const { minutes, weekday } = E.marketParts(now, market);
+        const s = E.sessionTimes(market);
+        // Run through the session, and 15 minutes after to settle square-offs.
+        const inHours = weekday >= 1 && weekday <= 5 && minutes >= s.open + 5 && minutes <= s.close + 15;
+        if (!inHours) continue;
+        ms.lastBoundary = boundary;
+        const cfg = await getConfig(market);
+        if (cfg.scannerOn) await scan(market);
+        else await updateOpenTrades();
+      } catch (error) {
+        ms.lastError = error.message;
+      }
+    }
+    // Train in the quiet hours: a market's backtest refreshes when it is a week old.
     try {
-      const E = await engine();
-      const now = Date.now();
-      const boundary = Math.floor(now / 300000);
-      if (boundary === state.lastBoundary || now - boundary * 300000 < SCAN_DELAY_MS) return;
-      const { minutes, weekday } = E.istParts(now);
-      // Run through the session, and until 15:45 IST to settle square-offs.
-      const inHours = weekday >= 1 && weekday <= 5 && minutes >= E.NSE_SESSION.open + 5 && minutes <= E.NSE_SESSION.close + 15;
-      if (!inHours) return;
-      state.lastBoundary = boundary;
-      const cfg = await getConfig();
-      if (cfg.scannerOn) await scan();
-      else await updateOpenTrades();
+      const { autoBacktest } = require('./backtest');
+      await autoBacktest();
     } catch (error) {
-      state.lastError = error.message;
+      console.error('[engine] auto backtest failed', error.message);
     }
   }, 30000);
 }
 
-async function status() {
+/** Engine status for a market (and the other market's scanner, for the app). */
+async function status(market = 'NSE') {
   const E = await engine();
-  const cfg = await getConfig().catch(() => null);
-  const { provider, note } = await activeProvider();
+  const mkt = marketId(market);
+  const cfg = await getConfig(mkt).catch(() => null);
+  const { provider, note } = await providerFor(mkt);
+  const ms = state.markets[mkt];
+  const m = E.marketOf(mkt);
   return {
+    market: mkt,
+    marketInfo: { id: m.id, label: m.label, zone: m.zone, currency: m.currency, symbol: m.symbol, open: m.open, close: m.close, lastEntry: m.lastEntry, squareOff: m.squareOff },
     provider: { id: provider.id, label: provider.label, delayed: provider.delayed, note },
-    kite: kiteStatus(),
-    marketOpen: E.isNseOpen(Date.now()),
+    kite: mkt === 'NSE' ? kiteStatus() : null,
+    marketOpen: E.isMarketOpen(Date.now(), mkt),
     scanner: {
       running: !!state.timer,
       enabled: cfg?.scannerOn ?? true,
       autoPaper: cfg?.autoPaper ?? true,
       watchlist: cfg?.watchlist || [],
-      lastScanAt: state.lastScanAt,
-      lastError: state.lastError,
+      lastScanAt: ms.lastScanAt,
+      lastError: ms.lastError,
     },
     ruleVersion: E.RULE_VERSION,
     serverTime: new Date(Date.now()).toISOString(),
@@ -410,7 +496,7 @@ async function status() {
 
 /** Send a test notification to the saved topic (or `topic`, before it's saved). */
 async function testAlert(topic) {
-  const cfg = await getConfig();
+  const cfg = await getConfig('NSE');
   const to = isTopic(topic) ? topic : cfg.alertTopic;
   if (!to) throw Object.assign(new Error('Set up phone alerts first'), { status: 400 });
   const ok = await sendAlert(to, {
@@ -422,4 +508,20 @@ async function testAlert(topic) {
   return { ok: true };
 }
 
-module.exports = { evaluate, scan, startScanner, status, updateOpenTrades, getConfig, history, startDemo, testAlert };
+module.exports = {
+  evaluate,
+  scan,
+  startScanner,
+  status,
+  updateOpenTrades,
+  getConfig,
+  history,
+  startDemo,
+  testAlert,
+  learned,
+  resetLearning,
+  marketId,
+  marketOfRecord,
+  MARKET_IDS,
+  engine,
+};

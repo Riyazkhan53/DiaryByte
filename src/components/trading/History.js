@@ -4,6 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../hooks/useTheme';
 import { performanceStats, statsByScore } from '../../engine/stats.js';
 import { fetchSignalHistory, pushCollection } from '../../services/api';
+import MarketSwitch from './MarketSwitch';
+import { moneyMarket, shortSymbol } from '../../utils/engineMarket';
 import { confirmDelete } from '../../utils/confirm';
 import { EXIT_ACTION, LOSS, PROFIT, formatMoney, formatPct, formatPnl, formatR, pnlColor } from './format';
 
@@ -42,9 +44,9 @@ const dayLabel = (ms) =>
 const sideScore = (s) => (s.score ? s.score[s.side === 'short' ? 'short' : 'long'] : null);
 
 /** What happened to a candidate's paper trade, for the list. */
-function outcomeOf(trade) {
+function outcomeOf(trade, mm = 'IN') {
   if (!trade) return { text: 'not traded', color: null };
-  if (trade.status === 'closed') return { text: formatPnl(trade.netPnl, 'IN'), color: pnlColor(trade.netPnl) };
+  if (trade.status === 'closed') return { text: formatPnl(trade.netPnl, mm), color: pnlColor(trade.netPnl) };
   return { text: trade.status === 'pending' ? 'pending' : 'open', color: null };
 }
 
@@ -82,8 +84,9 @@ function Stat({ label, value, color, theme }) {
  * server's scanner judged (BUY / SELL / WAIT / ...), filtered by stock,
  * period and signal, with how the engine's paper trades actually did.
  */
-export default function History({ header, watchlist = [] }) {
+export default function History({ header, watchlist = [], market = 'NSE', onMarket }) {
   const { theme } = useTheme();
+  const mm = moneyMarket(market);
   const [filters, setFilters] = useState({ symbol: '', state: '', days: 7 });
   const [data, setData] = useState({ signals: [], trades: [] });
   const [loading, setLoading] = useState(true);
@@ -94,7 +97,7 @@ export default function History({ header, watchlist = [] }) {
 
   useEffect(() => {
     let cancelled = false;
-    fetchSignalHistory({ ...filters, timeframe: '5m' })
+    fetchSignalHistory({ ...filters, timeframe: '5m', market })
       .then((d) => {
         if (cancelled) return;
         setData({ signals: d.signals || [], trades: d.trades || [] });
@@ -112,7 +115,7 @@ export default function History({ header, watchlist = [] }) {
     return () => {
       cancelled = true;
     };
-  }, [filters, reload]);
+  }, [filters, reload, market]);
 
   const setFilter = (key, value) => {
     setLoading(true);
@@ -121,7 +124,7 @@ export default function History({ header, watchlist = [] }) {
   };
   // Paper trades stay until deleted here (they go to Recently deleted).
   const deleteTrade = (t) =>
-    confirmDelete('Delete paper trade', `Remove the ${t.symbol.replace(/\.NS$/, '')} paper trade?`, () => {
+    confirmDelete('Delete paper trade', `Remove the ${shortSymbol(t.symbol)} paper trade?`, () => {
       setData((d) => ({ ...d, trades: d.trades.filter((x) => x.id !== t.id) }));
       pushCollection('enginetrades', [], [t.id]).catch(() => {
         setError("Couldn't delete it on the server. Try again when it's reachable.");
@@ -154,6 +157,7 @@ export default function History({ header, watchlist = [] }) {
   return (
     <ScrollView style={styles.content} contentContainerStyle={styles.scroll}>
       {header}
+      {onMarket ? <MarketSwitch market={market} onChange={onMarket} /> : null}
 
       {/* Filters */}
       <View style={cardStyle}>
@@ -172,7 +176,7 @@ export default function History({ header, watchlist = [] }) {
           Decisions are kept for 24 hours; paper trades stay until you delete them.
         </Text>
         <Chips
-          options={[['', 'All stocks'], ...symbols.map((s) => [s, s.replace(/\.NS$/, '')])]}
+          options={[['', 'All stocks'], ...symbols.map((s) => [s, shortSymbol(s)])]}
           value={filters.symbol}
           onChange={(v) => setFilter('symbol', v)}
           theme={theme}
@@ -208,11 +212,11 @@ export default function History({ header, watchlist = [] }) {
             value={stats.profitFactor != null ? stats.profitFactor.toFixed(2) : stats.wins ? 'no losses' : '—'}
             color={stats.profitFactor != null ? (stats.profitFactor >= 1 ? PROFIT : LOSS) : undefined}
           />
-          <Stat theme={theme} label="Net P/L" value={formatPnl(stats.netPnl, 'IN')} color={pnlColor(stats.netPnl)} />
+          <Stat theme={theme} label="Net P/L" value={formatPnl(stats.netPnl, mm)} color={pnlColor(stats.netPnl)} />
           <Stat
             theme={theme}
             label="Avg per trade"
-            value={stats.avgNet != null ? formatPnl(stats.avgNet, 'IN') : '—'}
+            value={stats.avgNet != null ? formatPnl(stats.avgNet, mm) : '—'}
             color={pnlColor(stats.avgNet)}
           />
           <Stat
@@ -225,13 +229,13 @@ export default function History({ header, watchlist = [] }) {
           <Stat
             theme={theme}
             label="Max drawdown"
-            value={formatMoney(stats.maxDrawdown, 'IN')}
+            value={formatMoney(stats.maxDrawdown, mm)}
             color={stats.maxDrawdown < 0 ? LOSS : undefined}
           />
           <Stat
             theme={theme}
             label="Avg win / loss"
-            value={stats.trades ? `${formatMoney(stats.avgWin, 'IN')} / ${formatMoney(stats.avgLoss, 'IN')}` : '—'}
+            value={stats.trades ? `${formatMoney(stats.avgWin, mm)} / ${formatMoney(stats.avgLoss, mm)}` : '—'}
           />
         </View>
         <Text style={[styles.hint, { color: theme.textMuted }]}>
@@ -251,7 +255,7 @@ export default function History({ header, watchlist = [] }) {
               {b.stats.winRate != null ? `${b.stats.winRate}% won` : '—'}
             </Text>
             <Text style={[styles.bandCell, styles.right, { color: pnlColor(b.stats.netPnl, theme.text) }]}>
-              {b.stats.trades ? formatPnl(b.stats.netPnl, 'IN') : '—'}
+              {b.stats.trades ? formatPnl(b.stats.netPnl, mm) : '—'}
             </Text>
           </View>
         ))}
@@ -287,7 +291,7 @@ export default function History({ header, watchlist = [] }) {
           const newDay = i === 0 || dayLabel(list[i - 1].candleTime) !== dayLabel(s.candleTime);
           const candidate = s.state === 'BUY CANDIDATE' || s.state === 'SELL CANDIDATE';
           const trade = candidate ? tradeFor[s.tradeId] || tradeFor[s.key] : null;
-          const outcome = candidate ? outcomeOf(trade) : null;
+          const outcome = candidate ? outcomeOf(trade, mm) : null;
           const expanded = open === s.id;
           return (
             <View key={s.id}>
@@ -297,11 +301,11 @@ export default function History({ header, watchlist = [] }) {
               <TouchableOpacity
                 style={[styles.tableRow, { borderBottomColor: theme.borderNeutral }]}
                 onPress={() => setOpen(expanded ? null : s.id)}
-                accessibilityLabel={`${s.symbol.replace(/\.NS$/, '')} ${s.state} at ${dayLabel(s.candleTime)} ${timeLabel(s.candleTime)}`}
+                accessibilityLabel={`${shortSymbol(s.symbol)} ${s.state} at ${dayLabel(s.candleTime)} ${timeLabel(s.candleTime)}`}
               >
                 <Text style={[styles.td, COLS[0], { color: theme.text }]}>{timeLabel(s.candleTime)}</Text>
                 <Text style={[styles.td, COLS[1], { color: theme.text }]} numberOfLines={1}>
-                  {s.symbol.replace(/\.NS$/, '')}
+                  {shortSymbol(s.symbol)}
                 </Text>
                 <Text style={[styles.td, styles.bold, COLS[2], { color: STATE_COLORS[s.state] || theme.text }]}>
                   {SHORT_STATE[s.state] || s.state}
@@ -334,14 +338,14 @@ export default function History({ header, watchlist = [] }) {
                   </Text>
                   {s.plan?.ok ? (
                     <Text style={[styles.detailLine, { color: theme.textSecondary }]}>
-                      Plan: {s.plan.quantity} @ {formatMoney(s.plan.entry, 'IN')}, stop {formatMoney(s.plan.stop, 'IN')},
-                      target {formatMoney(s.plan.target, 'IN')}
+                      Plan: {s.plan.quantity} @ {formatMoney(s.plan.entry, mm)}, stop {formatMoney(s.plan.stop, mm)},
+                      target {formatMoney(s.plan.target, mm)}
                     </Text>
                   ) : null}
                   {trade?.status === 'closed' ? (
                     <Text style={[styles.detailLine, { color: theme.textSecondary }]}>
-                      Filled {formatMoney(trade.entryPrice, 'IN')} → {EXIT_LABEL[trade.exitReason] || trade.exitReason} at{' '}
-                      {formatMoney(trade.exitPrice, 'IN')} · {formatR(trade.r)} · charges {formatMoney(trade.costs, 'IN')}
+                      Filled {formatMoney(trade.entryPrice, mm)} → {EXIT_LABEL[trade.exitReason] || trade.exitReason} at{' '}
+                      {formatMoney(trade.exitPrice, mm)} · {formatR(trade.r)} · charges {formatMoney(trade.costs, mm)}
                       {trade.bothTouched
                         ? ` · stop and target in one candle, settled ${trade.resolvedBy === '1m' ? 'on 1-minute candles' : trade.resolvedBy === 'open' ? 'by the open' : 'as the stop (no 1-minute data)'}`
                         : ''}
@@ -379,20 +383,20 @@ export default function History({ header, watchlist = [] }) {
               </Text>
               <View style={styles.flex}>
                 <Text style={[styles.td, styles.bold, { color: theme.text }]} numberOfLines={1}>
-                  {t.symbol.replace(/\.NS$/, '')} · {t.plan?.quantity ?? t.quantity} @{' '}
-                  {formatMoney(t.entryPrice ?? t.plan?.entry, 'IN')}
+                  {shortSymbol(t.symbol)} · {t.plan?.quantity ?? t.quantity} @{' '}
+                  {formatMoney(t.entryPrice ?? t.plan?.entry, mm)}
                   {t.source === 'demo' ? ' · Demo' : ' · Auto'}
                 </Text>
                 <Text style={[styles.detailLine, { color: theme.textMuted }]}>
                   {dayLabel(t.signalTime)} {timeLabel(t.signalTime)} ·{' '}
                   {t.status === 'closed'
-                    ? `${EXIT_LABEL[t.exitReason] || t.exitReason} at ${formatMoney(t.exitPrice, 'IN')} · ${formatR(t.r)}`
+                    ? `${EXIT_LABEL[t.exitReason] || t.exitReason} at ${formatMoney(t.exitPrice, mm)} · ${formatR(t.r)}`
                     : t.status}
                 </Text>
               </View>
               {t.status === 'closed' ? (
                 <Text style={[styles.td, styles.bold, { color: pnlColor(t.netPnl, theme.text) }]}>
-                  {formatPnl(t.netPnl, 'IN')}
+                  {formatPnl(t.netPnl, mm)}
                 </Text>
               ) : null}
               <TouchableOpacity

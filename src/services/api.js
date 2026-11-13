@@ -167,16 +167,29 @@ export function askAi(kind, question, history = []) {
 
 // ------- intraday signal engine -------
 
-export function fetchEngineStatus() {
-  return request('/api/engine/status');
+// Engine calls take a market: 'NSE' (India, default) or 'US' (NASDAQ).
+const mq = (market) => (market === 'US' ? 'market=US' : '');
+
+export function fetchEngineStatus(market) {
+  return request(`/api/engine/status${market === 'US' ? '?market=US' : ''}`);
 }
 
-export function evaluateSymbol(symbol) {
-  return request(`/api/engine/evaluate?symbol=${encodeURIComponent(symbol)}`);
+export function evaluateSymbol(symbol, market) {
+  return request(`/api/engine/evaluate?symbol=${encodeURIComponent(symbol)}${market === 'US' ? '&market=US' : ''}`);
 }
 
-export function runEngineScan() {
-  return request('/api/engine/scan', { method: 'POST' });
+export function runEngineScan(market) {
+  return request('/api/engine/scan', { method: 'POST', body: JSON.stringify({ market: market === 'US' ? 'US' : 'NSE' }) });
+}
+
+/** Last backtest of a market and whether one is running: { running, summary }. */
+export function fetchBacktest(market) {
+  return request(`/api/engine/backtest${mq(market) ? `?${mq(market)}` : ''}`);
+}
+
+/** Start a backtest of a market's watchlist (runs on the server): { started }. */
+export function startBacktest(market) {
+  return request('/api/engine/backtest', { method: 'POST', body: JSON.stringify({ market: market === 'US' ? 'US' : 'NSE' }) });
 }
 
 // Phone alerts (ntfy): ask the server to send a test notification.
@@ -185,12 +198,12 @@ export function sendTestAlert(topic) {
 }
 
 // Demo trade: simulate taking the signal now (side 'long' | 'short'): { trade }.
-export function startDemoTrade(symbol, side) {
-  return request('/api/engine/demo', { method: 'POST', body: JSON.stringify({ symbol, side }) });
+export function startDemoTrade(symbol, side, market) {
+  return request('/api/engine/demo', { method: 'POST', body: JSON.stringify({ symbol, side, market: market === 'US' ? 'US' : 'NSE' }) });
 }
 
 // Logged signals (newest first) and their paper trades: { signals, trades }.
-// Filters: { symbol, state, days, timeframe }.
+// Filters: { symbol, state, days, timeframe, market }.
 export function fetchSignalHistory(filters = {}) {
   const query = Object.entries(filters)
     .filter(([, v]) => v != null && v !== '')

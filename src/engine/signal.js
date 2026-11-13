@@ -7,7 +7,7 @@ import { completedCandles, checkFreshness, normalizeCandles } from './candles.js
 import { atr, ema, macd, priorRange, rsi, sessionVwap, volumeStats } from './indicators.js';
 import { DEFAULT_CONFIG, planTrade } from './risk.js';
 import { learnedBump } from './learn.js';
-import { istMinutes, istParts } from './time.js';
+import { hhmm, marketOf, marketParts, sessionTimes } from './time.js';
 
 // Bump when checks, weights or gates change, so past results stay traceable.
 export const RULE_VERSION = 'intraday-v6';
@@ -40,7 +40,7 @@ export const RSI_PENALTY = 10;
 export const RSI_EXTREME_PENALTY = 20;
 export const STRETCH_ATR = 3; // price more than this × ATR from VWAP
 export const STRETCH_PENALTY = 10;
-// No new entries this close to the 15:20 square-off.
+// No new entries this close to the square-off (NSE: 15:20; per market in time.js).
 export const LAST_ENTRY = '14:45';
 
 // Short name and what to wait for, per gate. Shown when a signal waits.
@@ -87,9 +87,13 @@ function trend15(candles15) {
  */
 export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), config, context = {} }) {
   const cfg = { ...DEFAULT_CONFIG, ...config };
+  const market = cfg.market || 'NSE';
+  const mkt = marketOf(market);
+  const times = sessionTimes(market);
+  const cur = mkt.symbol;
   const c5 = completedCandles(normalizeCandles(candles5), 5, now);
   const c15 = completedCandles(normalizeCandles(candles15), 15, now);
-  const data = checkFreshness(c5, { intervalMin: 5, now, maxDelayMin: cfg.maxDelayMin });
+  const data = checkFreshness(c5, { intervalMin: 5, now, maxDelayMin: cfg.maxDelayMin, market });
   const candle = data.lastCandle;
   const closes = c5.map((c) => c.close);
   const price = candle?.close ?? null;
@@ -100,11 +104,11 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
     ema21: ema(closes, 21),
     ema20: ema(closes, 20),
     ema50: ema(closes, 50),
-    vwap: sessionVwap(c5),
+    vwap: sessionVwap(c5, market),
     rsi: rsi(closes, 14),
     macd: macd(closes),
     atr: atr(c5, 14),
-    vol: volumeStats(c5, VOLUME_LOOKBACK),
+    vol: volumeStats(c5, VOLUME_LOOKBACK, market),
     range: priorRange(c5, cfg.breakoutLookback),
     trend15: trend15(c15),
   };
@@ -113,7 +117,12 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
   const criticalFinite = [ind.ema9, ind.ema21, ind.ema20, ind.ema50, ind.rsi, ind.atr, ind.macd?.macd, ind.macd?.signal]
     .every((v) => typeof v === 'number' && Number.isFinite(v));
   const dataGates = [
-    { id: 'session', pass: data.marketOpen, note: data.marketOpen ? 'NSE session is open' : 'NSE is closed (09:15–15:30 IST, Mon–Fri)' },
+    {
+      id: 'session',
+      pass: data.marketOpen,
+      note: data.marketOpen ? `${mkt.label} session is open` : `${mkt.label} is closed (${mkt.open}–${mkt.close} ${mkt.zone}, Mon–Fri)`,
+      action: `Wait for the ${mkt.label} session (${mkt.open}–${mkt.close} ${mkt.zone})`,
+    },
     {
       id: 'fresh',
       pass: data.status === 'fresh' || data.status === 'delayed',
@@ -200,7 +209,7 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
   const dailyLimit = round((cfg.capital * cfg.dailyLossPct) / 100);
   const limitHit = (context.dayPnl ?? 0) <= -dailyLimit;
   const tooMany = !!cfg.limitPositions && (context.openPositions ?? 0) >= cfg.maxOpenPositions;
-  const lateEntry = data.marketOpen && istParts(typeof now === 'number' ? now : Date.parse(now)).minutes >= istMinutes(LAST_ENTRY);
+  const lateEntry = data.marketOpen && marketParts(typeof now === 'number' ? now : Date.parse(now), market).minutes >= times.lastEntry;
   const sideGates = (side) => {
     const isLong = side === 'long';
     const vwapCheck = checks.find((c) => c.id === 'vwap')[side];
@@ -230,15 +239,18 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
         id: 'risk',
         pass: plan.ok,
         note: plan.ok
-          ? `${shares} within the ₹${plan.riskBudget} risk budget${plan.capped ? ` (capped at your max quantity of ${plan.maxQuantity})` : ''}`
+          ? `${shares} within the ${cur}${plan.riskBudget} risk budget${plan.capped ? ` (capped at your max quantity of ${plan.maxQuantity})` : ''}`
           : plan.reason,
       },
-      { id: 'dailyLimit', pass: !limitHit, note: limitHit ? `Daily loss limit of ₹${dailyLimit} reached` : `Daily loss so far within ₹${dailyLimit}` },
+      { id: 'dailyLimit', pass: !limitHit, note: limitHit ? `Daily loss limit of ${cur}${dailyLimit} reached` : `Daily loss so far within ${cur}${dailyLimit}` },
       { id: 'positions', pass: !tooMany, note: tooMany ? `Already ${context.openPositions} open position(s) (max ${cfg.maxOpenPositions})` : cfg.limitPositions ? 'Room for a position' : 'Open-position limit is off in settings' },
       {
         id: 'entryTime',
         pass: !lateEntry,
-        note: lateEntry ? `No new entries after ${LAST_ENTRY} IST (square-off at 15:20)` : `Entries allowed until ${LAST_ENTRY} IST`,
+        note: lateEntry
+          ? `No new entries after ${mkt.lastEntry} ${mkt.zone} (square-off at ${mkt.squareOff})`
+          : `Entries allowed until ${mkt.lastEntry} ${mkt.zone}`,
+        action: `No new trades now: square off open positions by ${hhmm(times.squareOff)} ${mkt.zone}`,
       },
       { id: 'duplicate', pass: !key || key !== context.lastSignalKey, note: 'Not already signalled on this candle' },
       ...(isLong ? [] : [{ id: 'shortAllowed', pass: !!cfg.allowShort, note: cfg.allowShort ? 'Intraday shorts allowed in settings' : 'Shorts are turned off in settings' }]),
@@ -259,7 +271,7 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
   // Learned from past results: a higher score is needed where trades have been losing.
   const learn =
     cfg.learnOn !== false
-      ? learnedBump(context.learned, { side, symbol, minutes: candle ? istParts(candle.t).minutes : null })
+      ? learnedBump(context.learned, { side, symbol, minutes: candle ? marketParts(candle.t, market).minutes : null }, market)
       : { bump: 0, notes: [] };
   const need = cfg.threshold + learn.bump;
   if (penalty[side] > 0) {
@@ -319,14 +331,15 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
   if (plan?.ok && (plan.netReward <= 0 || (plan.netRR ?? 0) < cfg.minNetRR)) {
     warnings.push(
       plan.netReward <= 0
-        ? `Charges eat the profit: after est. charges the target pays ₹${plan.netReward} while the stop loses ₹${plan.maxLoss}`
-        : `Low profit after charges: target pays ₹${plan.netReward}, stop loses ₹${plan.maxLoss} (${plan.netRR ?? 0}× — below ${cfg.minNetRR}×)`
+        ? `Charges eat the profit: after est. charges the target pays ${cur}${plan.netReward} while the stop loses ${cur}${plan.maxLoss}`
+        : `Low profit after charges: target pays ${cur}${plan.netReward}, stop loses ${cur}${plan.maxLoss} (${plan.netRR ?? 0}× — below ${cfg.minNetRR}×)`
     );
   }
 
   return {
     ruleVersion: RULE_VERSION,
     symbol,
+    market,
     evaluatedAt: new Date(typeof now === 'number' ? now : Date.parse(now)).toISOString(),
     state,
     side,
