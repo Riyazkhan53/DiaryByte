@@ -115,7 +115,9 @@ export function parseOttShare(text, { metaTitle = '' } = {}) {
   const platformRe = platformNames.map((n) => n.replace(/[.*+?^${}()|[\]\\+]/g, '\\$&')).join('|');
   let title = '';
 
-  const quoted = s.match(/["“'‘]([^"“”'‘’\n]{2,80})["”'’]/);
+  // "Title" or “Title”; single quotes only as quote marks, not apostrophes
+  // ("I'm watching Mr. Bean's Holiday").
+  const quoted = s.match(/["“]([^"“”\n]{2,80})["”]/) || s.match(/(?:^|[\s(])['‘]([^'‘’\n]{2,80})['’](?=[\s.,!?:;)]|$)/);
   if (quoted) title = quoted[1];
   if (!title) {
     const phrase = s.match(
@@ -129,7 +131,10 @@ export function parseOttShare(text, { metaTitle = '' } = {}) {
   }
   if (!title && metaTitle) title = cleanPageTitle(metaTitle);
   if (!title && link) title = fromSlug(link);
-  title = tidy(title).replace(/^watch\s+/i, '');
+  // "Jailer 2. Check it out now" → "Jailer 2" (the sentence ends there; a
+  // dot inside a title like "Mr. Bean" is kept).
+  title = title.split(/[.!?…]+\s+(?=(?:check|watch|stream|now|available|only|see|catch|it'?s|it’s|join|don'?t|start)\b)/i)[0];
+  title = tidy(title).replace(/^watch\s+/i, '').replace(/[.!?…]+$/, '');
   // Drop a trailing "(2023)" into a year.
   const year = (title.match(/\((\d{4})\)\s*$/) || [])[1] || '';
   if (year) title = tidy(title.replace(/\(\d{4}\)\s*$/, ''));
