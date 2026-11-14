@@ -7,10 +7,12 @@ import { readOttWithAi } from '../../services/api';
 import { posterUrl, searchTitles } from '../../services/tmdb';
 import { smartRead, teach } from '../../services/smartFill';
 import { ottPlatform, parseOttShare } from '../../utils/ottShare';
+import { fetchPageTitle } from '../../services/linkTitle';
 
 const VIA = {
   learned: { icon: 'flash', color: '#2DA44E', text: (p) => `Read by Smart fill, learned from your earlier ${p || 'OTT'} shares. No AI used.` },
   guess: { icon: 'bulb-outline', color: '#F59E0B', text: () => 'Best guess from the shared message. Check the title, or read it with AI.' },
+  page: { icon: 'link-outline', color: '#2C6BFF', text: (p) => `Read from the ${p || 'shared'} link's page. No AI used.` },
   ai: { icon: 'sparkles', color: '#7C3AED', text: () => 'Read with AI. Smart fill learns from what you add.' },
 };
 
@@ -72,13 +74,22 @@ export default function ShareToWatchlist({ share, apiKey, onAdd, onClose, mapPla
       const shared = ottPlatform(text) || ottPlatform(share.metaTitle || '');
       const learned = await smartRead('ott', text).catch(() => null);
       if (!alive) return;
-      const guess = parseOttShare(text, { metaTitle: share.metaTitle || '' });
+      let guess = parseOttShare(text, { metaTitle: share.metaTitle || '' });
+      // Only a link (e.g. Netflix "Copy link"): read the title off its page.
+      if (!learned && !guess.title && guess.link) {
+        setBusy('Opening the link to find the title…');
+        const pageTitle = await fetchPageTitle(guess.link);
+        if (!alive) return;
+        setBusy(null);
+        if (pageTitle) guess = { ...parseOttShare(text, { metaTitle: pageTitle }), fromPage: true };
+      }
       const t = learned?.fields?.title || guess.title;
       setTitle(t);
       setYear(guess.year || '');
       setPlatform(learned?.fields?.platform || shared);
       setType(learned?.fields?.type || 'Movie');
-      setVia(learned ? 'learned' : t ? 'guess' : null);
+      setVia(learned ? 'learned' : guess.fromPage ? 'page' : t ? 'guess' : null);
+      if (!t) setProblem("Couldn't find the title in what was shared. Type it, or tap Read with AI.");
       if (t) search(t, guess.year);
     });
     return () => {

@@ -115,3 +115,22 @@ export function parseOttShare(text, { metaTitle = '' } = {}) {
   if (year) title = tidy(title.replace(/\(\d{4}\)\s*$/, ''));
   return { title, platform, link, year };
 }
+
+const ENTITIES = { amp: '&', quot: '"', apos: "'", '#39': "'", lt: '<', gt: '>', nbsp: ' ' };
+const decode = (t) =>
+  String(t || '')
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&([a-z#0-9]+);/gi, (m, n) => ENTITIES[n.toLowerCase()] ?? m);
+
+/** A page's title from its HTML: og:title, then twitter:title, then <title>. */
+export function titleFromHtml(html) {
+  const h = String(html || '');
+  const meta = (name) => {
+    const re1 = new RegExp(`<meta[^>]+(?:property|name)=["']${name}["'][^>]*content=["']([^"']+)["']`, 'i');
+    const re2 = new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]*(?:property|name)=["']${name}["']`, 'i');
+    return (h.match(re1) || h.match(re2) || [])[1];
+  };
+  const raw = meta('og:title') || meta('twitter:title') || (h.match(/<title[^>]*>([^<]+)<\/title>/i) || [])[1] || '';
+  return decode(raw).replace(/\s+/g, ' ').trim();
+}
