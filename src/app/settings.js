@@ -23,6 +23,7 @@ import { AppUpdatesSection } from '../components/AppUpdates';
 import { DeleteProtectionSection } from '../components/DeleteProtectionSection';
 import { VaultCodeSection } from '../components/VaultCodeSection';
 import { WatchPairSection } from '../components/WatchPairSection';
+import { AiSettingsSection } from '../components/AiSettingsSection';
 import { confirmDelete } from '../utils/confirm';
 import { getSession, isGuest, signOut } from '../services/session';
 
@@ -258,6 +259,21 @@ export default function SettingsScreen() {
           titleStyle={[styles.sectionTitle, { color: theme.text }]}
           hintStyle={styles.hint}
         />
+
+        {guest ? null : (
+          <AiSettingsSection
+            sectionStyle={[
+              styles.section,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.border,
+                shadowColor: theme.shadow,
+              },
+            ]}
+            titleStyle={[styles.sectionTitle, { color: theme.text }]}
+            hintStyle={styles.hint}
+          />
+        )}
 
         <AppUpdatesSection
           sectionStyle={[
