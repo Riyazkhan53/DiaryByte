@@ -545,19 +545,32 @@ function createApp() {
 
 const PORT = process.env.PORT || 3000;
 
+// Start listening straight away, so Render's health check gets an answer
+// while the database connects (requests made meanwhile wait for it; the
+// health check reports db: 'down' until then). The trading scanner starts a
+// little later, once the deploy has settled.
+const SCANNER_START_DELAY_MS = 2 * 60 * 1000;
+
 if (require.main === module) {
+  const app = createApp();
+  const server = app.listen(PORT, () => {
+    console.log(`[api] DiaryByte API listening on port ${PORT}`);
+  });
   connectDatabase()
     .then(() => {
-      const app = createApp();
-      app.listen(PORT, () => {
-        console.log(`[api] DiaryByte API listening on port ${PORT}`);
-      });
-      engineService.startScanner();
+      setTimeout(() => engineService.startScanner(), SCANNER_START_DELAY_MS).unref();
     })
     .catch((error) => {
       console.error('[api] Failed to start', error);
       process.exit(1);
     });
+  // Render stops the old instance with SIGTERM on each deploy: finish
+  // requests in flight, then exit.
+  process.on('SIGTERM', () => {
+    console.log('[api] SIGTERM: shutting down');
+    server.close(() => mongoose.disconnect().finally(() => process.exit(0)));
+    setTimeout(() => process.exit(0), 10000).unref();
+  });
 }
 
 module.exports = { createApp };

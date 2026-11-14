@@ -32,6 +32,7 @@ const running = {}; // market → { startedAt, done, total, symbol }
 const lastAttempt = {}; // market → ms
 
 const yieldNow = () => new Promise((resolve) => setImmediate(resolve));
+const YIELD_EVERY_MS = 40;
 
 /** Summaries of a list of closed trades, grouped by `key(trade)`. */
 function groupStats(trades, key) {
@@ -104,10 +105,16 @@ async function runBacktest(market = 'NSE', { fetchCandles } = {}) {
     const openUntil = {}; // symbol → exit time of its open trade
     const lastKey = {};
     const ptr15 = {}; // symbol → index of the first 15-minute candle not yet complete
+    let lastYield = Date.now();
     for (let n = 0; n < events.length; n += 1) {
       const { t, symbol, i } = events[n];
       progress.done = n + 1;
-      if (n % 400 === 0) await yieldNow(); // keep the server responsive
+      // Keep the server responsive (Render's health check waits only 5 s, and
+      // the free plan's CPU is slow): hand back control every ~40 ms of work.
+      if (Date.now() - lastYield > YIELD_EVERY_MS) {
+        await yieldNow();
+        lastYield = Date.now();
+      }
       if (openUntil[symbol] != null && openUntil[symbol] > t) continue;
       const d = data[symbol];
       const now = t + 5 * 60000 + 30000; // just after the candle closed
