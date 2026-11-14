@@ -28,7 +28,7 @@ import {
 import JustAdded from '../../components/movies/JustAdded';
 import { SA_KEY_STORAGE, fetchStreamingLinks } from '../../services/streamingAvailability';
 import { pickLink, watchTarget } from '../../services/ottLinks';
-import { useShareIntentContext } from 'expo-share-intent';
+import { useAppShare } from '../../components/AppShareProvider';
 import ShareToWatchlist from '../../components/movies/ShareToWatchlist';
 import { sharedText, shareTarget } from '../../utils/shareRoute';
 import { confirmAction, confirmDelete } from '../../utils/confirm';
@@ -147,7 +147,7 @@ export default function MoviesScreen() {
   const [ottError, setOttError] = useState(null);
 
   // Shared from an OTT app (Netflix, Prime Video...): Add to Watchlist.
-  const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
+  const { hasShareIntent, shareIntent, resetShareIntent } = useAppShare();
   const [sharedOtt, setSharedOtt] = useState(null);
   useEffect(() => {
     if (!hasShareIntent || shareTarget(shareIntent) !== '/movies') return;

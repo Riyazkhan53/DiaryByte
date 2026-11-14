@@ -23,7 +23,7 @@ import * as Linking from 'expo-linking';
 import { router, useLocalSearchParams } from 'expo-router';
 import { isSupported as tripAlarmSupported, readTripAlarm } from '../../services/tripAlarm';
 import { formatDistance } from '../../utils/tripAlarm';
-import { useShareIntentContext } from 'expo-share-intent';
+import { useAppShare } from '../../components/AppShareProvider';
 import Header from '../../components/Header';
 import SyncRow from '../../components/SyncRow';
 import DatePicker from '../../components/DatePicker';
@@ -111,7 +111,7 @@ export default function TicketsScreen() {
 
   // Something shared from another app (BookMyShow, an airline, a screenshot):
   // open the form pre-filled so it can be checked and saved.
-  const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
+  const { hasShareIntent, shareIntent, resetShareIntent } = useAppShare();
 
   // Fill the form with found fields, leaving anything you've changed alone.
   const applyFound = (fields) => {
