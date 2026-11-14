@@ -30,6 +30,8 @@ export const OTT_PLATFORMS = [
 ];
 
 const URL_RE = /https?:\/\/[^\s<>"')\]]+/i;
+// Platform names as people write them in messages ("Zee 5", "Disney+ Hotstar").
+const SPACED_PLATFORMS = 'zee\\s*5|(?:amazon\\s+)?prime(?:\\s+video)?|(?:disney\\+?\\s*|jio\\s*)?hotstar|jio\\s*cinema|sony\\s*liv|sun\\s*nxt|mx\\s*player|apple\\s*tv\\+?|youtube';
 const platformNames = [...new Set(OTT_PLATFORMS.map(([, name]) => name))];
 
 /** The OTT platform a share comes from, or ''. Checks the link first, then the text. */
@@ -121,7 +123,7 @@ export function parseOttShare(text, { metaTitle = '' } = {}) {
   if (quoted) title = quoted[1];
   if (!title) {
     const phrase = s.match(
-      new RegExp(`(?:watch(?:ing)?|check out|stream(?:ing)?|now streaming|i(?:'|’)?m watching|have you seen)\\s*:?\\s+(.{2,80}?)\\s+(?:on|only on|streaming on|at)\\s+(?:${platformRe}|the\\s+\\w+\\s+app)`, 'i')
+      new RegExp(`(?:watch(?:ing)?|check out|stream(?:ing)?|now streaming|i(?:'|’)?m watching|have you seen)\\s*:?\\s+(.{2,80}?)\\s+(?:on|only on|streaming on|at)\\s+(?:the\\s+)?(?:${platformRe}|${SPACED_PLATFORMS}|[\\w+ ]{2,24}?\\s+app)\\b`, 'i')
     );
     if (phrase) title = phrase[1];
   }

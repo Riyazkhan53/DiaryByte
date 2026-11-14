@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { router, usePathname, useRootNavigationState } from 'expo-router';
 import { useShareIntentContext } from 'expo-share-intent';
-import { shareTarget } from '../utils/shareRoute';
+import { sharedText, shareTarget } from '../utils/shareRoute';
+import { ottPlatform } from '../utils/ottShare';
+import { recordShare } from '../utils/shareLog';
 
 /**
  * When something is shared into DiaryByte (Android share sheet): a share
@@ -9,7 +11,7 @@ import { shareTarget } from '../utils/shareRoute';
  * Tickets, which turns it into a pre-filled ticket.
  */
 export default function ShareIntentHandler() {
-  const { hasShareIntent, shareIntent } = useShareIntentContext();
+  const { hasShareIntent, shareIntent, error } = useShareIntentContext();
   const pathname = usePathname();
   const navReady = !!useRootNavigationState()?.key;
 
@@ -25,8 +27,21 @@ export default function ShareIntentHandler() {
     if (!navReady || handled.current === shareIntent) return;
     handled.current = shareIntent;
     const target = shareTarget(shareIntent);
+    const { text } = sharedText(shareIntent);
+    recordShare({
+      text: text.slice(0, 300),
+      files: (shareIntent?.files || []).map((f) => f.mimeType).join(', '),
+      app: ottPlatform(text),
+      target,
+      from: pathname,
+    });
     if (target && pathname !== target) router.navigate(target);
   }, [hasShareIntent, shareIntent, navReady, pathname]);
+
+  // The share library couldn't read what was shared.
+  useEffect(() => {
+    if (error) recordShare({ error: String(error).slice(0, 300) });
+  }, [error]);
 
   return null;
 }

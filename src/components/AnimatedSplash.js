@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Easing, Image, Platform, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Animated, AppState, Easing, Image, Platform, StyleSheet, Text, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 
 import { BRAND_BG, BRAND_ICON, GLOW_RINGS, brandStyles, glowRingStyle } from './brand';
@@ -57,6 +57,22 @@ export default function AnimatedSplash() {
     const timer = setTimeout(start, 1500);
     return () => clearTimeout(timer);
   });
+
+  // Never leave the overlay up: it lets touches through, so if Android drops
+  // the fade-out's "finished" (e.g. the app's window is relaunched when
+  // something is shared into it) the app would work invisibly under a blank
+  // screen. Gone after 4 s at most, or as soon as the app comes back.
+  useEffect(() => {
+    const mountedAt = Date.now();
+    const hardStop = setTimeout(() => setDone(true), 4000);
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && Date.now() - mountedAt > 2500) setDone(true);
+    });
+    return () => {
+      clearTimeout(hardStop);
+      sub.remove();
+    };
+  }, []);
 
   if (done) return null;
 
