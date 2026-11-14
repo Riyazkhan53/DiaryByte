@@ -16,7 +16,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import Header from '../components/Header';
 import { useTheme } from '../hooks/useTheme';
-import { pullAllFromServer, SYNCED_COLLECTIONS } from '../services/sync';
+import { pullAllFromServer, SYNCED_COLLECTIONS, syncKeysFor } from '../services/sync';
+import SyncQueueCard from '../components/SyncQueueCard';
 import { AppUpdatesSection } from '../components/AppUpdates';
 import { DeleteProtectionSection } from '../components/DeleteProtectionSection';
 import { VaultCodeSection } from '../components/VaultCodeSection';
@@ -84,8 +85,12 @@ export default function SettingsScreen() {
       async () => {
         try {
           await AsyncStorage.multiRemove(
-            SYNCED_COLLECTIONS.flatMap(({ storageKey }) => [storageKey, `${storageKey}_pending`, `${storageKey}_deleted`])
+            SYNCED_COLLECTIONS.flatMap(({ storageKey }) => [storageKey, ...syncKeysFor(storageKey)])
           );
+          // Big lists are stored in pieces (key__<gen>_<n>): remove those too.
+          const allKeys = await AsyncStorage.getAllKeys();
+          const pieces = allKeys.filter((k) => SYNCED_COLLECTIONS.some(({ storageKey }) => k.startsWith(`${storageKey}__`)));
+          if (pieces.length) await AsyncStorage.multiRemove(pieces);
           Alert.alert('Done', 'All data has been cleared.');
         } catch (error) {
           console.error('Failed to clear data', error);
@@ -285,6 +290,7 @@ export default function SettingsScreen() {
                 : 'Data lives on this device and pushes to your server in real time'}
             </Text>
           </View>
+          {guest ? null : <SyncQueueCard />}
           {guest ? null : (
             <SyncTools>
           <TouchableOpacity

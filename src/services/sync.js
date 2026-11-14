@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { fetchCollection, pushCollection } from './api';
+import { checkHealth, fetchCollection, pushCollection } from './api';
 import { isGuest } from './session';
 import { getLargeItem, setLargeItem } from './localStore';
 
@@ -30,6 +30,51 @@ export const SYNCED_COLLECTIONS = [
   { collection: 'tradingconfig', storageKey: '@diarybyte_tradingconfig' },
 ];
 
+// Section names for "Items waiting for sync".
+export const COLLECTION_LABELS = {
+  movies: 'Movies',
+  passwords: 'Passwords',
+  vouchers: 'Vouchers & Gift Cards',
+  banking: 'Banking',
+  diary: 'Diary',
+  vault: 'Personal Vault',
+  iddocs: 'Personal Documents',
+  todo: 'To-do',
+  expenditure: 'Expenditure',
+  cards: 'Cards',
+  investments: 'Investments',
+  debts: 'Debts',
+  autopays: 'Autopays',
+  tickets: 'Tickets',
+  dates: 'Important Dates',
+  months: 'Monthly income',
+  spends: 'Total spends',
+  setups: 'Setup checks',
+  trades: 'Paper trades',
+  demat: 'Demat',
+  tradingconfig: 'Trading settings',
+};
+
+// ------- sync status events -------
+
+// "Items waiting for sync" changed (a save, a push, a failed push).
+const statusListeners = new Set();
+
+export function subscribeSyncStatus(listener) {
+  statusListeners.add(listener);
+  return () => statusListeners.delete(listener);
+}
+
+function emitSyncStatus() {
+  statusListeners.forEach((listener) => {
+    try {
+      listener();
+    } catch (_error) {
+      // a listener's problem isn't the sync's
+    }
+  });
+}
+
 // ------- in-app change events -------
 
 // Lets every mounted screen showing a collection see edits made elsewhere
@@ -51,6 +96,11 @@ export function notifyLocal(storageKey, items, source) {
 const pendingKey = (storageKey) => `${storageKey}_pending`;
 // Ids deleted on this device that the server hasn't been told about yet.
 const deletedKey = (storageKey) => `${storageKey}_deleted`;
+// Items waiting for sync: { id: stamp of the save that changed it }.
+const queueKey = (storageKey) => `${storageKey}_queue`;
+
+/** Every key this module keeps for a collection (for a full reset). */
+export const syncKeysFor = (storageKey) => [pendingKey(storageKey), deletedKey(storageKey), queueKey(storageKey)];
 
 // ------- local reads/writes -------
 
@@ -71,6 +121,19 @@ async function readDeleted(storageKey) {
   } catch (_error) {
     return [];
   }
+}
+
+async function readQueue(storageKey) {
+  try {
+    return JSON.parse((await AsyncStorage.getItem(queueKey(storageKey))) || '{}') || {};
+  } catch (_error) {
+    return {};
+  }
+}
+
+async function writeQueue(storageKey, queue) {
+  if (Object.keys(queue).length) await AsyncStorage.setItem(queueKey(storageKey), JSON.stringify(queue));
+  else await AsyncStorage.removeItem(queueKey(storageKey));
 }
 
 // Local read-modify-writes for one collection run one at a time, so a slow
@@ -105,7 +168,7 @@ function mergeWithRemote(local, remote, deleted) {
  */
 async function pushMerged(collection, storageKey) {
   const remote = await fetchCollection(collection);
-  const { merged, deleted, pending } = await inLocalQueue(storageKey, async () => {
+  const { merged, deleted, pending, queued } = await inLocalQueue(storageKey, async () => {
     const local = await readLocal(storageKey);
     const deletedIds = await readDeleted(storageKey);
     const result = mergeWithRemote(local, remote, deletedIds);
@@ -117,6 +180,7 @@ async function pushMerged(collection, storageKey) {
       merged: result,
       deleted: deletedIds,
       pending: await AsyncStorage.getItem(pendingKey(storageKey)),
+      queued: await readQueue(storageKey),
     };
   });
 
@@ -134,7 +198,14 @@ async function pushMerged(collection, storageKey) {
     if ((await AsyncStorage.getItem(pendingKey(storageKey))) === pending) {
       await AsyncStorage.removeItem(pendingKey(storageKey));
     }
+    // Items saved again while this push was in flight stay waiting.
+    const queue = await readQueue(storageKey);
+    Object.keys(queued).forEach((id) => {
+      if (queue[id] === queued[id]) delete queue[id];
+    });
+    await writeQueue(storageKey, queue);
   });
+  emitSyncStatus();
   return merged;
 }
 
@@ -162,19 +233,32 @@ export async function saveAndPush(collection, storageKey, items) {
         const deleted = new Set([...(await readDeleted(storageKey)), ...removed]);
         await AsyncStorage.setItem(deletedKey(storageKey), JSON.stringify([...deleted]));
       }
+      // Items waiting for sync: the ones this save added, changed or removed.
+      const stamp = Date.now();
+      const before = new Map(previous.map((item) => [item.id, JSON.stringify(item)]));
+      const changed = items.filter((item) => item && item.id && before.get(item.id) !== JSON.stringify(item)).map((item) => item.id);
+      if (changed.length || removed.length) {
+        const queue = await readQueue(storageKey);
+        [...changed, ...removed].forEach((id) => {
+          queue[id] = stamp;
+        });
+        await writeQueue(storageKey, queue);
+      }
       await writeLocal(storageKey, items);
       // A fresh value each save, so an older push can't clear a newer edit.
-      await AsyncStorage.setItem(pendingKey(storageKey), String(Date.now()));
+      await AsyncStorage.setItem(pendingKey(storageKey), String(stamp));
     });
   } catch (error) {
     console.error(`Failed to save ${collection} locally`, error);
   }
+  emitSyncStatus();
 
   try {
     await pushMerged(collection, storageKey);
     return { pushed: true };
   } catch (error) {
     console.error(`Failed to push ${collection}`, error);
+    emitSyncStatus();
     return { pushed: false, error };
   }
 }
@@ -237,4 +321,72 @@ export async function pullAllFromServer() {
     }
   }
   return results;
+}
+
+// ------- items waiting for sync -------
+
+/** True when this collection has changes the server hasn't got yet. */
+export async function hasPending(storageKey) {
+  if (isGuest()) return false;
+  return !!(await AsyncStorage.getItem(pendingKey(storageKey)));
+}
+
+/**
+ * Items waiting for sync, by section: [{ collection, label, count }] for
+ * sections with unsynced changes (count of items added, changed or
+ * deleted; at least 1).
+ */
+export async function pendingSummary() {
+  if (isGuest()) return [];
+  const out = [];
+  for (const { collection, storageKey } of SYNCED_COLLECTIONS) {
+    if (!(await AsyncStorage.getItem(pendingKey(storageKey)))) continue;
+    const count = Object.keys(await readQueue(storageKey)).length;
+    out.push({ collection, label: COLLECTION_LABELS[collection] || collection, count: Math.max(1, count) });
+  }
+  return out;
+}
+
+let syncRun = null;
+let lastSync = null; // { at, ok, reachable, failed: [labels] }
+
+export const lastSyncResult = () => lastSync;
+
+/**
+ * Push every section with items waiting for sync. Checks the server first,
+ * so an unreachable one costs one quick check instead of a timeout per
+ * section. One run at a time. Returns { reachable, synced, failed, left }.
+ */
+export function syncAllPending() {
+  if (syncRun) return syncRun;
+  syncRun = (async () => {
+    const waiting = await pendingSummary();
+    if (!waiting.length) {
+      lastSync = { at: Date.now(), ok: true, reachable: true, failed: [] };
+      return { reachable: true, synced: 0, failed: [], left: 0 };
+    }
+    if (!(await checkHealth(10000))) {
+      lastSync = { at: Date.now(), ok: false, reachable: false, failed: [] };
+      emitSyncStatus();
+      return { reachable: false, synced: 0, failed: [], left: waiting.length };
+    }
+    let synced = 0;
+    const failed = [];
+    for (const { collection, label } of waiting) {
+      const entry = SYNCED_COLLECTIONS.find((c) => c.collection === collection);
+      try {
+        await pushMerged(collection, entry.storageKey);
+        synced += 1;
+      } catch (error) {
+        console.error(`Sync of ${collection} failed`, error);
+        failed.push(label);
+      }
+    }
+    lastSync = { at: Date.now(), ok: !failed.length, reachable: true, failed };
+    emitSyncStatus();
+    return { reachable: true, synced, failed, left: (await pendingSummary()).length };
+  })().finally(() => {
+    syncRun = null;
+  });
+  return syncRun;
 }

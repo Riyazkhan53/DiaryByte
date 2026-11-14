@@ -10,6 +10,7 @@ import AutopayReminderService from '../components/AutopayReminderService';
 import TripAlarmService from '../components/TripAlarmService';
 import DebtReminderService from '../components/DebtReminderService';
 import SipService from '../components/SipService';
+import SyncService from '../components/SyncService';
 import ShareIntentHandler from '../components/ShareIntentHandler';
 import AnimatedSplash from '../components/AnimatedSplash';
 import DeleteConfirmHost from '../components/DeleteConfirmHost';
@@ -41,6 +42,7 @@ function GlassRoot() {
           <TripAlarmService />
           <DebtReminderService />
           <SipService />
+          <SyncService />
           <MaybeServerGate>
           <Stack
             // Each screen gets its own backdrop so slide transitions don't

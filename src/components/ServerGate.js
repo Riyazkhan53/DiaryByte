@@ -8,20 +8,19 @@ import { BRAND_ICON, GLOW_RINGS, brandStyles, glowRingStyle } from './brand';
 const BAR_WIDTH = 200;
 const RETRY_DELAY_MS = 2000;
 const MIN_SPLASH_MS = 900;
-const OFFLINE_BUTTON_AFTER_MS = 12000;
 // A cold Render free-tier start usually takes 30–60s. The fill eases toward
 // 90% on this time scale, then jumps to 100% the moment the server answers.
 const FILL_TIME_CONSTANT_MS = 20000;
 
 /**
  * Start page shown while the API server wakes up. Renders children once
- * /api/health responds, or when the user chooses to continue offline
+ * /api/health responds, or straight away when the user taps "Continue
+ * offline" (offered from the start; SyncService syncs later)
  * (the app is local-first, so everything still works without the server).
  * Laid out like the launch animation (AnimatedSplash), which fades into it.
  */
 export default function ServerGate({ children }) {
   const [ready, setReady] = useState(false);
-  const [showOffline, setShowOffline] = useState(false);
   const [percent, setPercent] = useState(0);
   const [fill] = useState(() => new Animated.Value(0));
   const [pulse] = useState(() => new Animated.Value(0));
@@ -57,7 +56,6 @@ export default function ServerGate({ children }) {
         easing: Easing.linear,
         useNativeDriver: false,
       }).start();
-      if (elapsed >= OFFLINE_BUTTON_AFTER_MS) setShowOffline(true);
     }, 250);
 
     const listener = fill.addListener(({ value }) => setPercent(Math.round(value * 100)));
@@ -135,10 +133,19 @@ export default function ServerGate({ children }) {
         </View>
         <Text style={styles.percent}>{percent}%</Text>
 
-        {showOffline && percent < 100 && (
-          <TouchableOpacity onPress={continueOffline} style={styles.offlineButton} activeOpacity={0.7}>
-            <Text style={styles.offlineText}>Taking a while? Continue offline</Text>
-          </TouchableOpacity>
+        {percent < 100 && (
+          <>
+            <TouchableOpacity
+              onPress={continueOffline}
+              style={styles.offlineButton}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Continue offline"
+            >
+              <Text style={styles.offlineText}>Continue offline</Text>
+            </TouchableOpacity>
+            <Text style={styles.offlineHint}>Everything works offline. Changes wait for sync and go up once the server answers.</Text>
+          </>
         )}
       </View>
     </View>
@@ -158,6 +165,15 @@ const styles = StyleSheet.create({
   fill: { height: '100%', borderRadius: 3, overflow: 'hidden' },
   fillGradient: { flex: 1 },
   percent: { fontSize: 13, marginTop: 8, color: '#6F84A6', fontVariant: ['tabular-nums'] },
-  offlineButton: { marginTop: 22, paddingVertical: 10, paddingHorizontal: 16 },
-  offlineText: { fontSize: 14, fontWeight: '600', color: '#35C8F5' },
+  offlineButton: {
+    marginTop: 26,
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#35C8F5',
+    backgroundColor: 'rgba(53, 200, 245, 0.12)',
+  },
+  offlineText: { fontSize: 15, fontWeight: '700', color: '#35C8F5' },
+  offlineHint: { fontSize: 12, marginTop: 10, color: '#6F84A6', textAlign: 'center', maxWidth: 260, lineHeight: 17 },
 });
