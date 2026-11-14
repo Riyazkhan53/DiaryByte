@@ -151,12 +151,15 @@ export default function MoviesScreen() {
   const [sharedOtt, setSharedOtt] = useState(null);
   useEffect(() => {
     if (!hasShareIntent || shareTarget(shareIntent) !== '/movies') return;
-    const shared = sharedText(shareIntent);
     Promise.resolve().then(() => {
-      setSharedOtt(shared);
-      setTab('mylist');
-      setFilter('watchlist');
-      resetShareIntent();
+      try {
+        setSharedOtt(sharedText(shareIntent));
+        setTab('mylist');
+        setFilter('watchlist');
+      } finally {
+        // Always finish with the share, even if reading it failed.
+        resetShareIntent();
+      }
     });
     // Runs once per share.
     // eslint-disable-next-line react-hooks/exhaustive-deps

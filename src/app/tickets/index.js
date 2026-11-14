@@ -175,7 +175,16 @@ export default function TicketsScreen() {
     const shared = shareIntent;
     // Just after this render (not inside the effect itself).
     Promise.resolve().then(async () => {
-      const { fields, text, file } = quickFieldsFromShare(shared);
+      // Finish with the share first, so a problem reading it can't leave it
+      // pending (and pull you back here from every other screen).
+      resetShareIntent();
+      let parsed;
+      try {
+        parsed = quickFieldsFromShare(shared);
+      } catch (_error) {
+        parsed = { fields: {}, text: String(shared?.text || shared?.webUrl || ''), file: null };
+      }
+      const { fields, text, file } = parsed;
       autoRef.current = fields;
       sourceTextRef.current = text || '';
       setViewingId(null);
@@ -184,7 +193,6 @@ export default function TicketsScreen() {
       setReading(null);
       setForm({ ...EMPTY_FORM, date: todayKey(), ...fields });
       setFormVisible(true);
-      resetShareIntent();
       let image = null;
       if (file) {
         setReading({ busy: true, message: 'Preparing the screenshot…' });
