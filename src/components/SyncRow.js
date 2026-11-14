@@ -48,13 +48,13 @@ export default function SyncRow({ synced, pulling, pullInfo, onPull, error }) {
     ? `Pulled ${pullInfo.count} item${pullInfo.count === 1 ? '' : 's'} from server`
     : synced
       ? 'Saved locally · synced to server'
-      : 'Saved on this device';
+      : 'Waiting for sync · saved on this device';
   const color = pullInfo || synced ? theme.primaryDark : theme.textMuted;
 
   return (
     <View style={styles.row}>
       <Ionicons
-        name={pullInfo || synced ? 'cloud-done-outline' : 'phone-portrait-outline'}
+        name={pullInfo || synced ? 'cloud-done-outline' : 'cloud-upload-outline'}
         size={13}
         color={color}
       />

@@ -5,6 +5,8 @@ import {
   pullFromServer,
   subscribeLocal,
   notifyLocal,
+  hasPending,
+  subscribeSyncStatus,
 } from '../services/sync';
 
 /**
@@ -41,6 +43,22 @@ export function useSyncedCollection(collection, storageKey) {
       cancelled = true;
     };
   }, [collection, storageKey]);
+
+  // Synced = nothing of this section waiting for sync (updated as the
+  // background sync or another screen pushes).
+  useEffect(() => {
+    let alive = true;
+    const check = () =>
+      hasPending(storageKey)
+        .then((pending) => alive && setSynced(!pending))
+        .catch(() => {});
+    check();
+    const unsubscribe = subscribeSyncStatus(check);
+    return () => {
+      alive = false;
+      unsubscribe();
+    };
+  }, [storageKey]);
 
   // Pick up edits to the same collection made by other screens.
   const [onExternalChange] = useState(() => (updated) => setItems(updated));
