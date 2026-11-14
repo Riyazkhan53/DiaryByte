@@ -53,7 +53,7 @@ const EMPTY = { type: 'aadhaar', title: '', number: '', fields: {}, expiry: '', 
 export default function DocumentsScreen() {
   const { theme } = useTheme();
   const { width } = useWindowDimensions();
-  const { items: stored, synced, persist, pulling, pullInfo, pullNow } = useSyncedCollection('iddocs', IDDOCS_STORAGE_KEY);
+  const { items: stored, loadError, synced, persist, pulling, pullInfo, pullNow } = useSyncedCollection('iddocs', IDDOCS_STORAGE_KEY);
   const [unlocked, setUnlocked] = useState(false);
   const [viewingId, setViewingId] = useState(null);
   const [shown, setShown] = useState({}); // id → number revealed
@@ -276,7 +276,7 @@ export default function DocumentsScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
       <Header title="Personal Documents" subtitle="Aadhaar, PAN, passport and more" />
       <View style={styles.content}>
-        <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} />
+        <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} error={loadError} />
         <FlatList
           data={docs}
           keyExtractor={(d) => d.id}

@@ -20,15 +20,23 @@ export function useSyncedCollection(collection, storageKey) {
   const [synced, setSynced] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [pullInfo, setPullInfo] = useState(null);
+  const [loadError, setLoadError] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
-    loadLocalWithRetry(collection, storageKey).then((local) => {
-      if (!cancelled) {
-        setItems(local);
-        setLoaded(true);
-      }
-    });
+    loadLocalWithRetry(collection, storageKey)
+      .then((local) => {
+        if (!cancelled) {
+          setItems(local);
+          setLoaded(true);
+          setLoadError(null);
+        }
+      })
+      .catch((error) => {
+        // Stays not-loaded, so nothing can be saved over the unread copy.
+        console.error(`Couldn't open ${collection}`, error);
+        if (!cancelled) setLoadError(error.message || String(error));
+      });
     return () => {
       cancelled = true;
     };
@@ -58,6 +66,8 @@ export function useSyncedCollection(collection, storageKey) {
     try {
       const remote = await pullFromServer(collection, storageKey);
       setItems(remote);
+      setLoaded(true);
+      setLoadError(null);
       notifyLocal(storageKey, remote, onExternalChange);
       setSynced(true);
       setPullInfo({ count: remote.length });
@@ -70,5 +80,5 @@ export function useSyncedCollection(collection, storageKey) {
     }
   }, [collection, storageKey, onExternalChange]);
 
-  return { items, loaded, synced, persist, pulling, pullInfo, pullNow };
+  return { items, loaded, loadError, synced, persist, pulling, pullInfo, pullNow };
 }
