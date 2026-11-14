@@ -8,6 +8,7 @@ import MarketSwitch from './MarketSwitch';
 import { moneyMarket, shortSymbol } from '../../utils/engineMarket';
 import { confirmDelete } from '../../utils/confirm';
 import { EXIT_ACTION, LOSS, PROFIT, formatMoney, formatPct, formatPnl, formatR, pnlColor } from './format';
+import HScroll from '../HScroll';
 
 const STATE_COLORS = {
   'BUY CANDIDATE': PROFIT,
@@ -52,7 +53,7 @@ function outcomeOf(trade, mm = 'IN') {
 
 function Chips({ options, value, onChange, theme }) {
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+    <HScroll contentContainerStyle={styles.chips}>
       {options.map(([v, label]) => {
         const on = v === value;
         return (
@@ -66,7 +67,7 @@ function Chips({ options, value, onChange, theme }) {
           </TouchableOpacity>
         );
       })}
-    </ScrollView>
+    </HScroll>
   );
 }
 

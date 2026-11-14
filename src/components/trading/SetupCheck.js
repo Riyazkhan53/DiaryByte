@@ -21,6 +21,7 @@ import { evaluateSymbol, fetchCandles, fetchStockQuotes } from '../../services/a
 import { combineSetup } from '../../utils/combinedSetup';
 import { WARN, istTime } from './format';
 import { SetupReportCard } from './ReportCard';
+import HScroll from '../HScroll';
 
 const STORAGE_KEY = '@diarybyte_setups';
 const CONFIG_KEY = '@diarybyte_tradingconfig';
@@ -595,9 +596,7 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
       <View style={cardStyle}>
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Stock</Text>
         {watchlist.length || recent.length ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
+          <HScroll
             style={styles.pickScroll}
             contentContainerStyle={styles.pickRow}
             keyboardShouldPersistTaps="handled"
@@ -632,7 +631,7 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
                 </TouchableOpacity>
               );
             })}
-          </ScrollView>
+          </HScroll>
         ) : null}
         <View style={[styles.segment, { backgroundColor: theme.surfaceAlt }]}>
           {MARKETS.map((m) => (

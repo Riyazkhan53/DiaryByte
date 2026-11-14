@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, SafeAreaView } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, SafeAreaView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AiChat from '../../components/ai/AiChat';
 import Demat from '../../components/trading/Demat';
@@ -13,6 +13,7 @@ import History from '../../components/trading/History';
 import { marketConfig } from '../../utils/engineMarket';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
+import HScroll from '../../components/HScroll';
 
 const TRADES_KEY = '@diarybyte_trades';
 
@@ -90,10 +91,8 @@ export default function TradingScreen() {
 
   // Scrolls sideways: six tabs don't fit a phone's width.
   const tabBar = (
-    <ScrollView
+    <HScroll
       ref={tabScroll}
-      horizontal
-      showsHorizontalScrollIndicator={false}
       // Keep the last tabs (Demat, AI) in view when one is open.
       onContentSizeChange={() => (tab === 'ai' || tab === 'demat') && tabScroll.current?.scrollToEnd({ animated: false })}
       style={[styles.tabs, { backgroundColor: theme.surfaceAlt }]}
@@ -118,7 +117,7 @@ export default function TradingScreen() {
           </TouchableOpacity>
         );
       })}
-    </ScrollView>
+    </HScroll>
   );
   const sync = { synced, pulling, pullInfo, onPull: pullNow };
 

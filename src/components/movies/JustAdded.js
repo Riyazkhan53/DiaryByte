@@ -27,6 +27,7 @@ import {
   fetchTamilDubbed,
   fetchTamilLatest,
 } from '../../services/streamingAvailability';
+import HScroll from '../HScroll';
 
 const CACHE_KEY = '@diarybyte_sa_cache';
 const CACHE_MS = 6 * 60 * 60 * 1000; // the free plan's daily requests are few
@@ -311,7 +312,7 @@ export default function JustAdded({ cardWidth, isAdded, onAdd }) {
       </View>
 
       <View style={styles.chipRow}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+        <HScroll contentContainerStyle={styles.chips}>
           {FEEDS.map((f) => {
             const on = feed === f.key;
             return (
@@ -327,7 +328,7 @@ export default function JustAdded({ cardWidth, isAdded, onAdd }) {
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </HScroll>
         <TouchableOpacity style={styles.iconBtn} onPress={() => load({ force: true })} accessibilityLabel="Refresh">
           <Ionicons name="refresh" size={18} color={theme.textMuted} />
         </TouchableOpacity>
@@ -401,9 +402,7 @@ export default function JustAdded({ cardWidth, isAdded, onAdd }) {
       ) : null}
 
       {services.length > 1 ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
+        <HScroll
           style={styles.noShrink}
           contentContainerStyle={styles.chips}
         >
@@ -422,7 +421,7 @@ export default function JustAdded({ cardWidth, isAdded, onAdd }) {
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </HScroll>
       ) : null}
 
       {error && !result.items.length ? (

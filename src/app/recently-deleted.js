@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   SafeAreaView,
   FlatList,
-  ScrollView,
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,6 +14,7 @@ import Header from '../components/Header';
 import { useTheme } from '../hooks/useTheme';
 import { fetchTrash, restoreFromTrash } from '../services/api';
 import { SYNCED_COLLECTIONS, notifyLocal, pullFromServer } from '../services/sync';
+import HScroll from '../components/HScroll';
 
 const SECTION_LABELS = {
   passwords: 'Passwords',
@@ -129,9 +129,7 @@ export default function RecentlyDeletedScreen() {
       />
 
       <View style={styles.content}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
+        <HScroll
           style={styles.chipScroll}
           contentContainerStyle={styles.chipRow}
         >
@@ -155,7 +153,7 @@ export default function RecentlyDeletedScreen() {
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </HScroll>
 
         {entries.length > 1 && !loading ? (
           <TouchableOpacity

@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Header from '../../components/Header';
 import { useTheme } from '../../hooks/useTheme';
 import { fetchIpoNews, fetchIpoReview, fetchIpos } from '../../services/api';
+import HScroll from '../../components/HScroll';
 
 // Saved on this device (IndexedDB on the web), so the screen opens instantly.
 const LIST_KEY = '@diarybyte_ipos';
@@ -67,7 +68,7 @@ const BOARD_FILTERS = [
 
 function FilterChips({ options, value, onChange, counts, theme }) {
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+    <HScroll contentContainerStyle={styles.chips}>
       {options.map((o) => {
         const on = o.key === value;
         return (
@@ -86,7 +87,7 @@ function FilterChips({ options, value, onChange, counts, theme }) {
           </TouchableOpacity>
         );
       })}
-    </ScrollView>
+    </HScroll>
   );
 }
 

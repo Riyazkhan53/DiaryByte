@@ -8,7 +8,6 @@ import {
   FlatList,
   SafeAreaView,
   Modal,
-  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -33,6 +32,7 @@ import { todayKey } from '../../utils/autopay';
 import { isCreditCard, savedCardLabel } from '../../utils/cards';
 import { isSpendExpense } from '../../utils/spends';
 import { parseSipSourceId, reverseInstallment } from '../../utils/sip';
+import HScroll from '../../components/HScroll';
 
 const STORAGE_KEY = '@diarybyte_expenditure';
 const MONTHS_STORAGE_KEY = '@diarybyte_months';
@@ -631,9 +631,7 @@ export default function ExpenditureScreen() {
   );
 
   const monthChips = (
-  <ScrollView
-    horizontal
-    showsHorizontalScrollIndicator={false}
+  <HScroll
     contentContainerStyle={styles.monthChips}
     style={styles.monthRow}
   >
@@ -668,7 +666,7 @@ export default function ExpenditureScreen() {
         </TouchableOpacity>
       );
     })}
-  </ScrollView>
+  </HScroll>
   );
 
   const listHeader = (
@@ -941,9 +939,7 @@ export default function ExpenditureScreen() {
       </View>
 
       <Text style={[styles.listTitle, { color: theme.text }]}>Expenses</Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
+      <HScroll
         contentContainerStyle={styles.filterChips}
         style={styles.filterRow}
       >
@@ -974,7 +970,7 @@ export default function ExpenditureScreen() {
             <Text style={[styles.chipText, { color: theme.text }]}>{c.key}</Text>
           </TouchableOpacity>
         ))}
-      </ScrollView>
+      </HScroll>
 
       {visible.length > 0 ? (
         <Text style={[styles.visibleTotal, { color: theme.textMuted }]}>

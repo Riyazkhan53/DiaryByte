@@ -32,6 +32,7 @@ import {
   voucherKind,
   voucherStatus,
 } from '../../utils/vouchers';
+import HScroll from '../../components/HScroll';
 
 const makeId = () => `${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`;
 const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
@@ -293,7 +294,7 @@ export default function VouchersScreen() {
           value={search}
           onChangeText={setSearch}
         />
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} style={styles.chipRow}>
+        <HScroll contentContainerStyle={styles.chips} style={styles.chipRow}>
           {FILTERS.map((f) => (
             <TouchableOpacity
               key={f.key}
@@ -309,7 +310,7 @@ export default function VouchersScreen() {
               <Text style={[styles.chipText, { color: filter === f.key ? theme.onPrimary : theme.text }]}>{f.label}</Text>
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </HScroll>
 
         <FlatList
           data={visible}
@@ -358,7 +359,7 @@ export default function VouchersScreen() {
                     value={brandQuery}
                     onChangeText={setBrandQuery}
                   />
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} style={styles.catRow}>
+                  <HScroll contentContainerStyle={styles.chips} style={styles.catRow}>
                     {[{ key: 'all', label: 'All' }, ...BRAND_CATEGORIES.filter((c) => c.key !== 'other')].map((c) => (
                       <TouchableOpacity
                         key={c.key}
@@ -374,7 +375,7 @@ export default function VouchersScreen() {
                         <Text style={[styles.smallChipText, { color: brandCat === c.key ? theme.onPrimary : theme.text }]}>{c.label}</Text>
                       </TouchableOpacity>
                     ))}
-                  </ScrollView>
+                  </HScroll>
                   <View style={styles.brandGrid}>
                     {brandMatches.slice(0, 40).map((b) => (
                       <TouchableOpacity key={b.name} style={styles.brandCell} onPress={() => setBrand(b.name)} accessibilityLabel={`Store ${b.name}`}>
