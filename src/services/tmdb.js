@@ -68,3 +68,22 @@ export async function fetchOTTTitles(apiKey, providerIds, mediaType = 'movie', l
 export function posterUrl(path, size = 'w342') {
   return path ? `${IMAGE_BASE}/${size}${path}` : null;
 }
+
+/** Movies and series matching a title (for a share from an OTT app), best first. */
+export async function searchTitles(apiKey, query, year = '') {
+  const data = await tmdbFetch('/search/multi', { api_key: apiKey, query, include_adult: 'false', page: '1' });
+  const results = (data.results || [])
+    .filter((m) => m.media_type === 'movie' || m.media_type === 'tv')
+    .map((m) => ({
+      tmdbId: m.id,
+      mediaType: m.media_type,
+      title: m.title || m.name,
+      posterPath: m.poster_path,
+      releaseDate: m.release_date || m.first_air_date,
+      rating: m.vote_average,
+      popularity: m.popularity || 0,
+    }));
+  // A matching year first, then TMDB's order.
+  if (year) results.sort((a, b) => Number(String(b.releaseDate || '').startsWith(year)) - Number(String(a.releaseDate || '').startsWith(year)));
+  return results.slice(0, 6);
+}

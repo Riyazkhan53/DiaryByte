@@ -14,6 +14,7 @@ const { searchCoins, getCryptoPrices } = require('./crypto');
 const ai = require('./ai/agent');
 const ipo = require('./ai/ipo');
 const ticketAi = require('./ai/ticket');
+const ottAi = require('./ai/ott');
 const { mountAuth, issueToken } = require('./auth');
 const { mountWatch, mountWatchPublic } = require('./watch');
 const AnthropicSdk = require('@anthropic-ai/sdk');
@@ -218,6 +219,16 @@ function createApp() {
       res.json(await ticketAi.readTicket({ text: req.body?.text, image: req.body?.image, today: req.body?.today }));
     } catch (error) {
       aiError(res, error, 'ticket');
+    }
+  });
+
+  // Read a share from an OTT app with Claude (only when the user asks). Before /api/ai/:kind.
+  // POST /api/ai/ott { text?, metaTitle? } → { found, title, year, type, platform }
+  app.post('/api/ai/ott', async (req, res) => {
+    try {
+      res.json(await ottAi.readOttShare({ text: req.body?.text, metaTitle: req.body?.metaTitle }));
+    } catch (error) {
+      aiError(res, error, 'ott');
     }
   });
   // POST /api/ai/stock | /api/ai/invest  { question, history: [{ role, content }] } → { reply, tools, model }

@@ -11,6 +11,7 @@ const COLLECTIONS = [
   'diary',
   'vault',
   'iddocs',
+  'learned',
   'vaultlock',
   'todo',
   'expenditure',
@@ -265,4 +266,9 @@ export function fetchIpoNews(name) {
  */
 export function readTicketWithAi({ text, image, today }) {
   return request('/api/ai/ticket', { method: 'POST', body: JSON.stringify({ text, image, today }) });
+}
+
+// Read a share from an OTT app with AI: { found, title, year, type: 'movie' | 'series', platform }.
+export function readOttWithAi({ text, metaTitle }) {
+  return request('/api/ai/ott', { method: 'POST', body: JSON.stringify({ text, metaTitle }) });
 }
