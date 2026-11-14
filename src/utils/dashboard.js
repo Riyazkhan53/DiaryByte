@@ -7,6 +7,7 @@ import { hasSip, sipAmountFor, sipDueDate, upcomingSipMonths } from './sip.js';
 import { daysUntil as ticketDaysUntil, sortTickets, ticketType } from './tickets.js';
 import { daysUntil as dateDaysUntil, nextOccurrenceKey, sortDates } from './importantDates.js';
 import { dematSummary } from './demat.js';
+import { EXPIRY_WARN_DAYS, expiringDocs } from './idDocs.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const sumOf = (list) => list.reduce((sum, x) => sum + (Number(x.amount) || 0), 0);
@@ -79,7 +80,7 @@ export function netWorth({ investments, debts, expenses, months, demat = [], spe
  * [{ key, kind, title, sub, date, daysLeft, amount?, route, params? }].
  */
 export function upcomingItems(
-  { autopays = [], investments = [], debts = [], tickets = [], dates = [], vouchers = [] },
+  { autopays = [], investments = [], debts = [], tickets = [], dates = [], vouchers = [], iddocs = [] },
   days = 5,
   today = todayKey()
 ) {
@@ -165,6 +166,19 @@ export function upcomingItems(
         route: '/vouchers',
       })
     );
+
+  // ID documents (passport, licence…) expiring in the next 60 days, or already
+  // expired: shown even beyond the window, so there's time to renew.
+  expiringDocs(iddocs, today, EXPIRY_WARN_DAYS).forEach((d) =>
+    out.push({
+      key: `doc:${d.id}`,
+      kind: 'doc',
+      title: d.daysLeft < 0 ? `${d.label} has expired` : `${d.label} expires`,
+      sub: 'Renew it in time',
+      date: d.daysLeft < 0 ? today : d.expiry,
+      route: '/documents',
+    })
+  );
 
   return out
     .map((item) => ({ ...item, daysLeft: daysBetween(today, item.date) }))
