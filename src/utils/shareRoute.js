@@ -11,8 +11,9 @@ export function sharedText(shareIntent) {
 
 export function shareTarget(shareIntent) {
   if (!shareIntent) return null;
-  const hasImage = (shareIntent.files || []).some((f) => String(f.mimeType || '').startsWith('image/'));
   const { text, metaTitle } = sharedText(shareIntent);
-  if (!hasImage && isOttShare(`${text}\n${metaTitle}`)) return '/movies';
+  // A message from an OTT app goes to Movies even with an image (Netflix and
+  // ZEE5 share a poster along with it); an image on its own is a ticket.
+  if (isOttShare(`${text}\n${metaTitle}`)) return '/movies';
   return '/tickets';
 }

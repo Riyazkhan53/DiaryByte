@@ -1,0 +1,6 @@
+{
+  "name": "share-text",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DiaryByte: the text shared along with an image (Android EXTRA_TEXT), which expo-share-intent drops for image shares."
+}

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { router, usePathname, useRootNavigationState } from 'expo-router';
-import { useShareIntentContext } from 'expo-share-intent';
+import { useAppShare } from './AppShareProvider';
 import { sharedText, shareTarget } from '../utils/shareRoute';
 import { ottPlatform } from '../utils/ottShare';
 import { recordShare } from '../utils/shareLog';
@@ -11,7 +11,7 @@ import { recordShare } from '../utils/shareLog';
  * Tickets, which turns it into a pre-filled ticket.
  */
 export default function ShareIntentHandler() {
-  const { hasShareIntent, shareIntent, error } = useShareIntentContext();
+  const { hasShareIntent, shareIntent, error } = useAppShare();
   const pathname = usePathname();
   const navReady = !!useRootNavigationState()?.key;
 

@@ -14,6 +14,7 @@ import SyncService from '../components/SyncService';
 import ShareIntentHandler from '../components/ShareIntentHandler';
 import AnimatedSplash from '../components/AnimatedSplash';
 import DeleteConfirmHost from '../components/DeleteConfirmHost';
+import { AppShareProvider } from '../components/AppShareProvider';
 import ScreenError from '../components/ScreenError';
 
 // A screen that fails to draw shows what went wrong (with Try again / Go
@@ -74,11 +75,13 @@ function GlassRoot() {
 export default function RootLayout() {
   return (
     <ShareIntentProvider>
+      <AppShareProvider>
       <ThemeProvider>
         <GlassRoot />
         <DeleteConfirmHost />
         <AnimatedSplash />
       </ThemeProvider>
+      </AppShareProvider>
     </ShareIntentProvider>
   );
 }
