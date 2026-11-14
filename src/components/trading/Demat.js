@@ -23,6 +23,7 @@ import {
   recentPnl,
 } from '../../utils/demat';
 import { LOSS, PROFIT } from './format';
+import HScroll from '../HScroll';
 
 const BROKERS = ['Zerodha', 'Groww', 'Upstox', 'Angel One', 'Dhan', 'ICICI Direct', 'HDFC Sky', 'Kotak Neo', '5paisa', 'Fyers'];
 const makeId = () => `${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -208,7 +209,7 @@ export default function Demat({ header }) {
       {account && !accForm ? (
         <>
           {accounts.length ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} style={styles.accRow}>
+            <HScroll contentContainerStyle={styles.chips} style={styles.accRow}>
               {accounts.map((a) => (
                 <TouchableOpacity
                   key={a.id}
@@ -221,7 +222,7 @@ export default function Demat({ header }) {
               <TouchableOpacity style={[styles.chip, { backgroundColor: theme.surface, borderColor: theme.borderNeutral }]} onPress={() => setAccForm({ name: '', balance: '' })} accessibilityLabel="Add another account">
                 <Text style={[styles.chipText, { color: theme.primary }]}>+ Add</Text>
               </TouchableOpacity>
-            </ScrollView>
+            </HScroll>
           ) : null}
 
           <LinearGradient colors={['#0F766E', '#14B8A6']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>

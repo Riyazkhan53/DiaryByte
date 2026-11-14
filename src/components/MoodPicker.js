@@ -1,6 +1,7 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
 import { useTheme } from '../hooks/useTheme';
 import { MOODS } from '../constants/theme';
+import HScroll from './HScroll';
 
 export default function MoodPicker({ selected, onSelect }) {
   const { theme } = useTheme();
@@ -8,9 +9,7 @@ export default function MoodPicker({ selected, onSelect }) {
   return (
     <View style={styles.container}>
       <Text style={[styles.label, { color: theme.textSecondary }]}>Mood</Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
+      <HScroll
         contentContainerStyle={styles.list}
       >
         {MOODS.map((mood) => {
@@ -44,7 +43,7 @@ export default function MoodPicker({ selected, onSelect }) {
             </TouchableOpacity>
           );
         })}
-      </ScrollView>
+      </HScroll>
     </View>
   );
 }

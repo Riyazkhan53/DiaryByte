@@ -13,6 +13,7 @@ import { currentMonthKey, monthLabel } from '../utils/debts';
 import { fromKey, todayKey } from '../utils/autopay';
 import { netWorth, nowWatching, pendingTodos, upcomingItems } from '../utils/dashboard';
 import TripAlarmCard from '../components/TripAlarmCard';
+import HScroll from '../components/HScroll';
 
 const DAYS_AHEAD = 5;
 
@@ -246,7 +247,7 @@ export default function DashboardScreen() {
               Nothing in progress. Mark a title as Watching in Movies & Series.
             </Text>
           ) : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.posters}>
+            <HScroll contentContainerStyle={styles.posters}>
               {watching.map((m) => {
                 const uri = posterUrl(m.posterPath, 'w185') || m.posterUri;
                 return (
@@ -269,7 +270,7 @@ export default function DashboardScreen() {
                   </TouchableOpacity>
                 );
               })}
-            </ScrollView>
+            </HScroll>
           )}
         </View>
       </ScrollView>

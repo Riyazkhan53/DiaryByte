@@ -9,7 +9,6 @@ import {
   SafeAreaView,
   Modal,
   Image,
-  ScrollView,
   ActivityIndicator,
   Linking,
   useWindowDimensions,
@@ -30,6 +29,7 @@ import JustAdded from '../../components/movies/JustAdded';
 import { SA_KEY_STORAGE, fetchStreamingLinks } from '../../services/streamingAvailability';
 import { pickLink, watchTarget } from '../../services/ottLinks';
 import { confirmAction, confirmDelete } from '../../utils/confirm';
+import HScroll from '../../components/HScroll';
 
 const STORAGE_KEY = '@diarybyte_movies';
 
@@ -769,7 +769,7 @@ export default function MoviesScreen() {
                   ))}
                 </View>
 
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.langScroll}>
+                <HScroll style={styles.langScroll}>
                   <View style={styles.langChips}>
                     {[
                       ['popular', 'Popular'],
@@ -810,10 +810,10 @@ export default function MoviesScreen() {
                       );
                     })}
                   </View>
-                </ScrollView>
+                </HScroll>
 
                 <View style={styles.providerRow}>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <HScroll>
                     <View style={styles.providerChips}>
                       {providers.map((p) => {
                         const selected = selectedProviders.includes(p.id);
@@ -836,7 +836,7 @@ export default function MoviesScreen() {
                         );
                       })}
                     </View>
-                  </ScrollView>
+                  </HScroll>
                   <TouchableOpacity style={styles.keyBtn} onPress={clearApiKey}>
                     <Ionicons name="key-outline" size={18} color={theme.textMuted} />
                   </TouchableOpacity>

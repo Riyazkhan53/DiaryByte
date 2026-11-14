@@ -57,6 +57,7 @@ import {
   sipSourceId,
   upcomingSipMonths,
 } from '../../utils/sip';
+import HScroll from '../../components/HScroll';
 
 const EXPENSES_KEY = '@diarybyte_expenditure';
 
@@ -998,7 +999,7 @@ export default function InvestmentsScreen() {
         </TouchableOpacity>
 
         <View style={styles.filterRow}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChips}>
+          <HScroll contentContainerStyle={styles.filterChips}>
             <TouchableOpacity
               style={[
                 styles.chip,
@@ -1029,7 +1030,7 @@ export default function InvestmentsScreen() {
                 <Text style={[styles.chipText, { color: theme.text }]}>{c.key}</Text>
               </TouchableOpacity>
             ))}
-          </ScrollView>
+          </HScroll>
         </View>
 
         {filter === 'Stocks' ? (

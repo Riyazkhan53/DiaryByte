@@ -24,6 +24,7 @@ import { confirmDelete } from '../../utils/confirm';
 import { MAX_PHOTOS, pickVaultPhotos } from '../../services/vaultPhotos';
 import { VAULT_STORAGE_KEY, sealPlainItems, vaultLock } from '../../utils/vaultLock';
 import { decryptItem, encryptItem, isEncryptedItem } from '../../utils/vaultCrypto';
+import HScroll from '../../components/HScroll';
 
 const STORAGE_KEY = VAULT_STORAGE_KEY;
 
@@ -259,7 +260,7 @@ export default function VaultScreen() {
                 </Text>
               ) : null}
               {item.photos?.length ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.thumbs}>
+                <HScroll contentContainerStyle={styles.thumbs}>
                   {item.photos.map((uri, i) => (
                     <TouchableOpacity
                       key={i}
@@ -278,7 +279,7 @@ export default function VaultScreen() {
                       )}
                     </TouchableOpacity>
                   ))}
-                </ScrollView>
+                </HScroll>
               ) : null}
               <View style={styles.cardFooter}>
                 <Text style={[styles.date, { color: theme.textMuted }]}>
@@ -335,7 +336,7 @@ export default function VaultScreen() {
                 textAlignVertical="top"
               />
               {photos.length ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.thumbs}>
+                <HScroll contentContainerStyle={styles.thumbs}>
                   {photos.map((uri, i) => (
                     <View key={i}>
                       <Image source={{ uri }} style={styles.thumb} />
@@ -348,7 +349,7 @@ export default function VaultScreen() {
                       </TouchableOpacity>
                     </View>
                   ))}
-                </ScrollView>
+                </HScroll>
               ) : null}
               <View style={styles.photoBtns}>
                 {Platform.OS !== 'web' ? (
