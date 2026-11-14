@@ -77,7 +77,7 @@ const pickedAsset = (result) => (result.canceled || !result.assets?.length ? nul
 export default function TicketsScreen() {
   const { theme } = useTheme();
   const { height: windowHeight } = useWindowDimensions();
-  const { items, synced, persist, pulling, pullInfo, pullNow } = useSyncedCollection(
+  const { items, loadError, synced, persist, pulling, pullInfo, pullNow } = useSyncedCollection(
     'tickets',
     TICKETS_STORAGE_KEY
   );
@@ -409,7 +409,7 @@ export default function TicketsScreen() {
       <Header title="My Tickets" subtitle="All your passes in one wallet" />
 
       <View style={styles.content}>
-        <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} />
+        <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} error={loadError} />
 
         <TouchableOpacity onPress={() => openAlarm()} activeOpacity={0.85} accessibilityLabel="Open trip alarm">
           <LinearGradient

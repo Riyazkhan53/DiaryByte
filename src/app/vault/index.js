@@ -34,7 +34,7 @@ const opened = new Map();
 export default function VaultScreen() {
   const { theme } = useTheme();
   // `stored` is what's saved and synced: encrypted when a vault code is set.
-  const { items: stored, synced, persist, pulling, pullInfo, pullNow } = useSyncedCollection(
+  const { items: stored, loadError, synced, persist, pulling, pullInfo, pullNow } = useSyncedCollection(
     'vault',
     STORAGE_KEY
   );
@@ -185,7 +185,7 @@ export default function VaultScreen() {
       <View style={styles.content}>
         <View style={styles.topRow}>
           <View style={styles.flex}>
-            <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} />
+            <SyncRow synced={synced} pulling={pulling} pullInfo={pullInfo} onPull={pullNow} error={loadError} />
           </View>
           <TouchableOpacity
             style={[styles.lockBtn, { backgroundColor: theme.surfaceAlt }]}

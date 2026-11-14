@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fetchCollection, pushCollection } from './api';
 import { isGuest } from './session';
+import { getLargeItem, setLargeItem } from './localStore';
 
 // Single registry of every synced collection: local storage key ↔ server collection.
 // On web, AsyncStorage is backed by IndexedDB; on Android/iOS it's SQLite.
@@ -53,13 +54,15 @@ const deletedKey = (storageKey) => `${storageKey}_deleted`;
 
 // ------- local reads/writes -------
 
+// Through localStore: big lists (photos) are split into pieces, because
+// Android can't read back one value over ~2 MB.
 export async function readLocal(storageKey) {
-  const stored = await AsyncStorage.getItem(storageKey);
+  const stored = await getLargeItem(storageKey);
   return stored ? JSON.parse(stored) : [];
 }
 
 export async function writeLocal(storageKey, items) {
-  await AsyncStorage.setItem(storageKey, JSON.stringify(items));
+  await setLargeItem(storageKey, JSON.stringify(items));
 }
 
 async function readDeleted(storageKey) {
@@ -202,6 +205,10 @@ export async function loadLocalWithRetry(collection, storageKey) {
  */
 export async function pullFromServer(collection, storageKey) {
   if (isGuest()) return readLocal(storageKey);
+  // Make sure the local copy opens first (this also recovers one saved too
+  // big by an older version): never overwrite something unread, as it may
+  // hold changes the server doesn't have.
+  await readLocal(storageKey);
   if (await AsyncStorage.getItem(pendingKey(storageKey))) {
     return pushMerged(collection, storageKey);
   }
