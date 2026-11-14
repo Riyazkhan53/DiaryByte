@@ -86,6 +86,11 @@ const COLLECTIONS = {
   iddocs: {
     fields: ['id', 'enc', 'createdAt', 'remind'],
   },
+  // Smart fill: message formats learned from shared tickets and OTT shares
+  // (anchor text around each field), so the next one is read without AI.
+  learned: {
+    fields: ['id', 'kind', 'source', 'parts', 'slots', 'constants', 'sig', 'hits', 'label', 'createdAt', 'updatedAt'],
+  },
   vault: {
     // photos: JPEG data URIs (shrunk to 1600 px wide in the app).
     // With a vault code set, items are only { id, enc, createdAt }: enc is

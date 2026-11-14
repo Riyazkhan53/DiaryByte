@@ -18,6 +18,7 @@ import Header from '../components/Header';
 import { useTheme } from '../hooks/useTheme';
 import { pullAllFromServer, SYNCED_COLLECTIONS, syncKeysFor } from '../services/sync';
 import SyncQueueCard from '../components/SyncQueueCard';
+import SmartFillCard from '../components/SmartFillCard';
 import { AppUpdatesSection } from '../components/AppUpdates';
 import { DeleteProtectionSection } from '../components/DeleteProtectionSection';
 import { VaultCodeSection } from '../components/VaultCodeSection';
@@ -291,6 +292,7 @@ export default function SettingsScreen() {
             </Text>
           </View>
           {guest ? null : <SyncQueueCard />}
+          <SmartFillCard />
           {guest ? null : (
             <SyncTools>
           <TouchableOpacity

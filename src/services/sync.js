@@ -28,6 +28,7 @@ export const SYNCED_COLLECTIONS = [
   { collection: 'trades', storageKey: '@diarybyte_trades' },
   { collection: 'demat', storageKey: '@diarybyte_demat' },
   { collection: 'tradingconfig', storageKey: '@diarybyte_tradingconfig' },
+  { collection: 'learned', storageKey: '@diarybyte_learned' },
 ];
 
 // Section names for "Items waiting for sync".
@@ -53,6 +54,7 @@ export const COLLECTION_LABELS = {
   trades: 'Paper trades',
   demat: 'Demat',
   tradingconfig: 'Trading settings',
+  learned: 'Smart fill (learned formats)',
 };
 
 // ------- sync status events -------

@@ -40,6 +40,8 @@ import {
 } from '../../utils/tickets';
 import { linkLabel, parseBookingText } from '../../utils/ticketShare';
 import { quickFieldsFromShare, shrinkTicketImage } from '../../services/sharedTicket';
+import { shareTarget } from '../../utils/shareRoute';
+import { smartRead, sourceName, teach } from '../../services/smartFill';
 import { readTicketWithAi } from '../../services/api';
 import { isGuest } from '../../services/session';
 import { confirmDelete } from '../../utils/confirm';
@@ -92,6 +94,9 @@ export default function TicketsScreen() {
   // Values filled in automatically (pasted, shared, AI): later reads may replace
   // these, but never something you typed yourself.
   const autoRef = useRef({});
+  // The message a ticket was filled from (share or paste): what it's saved
+  // with teaches Smart fill to read the next one like it without AI.
+  const sourceTextRef = useRef('');
 
   // The dashboard links straight to a pass with /tickets?open=<id>.
   const { open } = useLocalSearchParams();
@@ -141,16 +146,32 @@ export default function TicketsScreen() {
     }
   };
 
+  // Smart fill: a message laid out like one saved before is read on the
+  // phone, without AI. True when it filled the form.
+  const fillWithLearned = async (text) => {
+    const hit = await smartRead('ticket', text).catch(() => null);
+    const found = hit ? Object.keys(hit.fields).filter((k) => k !== 'type').length : 0;
+    if (!hit || found < 2) return false;
+    applyFound(hit.fields);
+    setReading({
+      learned: true,
+      message: `Filled by Smart fill, learned from your earlier ${hit.source ? `${sourceName(hit.source)} ` : ''}tickets. No AI used. Not right? Tap "Fill details with AI".`,
+    });
+    return true;
+  };
+
   // Something shared from another app (BookMyShow, AbhiBus, an airline, a
   // screenshot): open the form at once with what the message shows, then
-  // shrink the image and let the AI fill in the rest.
+  // shrink the image and let Smart fill, or else the AI, fill in the rest.
   useEffect(() => {
-    if (!hasShareIntent) return;
+    // Shares from OTT apps are for Movies (Add to Watchlist).
+    if (!hasShareIntent || shareTarget(shareIntent) !== '/tickets') return;
     const shared = shareIntent;
     // Just after this render (not inside the effect itself).
     Promise.resolve().then(async () => {
       const { fields, text, file } = quickFieldsFromShare(shared);
       autoRef.current = fields;
+      sourceTextRef.current = text || '';
       setViewingId(null);
       setLinkDismissed(true);
       setEditingId(null);
@@ -168,6 +189,8 @@ export default function TicketsScreen() {
           // Unreadable image: keep the rest of the ticket.
         }
       }
+      // A message from an app it has learned: no AI needed.
+      if (text && !image && (await fillWithLearned(text))) return;
       if (text || image) await readWithAi({ text, image });
       else setReading(null);
     });
@@ -208,6 +231,7 @@ export default function TicketsScreen() {
 
   const openAdd = () => {
     autoRef.current = {};
+    sourceTextRef.current = '';
     setReading(null);
     setEditingId(null);
     setForm({ ...EMPTY_FORM, date: todayKey() });
@@ -216,6 +240,7 @@ export default function TicketsScreen() {
 
   const openEdit = (ticket) => {
     autoRef.current = {};
+    sourceTextRef.current = '';
     setReading(null);
     setViewing(null);
     setEditingId(ticket.id);
@@ -244,6 +269,13 @@ export default function TicketsScreen() {
       persist(items.map((t) => (t.id === editingId ? { ...t, ...ticket } : t)));
     } else {
       persist([{ id: Date.now().toString(), ...ticket, createdAt: new Date().toISOString() }, ...items]);
+    }
+    // Learn this message's layout from the details as saved (read by Smart
+    // fill or AI, or corrected by hand).
+    if (sourceTextRef.current) {
+      const { title, from, to, venue, date, time, seat, bookingRef } = ticket;
+      teach('ticket', sourceTextRef.current, { title, from, to, venue, date, time, seat, bookingRef }, { type: ticket.type }).catch(() => {});
+      sourceTextRef.current = '';
     }
     setFormVisible(false);
   };
@@ -276,7 +308,9 @@ export default function TicketsScreen() {
       return;
     }
     applyFound(fields);
-    // The AI reads the same message more accurately.
+    sourceTextRef.current = text || '';
+    // Smart fill if it knows this layout; else the AI reads it more accurately.
+    if (await fillWithLearned(text)) return;
     readWithAi({ text: text.slice(0, 6000) });
   };
 
@@ -608,15 +642,23 @@ export default function TicketsScreen() {
               </TouchableOpacity>
 
               {reading ? (
-                <View style={[styles.readingBox, { backgroundColor: reading.error ? '#E5383B18' : '#7C3AED18' }]}>
-                  {reading.busy ? <ActivityIndicator size="small" color="#7C3AED" /> : <Ionicons name={reading.error ? 'alert-circle-outline' : 'sparkles'} size={16} color={reading.error ? '#E5383B' : '#7C3AED'} />}
+                <View style={[styles.readingBox, { backgroundColor: reading.error ? '#E5383B18' : reading.learned ? '#2DA44E18' : '#7C3AED18' }]}>
+                  {reading.busy ? (
+                    <ActivityIndicator size="small" color="#7C3AED" />
+                  ) : (
+                    <Ionicons
+                      name={reading.error ? 'alert-circle-outline' : reading.learned ? 'flash' : 'sparkles'}
+                      size={16}
+                      color={reading.error ? '#E5383B' : reading.learned ? '#2DA44E' : '#7C3AED'}
+                    />
+                  )}
                   <Text style={[styles.readingText, { color: theme.text }]}>{reading.message}</Text>
                 </View>
               ) : null}
-              {!isGuest() && (form.image || form.note.trim()) && !reading?.busy ? (
+              {!isGuest() && (form.image || form.note.trim() || reading?.learned) && !reading?.busy ? (
                 <TouchableOpacity
                   style={[styles.pasteBtn, { borderColor: '#7C3AED' }]}
-                  onPress={() => readWithAi({ image: form.image, text: form.note })}
+                  onPress={() => readWithAi({ image: form.image, text: sourceTextRef.current || form.note })}
                   accessibilityLabel="Fill details with AI"
                 >
                   <Ionicons name="sparkles" size={18} color="#7C3AED" />
