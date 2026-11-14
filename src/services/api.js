@@ -257,3 +257,11 @@ export function fetchIpoReview(name, refresh = false) {
 export function fetchIpoNews(name) {
   return request(`/api/ipos/news?name=${encodeURIComponent(name)}`);
 }
+
+/**
+ * Read a ticket with AI on the server: { text?, image? (data URI) } →
+ * { found, fields: { type, title, from, to, venue, date, time, seat, bookingRef, note } }.
+ */
+export function readTicketWithAi({ text, image, today }) {
+  return request('/api/ai/ticket', { method: 'POST', body: JSON.stringify({ text, image, today }) });
+}
