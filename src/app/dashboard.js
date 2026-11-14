@@ -24,6 +24,7 @@ const KIND = {
   ticket: { icon: 'ticket', color: '#5C6BC0', label: 'Ticket' },
   date: { icon: 'gift', color: '#F5A623', label: 'Date' },
   voucher: { icon: 'pricetag', color: '#FF6A88', label: 'Voucher' },
+  doc: { icon: 'id-card', color: '#1E40AF', label: 'Document' },
 };
 
 const inr = (n) => `₹${Math.round(Math.abs(Number(n) || 0)).toLocaleString('en-IN')}`;
@@ -54,13 +55,15 @@ export default function DashboardScreen() {
   const { items: todos, persist: persistTodos } = useSyncedCollection('todo', '@diarybyte_todo');
   const { items: movies } = useSyncedCollection('movies', '@diarybyte_movies');
   const { items: vouchers } = useSyncedCollection('vouchers', '@diarybyte_vouchers');
+  // Only { remind: { type, expiry } } is readable without the vault code.
+  const { items: iddocs } = useSyncedCollection('iddocs', '@diarybyte_iddocs');
   const { items: demat } = useSyncedCollection('demat', '@diarybyte_demat');
   const { items: spends } = useSyncedCollection('spends', '@diarybyte_spends');
 
   const month = currentMonthKey();
   const worth = netWorth({ investments, debts, expenses, months, demat, spends }, month);
   const positive = worth.total >= 0;
-  const upcoming = upcomingItems({ autopays, investments, debts, tickets, dates, vouchers }, DAYS_AHEAD, todayKey());
+  const upcoming = upcomingItems({ autopays, investments, debts, tickets, dates, vouchers, iddocs }, DAYS_AHEAD, todayKey());
   // Money due out (an expiring voucher's value isn't spending).
   const goingOut = upcoming.reduce((sum, u) => sum + (u.kind === 'voucher' ? 0 : u.amount || 0), 0);
   const todo = pendingTodos(todos);

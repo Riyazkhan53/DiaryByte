@@ -58,6 +58,14 @@ const TABS = [
     gradient: ['#C77DFF', '#AF52DE'],
   },
   {
+    key: 'documents',
+    label: 'Personal Documents',
+    description: 'Aadhaar, PAN, passport and other IDs',
+    icon: 'id-card-outline',
+    route: '/documents',
+    gradient: ['#4F8EF7', '#1E40AF'],
+  },
+  {
     key: 'todo',
     label: 'To-Do List',
     description: 'Tasks to keep your day on track',
@@ -182,7 +190,9 @@ export default function Dashboard() {
   const { items: spends } = useSyncedCollection('spends', '@diarybyte_spends');
   const worth = netWorth({ investments, debts, expenses, months, demat, spends }, currentMonthKey()).total;
   const { items: vouchers } = useSyncedCollection('vouchers', '@diarybyte_vouchers');
-  const comingUp = upcomingItems({ autopays, investments, debts, tickets, dates, vouchers }, 5, todayKey()).length;
+  // Only { remind: { type, expiry } } is readable without the vault code.
+  const { items: iddocs } = useSyncedCollection('iddocs', '@diarybyte_iddocs');
+  const comingUp = upcomingItems({ autopays, investments, debts, tickets, dates, vouchers, iddocs }, 5, todayKey()).length;
 
   const stopReminders = (item, due) => {
     persistAutopays(autopays.map((i) => (i.id === item.id ? { ...i, ackDue: due } : i)));

@@ -10,6 +10,7 @@ const COLLECTIONS = [
   'banking',
   'diary',
   'vault',
+  'iddocs',
   'vaultlock',
   'todo',
   'expenditure',

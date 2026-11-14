@@ -80,6 +80,12 @@ const COLLECTIONS = {
   diary: {
     fields: ['id', 'title', 'content', 'mood', 'date', 'createdAt'],
   },
+  // Personal Documents (Aadhaar, PAN, passport...): always { id, enc,
+  // createdAt } sealed with the vault code. Only remind { type, expiry }
+  // is readable, for expiry reminders.
+  iddocs: {
+    fields: ['id', 'enc', 'createdAt', 'remind'],
+  },
   vault: {
     // photos: JPEG data URIs (shrunk to 1600 px wide in the app).
     // With a vault code set, items are only { id, enc, createdAt }: enc is
