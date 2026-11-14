@@ -14,6 +14,15 @@ import SyncService from '../components/SyncService';
 import ShareIntentHandler from '../components/ShareIntentHandler';
 import AnimatedSplash from '../components/AnimatedSplash';
 import DeleteConfirmHost from '../components/DeleteConfirmHost';
+import ScreenError from '../components/ScreenError';
+
+// A screen that fails to draw shows what went wrong (with Try again / Go
+// home) instead of a blank app; the other screens keep working.
+export const unstable_settings = { screenErrorBoundary: ScreenError };
+// And if the app frame itself fails.
+export function ErrorBoundary(props) {
+  return <ScreenError {...props} />;
+}
 
 // Keep the native splash up until the launch animation has drawn over it.
 SplashScreen.preventAutoHideAsync();

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { router, usePathname, useRootNavigationState } from 'expo-router';
 import { useShareIntentContext } from 'expo-share-intent';
 import { shareTarget } from '../utils/shareRoute';
@@ -13,8 +13,17 @@ export default function ShareIntentHandler() {
   const pathname = usePathname();
   const navReady = !!useRootNavigationState()?.key;
 
+  // Go to the right screen once per share. (Re-checking on every screen
+  // change would pull you back there whenever you open another tab, if
+  // that screen hadn't finished with the share.)
+  const handled = useRef(null);
   useEffect(() => {
-    if (!hasShareIntent || !navReady) return;
+    if (!hasShareIntent) {
+      handled.current = null;
+      return;
+    }
+    if (!navReady || handled.current === shareIntent) return;
+    handled.current = shareIntent;
     const target = shareTarget(shareIntent);
     if (target && pathname !== target) router.navigate(target);
   }, [hasShareIntent, shareIntent, navReady, pathname]);

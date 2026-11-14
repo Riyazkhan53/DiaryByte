@@ -42,6 +42,7 @@ import { linkLabel, parseBookingText } from '../../utils/ticketShare';
 import { quickFieldsFromShare, shrinkTicketImage } from '../../services/sharedTicket';
 import { shareTarget } from '../../utils/shareRoute';
 import { smartRead, sourceName, teach } from '../../services/smartFill';
+import { getAiPrefs } from '../../utils/aiPrefs';
 import { readTicketWithAi } from '../../services/api';
 import { isGuest } from '../../services/session';
 import { confirmDelete } from '../../utils/confirm';
@@ -97,6 +98,11 @@ export default function TicketsScreen() {
   // The message a ticket was filled from (share or paste): what it's saved
   // with teaches Smart fill to read the next one like it without AI.
   const sourceTextRef = useRef('');
+  // Shown when a screenshot is attached but not read automatically.
+  const screenshotWaiting = {
+    image: true,
+    message: 'Screenshot attached. Tap "Fill details with AI" to read it, or fill it in yourself. (Settings → AI can read screenshots automatically.)',
+  };
 
   // The dashboard links straight to a pass with /tickets?open=<id>.
   const { open } = useLocalSearchParams();
@@ -169,7 +175,16 @@ export default function TicketsScreen() {
     const shared = shareIntent;
     // Just after this render (not inside the effect itself).
     Promise.resolve().then(async () => {
-      const { fields, text, file } = quickFieldsFromShare(shared);
+      // Finish with the share first, so a problem reading it can't leave it
+      // pending (and pull you back here from every other screen).
+      resetShareIntent();
+      let parsed;
+      try {
+        parsed = quickFieldsFromShare(shared);
+      } catch (_error) {
+        parsed = { fields: {}, text: String(shared?.text || shared?.webUrl || ''), file: null };
+      }
+      const { fields, text, file } = parsed;
       autoRef.current = fields;
       sourceTextRef.current = text || '';
       setViewingId(null);
@@ -178,7 +193,6 @@ export default function TicketsScreen() {
       setReading(null);
       setForm({ ...EMPTY_FORM, date: todayKey(), ...fields });
       setFormVisible(true);
-      resetShareIntent();
       let image = null;
       if (file) {
         setReading({ busy: true, message: 'Preparing the screenshot…' });
@@ -190,8 +204,12 @@ export default function TicketsScreen() {
         }
       }
       // A message from an app it has learned: no AI needed.
-      if (text && !image && (await fillWithLearned(text))) return;
-      if (text || image) await readWithAi({ text, image });
+      if (text && (await fillWithLearned(text))) return;
+      // A screenshot is read with AI only if that's turned on in Settings.
+      const autoImage = image && !isGuest() && (await getAiPrefs()).autoScreenshots;
+      if (autoImage) await readWithAi({ text, image });
+      else if (text) await readWithAi({ text });
+      else if (image) setReading(screenshotWaiting);
       else setReading(null);
     });
     // Runs once per share; shareIntent and resetShareIntent change with it.
@@ -339,8 +357,9 @@ export default function TicketsScreen() {
       return;
     }
     setField('image')(image);
-    if (!form.title.trim() || !editingId) await readWithAi({ image, text: '' });
-    else setReading(null);
+    const wantsAi = !form.title.trim() || !editingId;
+    if (wantsAi && !isGuest() && (await getAiPrefs()).autoScreenshots) await readWithAi({ image, text: '' });
+    else setReading(wantsAi && !isGuest() ? screenshotWaiting : null);
   };
 
   const pickFromGallery = async () => {
@@ -647,7 +666,7 @@ export default function TicketsScreen() {
                     <ActivityIndicator size="small" color="#7C3AED" />
                   ) : (
                     <Ionicons
-                      name={reading.error ? 'alert-circle-outline' : reading.learned ? 'flash' : 'sparkles'}
+                      name={reading.error ? 'alert-circle-outline' : reading.learned ? 'flash' : reading.image ? 'image-outline' : 'sparkles'}
                       size={16}
                       color={reading.error ? '#E5383B' : reading.learned ? '#2DA44E' : '#7C3AED'}
                     />
