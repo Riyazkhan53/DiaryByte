@@ -58,6 +58,31 @@ const tidy = (t) =>
     .replace(/^[\s"'“”‘’«»|:–—-]+|[\s"'“”‘’«»|:–—-]+$/g, '')
     .trim();
 
+// Words that mark the part of a page title that is about the site, not
+// the movie ("| Netflix Official Site", "- Watch Season 1 Online | JioHotstar").
+const SITE_WORDS = /\b(netflix|prime\s*video|amazon|hotstar|disney|jio\s*cinema|jio|sony\s*liv|zee5|aha|sun\s*nxt|mx\s*player|youtube|apple\s*tv|watch|online|streaming|official site)\b/i;
+
+/** "Watch Kaala Paani Season 1 Episode 1 Online | JioHotstar" → "Kaala Paani". */
+export function cleanPageTitle(meta) {
+  let t = String(meta || '').replace(/\s+/g, ' ').trim();
+  // Cut at the first separator whose next part (up to the following
+  // separator) is about the site: "Mission: Impossible - Dead Reckoning |
+  // Prime Video" keeps its dash, "Kaala Paani - Watch Season 1 Online" doesn't.
+  const parts = t.split(/(\s+[|–—-]\s+|\s*\|\s*)/);
+  for (let i = 2; i < parts.length; i += 2) {
+    if (SITE_WORDS.test(parts[i])) {
+      t = parts.slice(0, i - 1).join('');
+      break;
+    }
+  }
+  return t
+    .replace(/^watch\s+/i, '')
+    .replace(/\s+(?:season|series|s)\s*\d+.*$/i, '')
+    .replace(/\s+episode\s*\d+.*$/i, '')
+    .replace(/\s+(?:full\s+movie|online|in\s+hd|hd|streaming).*$/i, '')
+    .trim();
+}
+
 function fromSlug(url) {
   // primevideo.com/detail/The-Boys/0ABC, hotstar.com/in/shows/the-family-man/1260022017,
   // sonyliv.com/shows/scam-1992-1700000012, zee5.com/movies/details/kaithi/0-0-123
@@ -102,12 +127,7 @@ export function parseOttShare(text, { metaTitle = '' } = {}) {
     const before = s.match(new RegExp(`^\\s*(.{2,80}?)\\s+(?:[|–—-]|on)\\s+(?:${platformRe})\\b`, 'im'));
     if (before && !URL_RE.test(before[1])) title = before[1];
   }
-  if (!title && metaTitle) {
-    title = metaTitle
-      .replace(new RegExp(`\\s*[|–—-]\\s*(?:watch\\s+)?(?:on\\s+)?(?:${platformRe}).*$`, 'i'), '')
-      .replace(/^watch\s+/i, '')
-      .replace(/\s+(?:online|full movie|hd).*$/i, '');
-  }
+  if (!title && metaTitle) title = cleanPageTitle(metaTitle);
   if (!title && link) title = fromSlug(link);
   title = tidy(title).replace(/^watch\s+/i, '');
   // Drop a trailing "(2023)" into a year.
