@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -13,6 +13,7 @@ import {
   ScrollView,
   useWindowDimensions,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -38,7 +39,9 @@ import {
   sortTickets,
 } from '../../utils/tickets';
 import { linkLabel, parseBookingText } from '../../utils/ticketShare';
-import { ticketFromShare } from '../../services/sharedTicket';
+import { quickFieldsFromShare, shrinkTicketImage } from '../../services/sharedTicket';
+import { readTicketWithAi } from '../../services/api';
+import { isGuest } from '../../services/session';
 import { confirmDelete } from '../../utils/confirm';
 
 const FILTERS = [
@@ -62,14 +65,14 @@ const EMPTY_FORM = {
   image: null,
 };
 
-// Ticket photos sync to the server inside the collection, so keep them small.
-const PICKER_OPTIONS = { mediaTypes: ['images'], quality: 0.5, base64: true };
+// Ticket photos sync to the server inside the collection, so every image is
+// shrunk (shrinkTicketImage) before it is kept. No base64 from the picker:
+// a full-size photo as text is several MB and froze the app.
+const PICKER_OPTIONS = { mediaTypes: ['images'], quality: 1 };
+// Images saved before shrinking existed can be MBs; shrink those too.
+const BIG_IMAGE_CHARS = 700000;
 
-function assetToUri(result) {
-  if (result.canceled || !result.assets?.length) return null;
-  const asset = result.assets[0];
-  return asset.base64 ? `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}` : asset.uri;
-}
+const pickedAsset = (result) => (result.canceled || !result.assets?.length ? null : result.assets[0]);
 
 export default function TicketsScreen() {
   const { theme } = useTheme();
@@ -84,6 +87,11 @@ export default function TicketsScreen() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [viewingId, setViewingId] = useState(null);
   const [linkDismissed, setLinkDismissed] = useState(false);
+  // AI ticket reading: { busy, message, error }
+  const [reading, setReading] = useState(null);
+  // Values filled in automatically (pasted, shared, AI): later reads may replace
+  // these, but never something you typed yourself.
+  const autoRef = useRef({});
 
   // The dashboard links straight to a pass with /tickets?open=<id>.
   const { open } = useLocalSearchParams();
@@ -93,26 +101,99 @@ export default function TicketsScreen() {
   // Something shared from another app (BookMyShow, an airline, a screenshot):
   // open the form pre-filled so it can be checked and saved.
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
+
+  // Fill the form with found fields, leaving anything you've changed alone.
+  const applyFound = (fields) => {
+    setForm((prev) => {
+      const next = { ...prev };
+      Object.entries(fields).forEach(([k, v]) => {
+        if (!v) return;
+        const untouched =
+          !prev[k] || prev[k] === autoRef.current[k] || (k === 'date' && prev.date === todayKey()) || (k === 'type' && prev.type === EMPTY_FORM.type);
+        if (untouched) next[k] = v;
+      });
+      autoRef.current = { ...autoRef.current, ...fields };
+      return next;
+    });
+  };
+
+  // Ask the server's AI to read the ticket (message and/or image).
+  const readWithAi = async ({ text, image }) => {
+    if (isGuest() || (!text && !image)) return;
+    setReading({ busy: true, message: 'Reading your ticket with AI…' });
+    try {
+      const res = await readTicketWithAi({ text, image, today: todayKey() });
+      if (!res.found) {
+        setReading({ busy: false, error: true, message: "That doesn't look like a ticket. Fill it in by hand." });
+        return;
+      }
+      applyFound(res.fields);
+      setReading({ busy: false, message: 'Filled from your ticket. Check the details before saving.' });
+    } catch (e) {
+      setReading({
+        busy: false,
+        error: true,
+        message:
+          e?.status === 404
+            ? 'AI reading needs a server update (redeploy it on Render).'
+            : e?.serverMessage || "Couldn't read it with AI right now. Check the details by hand.",
+      });
+    }
+  };
+
+  // Something shared from another app (BookMyShow, AbhiBus, an airline, a
+  // screenshot): open the form at once with what the message shows, then
+  // shrink the image and let the AI fill in the rest.
   useEffect(() => {
     if (!hasShareIntent) return;
-    let cancelled = false;
-    ticketFromShare(shareIntent)
-      .catch(() => ({}))
-      .then((fields) => {
-        if (cancelled) return;
-        setViewingId(null);
-        setLinkDismissed(true);
-        setEditingId(null);
-        setForm({ ...EMPTY_FORM, date: todayKey(), ...fields });
-        setFormVisible(true);
-        resetShareIntent();
-      });
-    return () => {
-      cancelled = true;
-    };
+    const shared = shareIntent;
+    // Just after this render (not inside the effect itself).
+    Promise.resolve().then(async () => {
+      const { fields, text, file } = quickFieldsFromShare(shared);
+      autoRef.current = fields;
+      setViewingId(null);
+      setLinkDismissed(true);
+      setEditingId(null);
+      setReading(null);
+      setForm({ ...EMPTY_FORM, date: todayKey(), ...fields });
+      setFormVisible(true);
+      resetShareIntent();
+      let image = null;
+      if (file) {
+        setReading({ busy: true, message: 'Preparing the screenshot…' });
+        try {
+          image = await shrinkTicketImage(file.path, file.width);
+          setForm((prev) => ({ ...prev, image }));
+        } catch {
+          // Unreadable image: keep the rest of the ticket.
+        }
+      }
+      if (text || image) await readWithAi({ text, image });
+      else setReading(null);
+    });
     // Runs once per share; shareIntent and resetShareIntent change with it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasShareIntent]);
+
+  // Tickets saved earlier with full-size images make every save slow: shrink them once.
+  const shrinkingOld = useRef(false);
+  useEffect(() => {
+    const big = items.filter((t) => typeof t.image === 'string' && t.image.length > BIG_IMAGE_CHARS);
+    if (!big.length || shrinkingOld.current) return;
+    shrinkingOld.current = true;
+    (async () => {
+      const smaller = {};
+      for (const t of big) {
+        try {
+          smaller[t.id] = await shrinkTicketImage(t.image);
+        } catch {
+          // Leave it as it is.
+        }
+      }
+      if (Object.keys(smaller).length) persist(items.map((t) => (smaller[t.id] ? { ...t, image: smaller[t.id] } : t)));
+    })();
+  }, [items, persist]);
+
   const setViewing = (ticket) => {
     setViewingId(ticket ? ticket.id : null);
     setLinkDismissed(true);
@@ -126,12 +207,16 @@ export default function TicketsScreen() {
   const setField = (field) => (value) => setForm((prev) => ({ ...prev, [field]: value }));
 
   const openAdd = () => {
+    autoRef.current = {};
+    setReading(null);
     setEditingId(null);
     setForm({ ...EMPTY_FORM, date: todayKey() });
     setFormVisible(true);
   };
 
   const openEdit = (ticket) => {
+    autoRef.current = {};
+    setReading(null);
     setViewing(null);
     setEditingId(ticket.id);
     setForm({ ...EMPTY_FORM, ...ticket });
@@ -182,14 +267,17 @@ export default function TicketsScreen() {
   const pasteBookingMessage = async () => {
     const text = await Clipboard.getStringAsync();
     const fields = text ? parseBookingText(text) : {};
-    if (!fields.title && !fields.date && !fields.bookingRef && !fields.link) {
+    const aiCanTry = !isGuest() && (text || '').trim().length >= 20;
+    if (!fields.title && !fields.date && !fields.bookingRef && !fields.link && !aiCanTry) {
       Alert.alert(
         'Nothing to fill',
         'Copy the booking message first (from BookMyShow, SMS, email or WhatsApp), then tap Paste again.'
       );
       return;
     }
-    setForm((prev) => ({ ...prev, ...fields }));
+    applyFound(fields);
+    // The AI reads the same message more accurately.
+    readWithAi({ text: text.slice(0, 6000) });
   };
 
   // On phones this opens the booking app (e.g. BookMyShow) when it's installed.
@@ -205,9 +293,24 @@ export default function TicketsScreen() {
     }
   };
 
+  // Keep a small copy of the picked image; for a new ticket, read it with AI.
+  const takeImage = async (asset) => {
+    if (!asset) return;
+    setReading({ busy: true, message: 'Preparing the image…' });
+    let image;
+    try {
+      image = await shrinkTicketImage(asset.uri, asset.width);
+    } catch {
+      setReading({ busy: false, error: true, message: "Couldn't open that image. Try another screenshot." });
+      return;
+    }
+    setField('image')(image);
+    if (!form.title.trim() || !editingId) await readWithAi({ image, text: '' });
+    else setReading(null);
+  };
+
   const pickFromGallery = async () => {
-    const uri = assetToUri(await ImagePicker.launchImageLibraryAsync(PICKER_OPTIONS));
-    if (uri) setField('image')(uri);
+    takeImage(pickedAsset(await ImagePicker.launchImageLibraryAsync(PICKER_OPTIONS)));
   };
 
   const takePhoto = async () => {
@@ -216,8 +319,7 @@ export default function TicketsScreen() {
       Alert.alert('Camera access needed', 'Allow camera access to photograph a ticket.');
       return;
     }
-    const uri = assetToUri(await ImagePicker.launchCameraAsync(PICKER_OPTIONS));
-    if (uri) setField('image')(uri);
+    takeImage(pickedAsset(await ImagePicker.launchCameraAsync(PICKER_OPTIONS)));
   };
 
   const inputStyle = [
@@ -504,6 +606,23 @@ export default function TicketsScreen() {
                 <Ionicons name="clipboard-outline" size={18} color={theme.secondary} />
                 <Text style={[styles.pasteText, { color: theme.secondary }]}>Paste booking message</Text>
               </TouchableOpacity>
+
+              {reading ? (
+                <View style={[styles.readingBox, { backgroundColor: reading.error ? '#E5383B18' : '#7C3AED18' }]}>
+                  {reading.busy ? <ActivityIndicator size="small" color="#7C3AED" /> : <Ionicons name={reading.error ? 'alert-circle-outline' : 'sparkles'} size={16} color={reading.error ? '#E5383B' : '#7C3AED'} />}
+                  <Text style={[styles.readingText, { color: theme.text }]}>{reading.message}</Text>
+                </View>
+              ) : null}
+              {!isGuest() && (form.image || form.note.trim()) && !reading?.busy ? (
+                <TouchableOpacity
+                  style={[styles.pasteBtn, { borderColor: '#7C3AED' }]}
+                  onPress={() => readWithAi({ image: form.image, text: form.note })}
+                  accessibilityLabel="Fill details with AI"
+                >
+                  <Ionicons name="sparkles" size={18} color="#7C3AED" />
+                  <Text style={[styles.pasteText, { color: '#7C3AED' }]}>Fill details with AI</Text>
+                </TouchableOpacity>
+              ) : null}
 
               <View style={styles.typeRow}>
                 {TICKET_TYPES.map((t) => {
@@ -824,6 +943,8 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   pasteText: { fontSize: 14, fontWeight: '700' },
+  readingBox: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 12, padding: 10, marginBottom: 12 },
+  readingText: { flex: 1, fontSize: 13, lineHeight: 18 },
   doneBtn: {
     flexDirection: 'row',
     alignItems: 'center',

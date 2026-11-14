@@ -13,6 +13,7 @@ const { getQuotes, getCandles, getIntradayBundle, searchSymbols, isSymbol, getUs
 const { searchCoins, getCryptoPrices } = require('./crypto');
 const ai = require('./ai/agent');
 const ipo = require('./ai/ipo');
+const ticketAi = require('./ai/ticket');
 const { mountAuth, issueToken } = require('./auth');
 const { mountWatch, mountWatchPublic } = require('./watch');
 const AnthropicSdk = require('@anthropic-ai/sdk');
@@ -210,6 +211,15 @@ function createApp() {
   // AI assistants (Claude): StockByte AI (stocks) and InvestByte AI (portfolio).
   // GET /api/ai/status → { configured, model }
   app.get('/api/ai/status', (req, res) => res.json({ configured: ai.configured(), model: ai.MODEL, effort: ai.EFFORT }));
+  // Read a ticket (shared message and/or screenshot) with Claude. Before /api/ai/:kind.
+  // POST /api/ai/ticket { text?, image? (data URI), today? } → { found, fields }
+  app.post('/api/ai/ticket', async (req, res) => {
+    try {
+      res.json(await ticketAi.readTicket({ text: req.body?.text, image: req.body?.image, today: req.body?.today }));
+    } catch (error) {
+      aiError(res, error, 'ticket');
+    }
+  });
   // POST /api/ai/stock | /api/ai/invest  { question, history: [{ role, content }] } → { reply, tools, model }
   app.post('/api/ai/:kind', async (req, res) => {
     const kind = req.params.kind;
