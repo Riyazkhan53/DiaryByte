@@ -14,6 +14,7 @@ const COLLECTIONS = [
   'learned',
   'authenticator',
   'ipoapps',
+  'wishlist',
   'vaultlock',
   'todo',
   'expenditure',

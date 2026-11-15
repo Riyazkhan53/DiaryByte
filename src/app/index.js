@@ -131,6 +131,14 @@ const TABS = [
     gradient: ['#FF7B72', '#FF3B30'],
   },
   {
+    key: 'wishlist',
+    label: 'My Wishlist',
+    description: 'Dream buys, wealth goals & life experiences',
+    icon: 'sparkles-outline',
+    route: '/wishlist',
+    gradient: ['#F78FB3', '#C44569'],
+  },
+  {
     key: 'vouchers',
     label: 'Vouchers & Gift Cards',
     description: 'Codes, PINs & expiry for every store',
