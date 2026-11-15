@@ -3,6 +3,7 @@ import { StyleSheet, Text, View, Animated, Easing, Image, Platform, TouchableOpa
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { checkHealth } from '../services/api';
+import { afterShareNote } from '../utils/afterShare';
 import { BRAND_ICON, GLOW_RINGS, brandStyles, glowRingStyle } from './brand';
 
 const BAR_WIDTH = 200;
@@ -20,7 +21,8 @@ const FILL_TIME_CONSTANT_MS = 20000;
  * Laid out like the launch animation (AnimatedSplash), which fades into it.
  */
 export default function ServerGate({ children }) {
-  const [ready, setReady] = useState(false);
+  // The quick restart after a share goes straight in.
+  const [ready, setReady] = useState(() => !!afterShareNote());
   const [percent, setPercent] = useState(0);
   const [fill] = useState(() => new Animated.Value(0));
   const [pulse] = useState(() => new Animated.Value(0));

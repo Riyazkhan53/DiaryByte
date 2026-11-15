@@ -8,6 +8,7 @@ import { notifyLocal, readLocal, saveAndPush } from '../../services/sync';
 import { sharedText, shareTarget } from '../../utils/shareRoute';
 import { listPlatform } from '../../utils/ottShare';
 import { trace } from '../../utils/shareTrace';
+import { afterShareNote, restartAfterShare } from '../../utils/afterShare';
 
 const MOVIES_KEY = '@diarybyte_movies';
 
@@ -27,8 +28,16 @@ export default function OttShareHost() {
   const { hasShareIntent, shareIntent, resetShareIntent } = useAppShare();
   const [share, setShare] = useState(null);
   const [apiKey, setApiKey] = useState(null);
-  const [toast, setToast] = useState(null);
+  // A confirmation left before the quick restart that follows a share.
+  const [toast, setToast] = useState(() => afterShareNote()?.message || null);
+  const added = useRef(null);
   const movies = useRef([]);
+
+  useEffect(() => {
+    if (!toast) return undefined;
+    const t = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   useEffect(() => {
     AsyncStorage.getItem(TMDB_KEY_STORAGE)
@@ -60,8 +69,17 @@ export default function OttShareHost() {
     notifyLocal(MOVIES_KEY, next);
     saveAndPush('movies', MOVIES_KEY, next).catch(() => {});
     trace(`host: added "${movie.title}"`);
-    setToast(`Added “${movie.title}” to your Watchlist`);
-    setTimeout(() => setToast(null), 2600);
+    added.current = `Added “${movie.title}” to your Watchlist`;
+    setToast(added.current);
+  };
+
+  // Done with the share: restart the screens (see utils/afterShare), so the
+  // next screen you open isn't blank. Elsewhere this just closes the sheet.
+  const close = () => {
+    setShare(null);
+    const message = added.current;
+    added.current = null;
+    setTimeout(() => restartAfterShare(message), 350);
   };
 
   return (
@@ -72,7 +90,7 @@ export default function OttShareHost() {
         mapPlatform={listPlatform}
         isInList={(item) => inList(movies.current, item)}
         onAdd={onAdd}
-        onClose={() => setShare(null)}
+        onClose={close}
       />
       {toast ? (
         <View style={styles.toast} pointerEvents="none">
