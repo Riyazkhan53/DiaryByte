@@ -94,6 +94,10 @@ const COLLECTIONS = {
   authenticator: {
     fields: ['id', 'enc', 'createdAt'],
   },
+  // My Wishlist: dream buys, wealth goals (levels) and life experiences.
+  wishlist: {
+    fields: ['id', 'section', 'title', 'category', 'price', 'saved', 'targetDate', 'status', 'doneAt', 'note', 'levels', 'current', 'source', 'createdAt', 'updatedAt'],
+  },
   // IPOs you applied for (id = the IPO's id) and whether you were allotted.
   ipoapps: {
     fields: ['id', 'name', 'board', 'openDate', 'closeDate', 'listingDate', 'priceHigh', 'lotSize', 'status', 'result', 'createdAt', 'updatedAt'],
