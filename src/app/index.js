@@ -15,6 +15,7 @@ import { DATES_STORAGE_KEY, sortDates, daysUntil as daysUntilDate } from '../uti
 import { currentMonthKey } from '../utils/debts';
 import { netWorth, upcomingItems } from '../utils/dashboard';
 import TripAlarmCard from '../components/TripAlarmCard';
+import IpoHomeCards from '../components/IpoHomeCards';
 
 const TABS = [
   {
@@ -214,7 +215,8 @@ export default function Dashboard() {
   const { items: vouchers } = useSyncedCollection('vouchers', '@diarybyte_vouchers');
   // Only { remind: { type, expiry } } is readable without the vault code.
   const { items: iddocs } = useSyncedCollection('iddocs', '@diarybyte_iddocs');
-  const comingUp = upcomingItems({ autopays, investments, debts, tickets, dates, vouchers, iddocs }, 5, todayKey()).length;
+  const { items: ipoapps } = useSyncedCollection('ipoapps', '@diarybyte_ipoapps');
+  const comingUp = upcomingItems({ autopays, investments, debts, tickets, dates, vouchers, iddocs, ipoapps }, 5, todayKey()).length;
 
   const stopReminders = (item, due) => {
     persistAutopays(autopays.map((i) => (i.id === item.id ? { ...i, ackDue: due } : i)));
@@ -334,6 +336,7 @@ export default function Dashboard() {
               </TouchableOpacity>
             </View>
           ))}
+          <IpoHomeCards theme={theme} />
           {soonTickets.map((ticket) => {
             const type = ticketType(ticket.type);
             return (

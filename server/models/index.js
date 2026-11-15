@@ -94,6 +94,10 @@ const COLLECTIONS = {
   authenticator: {
     fields: ['id', 'enc', 'createdAt'],
   },
+  // IPOs you applied for (id = the IPO's id) and whether you were allotted.
+  ipoapps: {
+    fields: ['id', 'name', 'board', 'openDate', 'closeDate', 'listingDate', 'priceHigh', 'lotSize', 'status', 'result', 'createdAt', 'updatedAt'],
+  },
   learned: {
     fields: ['id', 'kind', 'source', 'parts', 'slots', 'constants', 'sig', 'hits', 'label', 'createdAt', 'updatedAt'],
   },

@@ -144,11 +144,11 @@ async function summary(engineService) {
   const today = istDate();
   const month = today.slice(0, 7);
   const [D, M, TK, DT] = await Promise.all([dashboard(), demat(), ticketsLib(), datesLib()]);
-  const [investments, debts, expenses, months, autopays, tickets, dates, todos, vouchers, dematDocs, spends] = await Promise.all(
-    ['investments', 'debts', 'expenditure', 'months', 'autopays', 'tickets', 'dates', 'todo', 'vouchers', 'demat', 'spends'].map(load)
+  const [investments, debts, expenses, months, autopays, tickets, dates, todos, vouchers, dematDocs, spends, ipoapps] = await Promise.all(
+    ['investments', 'debts', 'expenditure', 'months', 'autopays', 'tickets', 'dates', 'todo', 'vouchers', 'demat', 'spends', 'ipoapps'].map(load)
   );
   const worth = D.netWorth({ investments, debts, expenses, months, demat: dematDocs, spends }, month);
-  const upcoming = D.upcomingItems({ autopays, investments, debts, tickets, dates, vouchers }, DAYS_AHEAD, today);
+  const upcoming = D.upcomingItems({ autopays, investments, debts, tickets, dates, vouchers, ipoapps }, DAYS_AHEAD, today);
   const todayEntries = dematDocs.filter((d) => d.type === 'entry' && d.kind === 'pnl' && d.date === today);
   let signals = null;
   try {

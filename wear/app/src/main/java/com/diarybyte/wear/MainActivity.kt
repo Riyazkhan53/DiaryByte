@@ -343,6 +343,7 @@ private val KIND_LOOK = mapOf(
     "ticket" to ("🎫" to Color(0xFF5C6BC0)),
     "date" to ("🎂" to Color(0xFFF5A623)),
     "voucher" to ("🎁" to Color(0xFFFF6A88)),
+    "ipo" to ("🚀" to Color(0xFF2DA44E)),
 )
 
 fun ScalingLazyListScope.upcomingList(s: Summary?) {

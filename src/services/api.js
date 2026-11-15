@@ -13,6 +13,7 @@ const COLLECTIONS = [
   'iddocs',
   'learned',
   'authenticator',
+  'ipoapps',
   'vaultlock',
   'todo',
   'expenditure',
