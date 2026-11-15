@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, AppState, Easing, Image, Platform, StyleSheet, Text, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
+import { afterShareNote } from '../utils/afterShare';
 
 import { BRAND_BG, BRAND_ICON, GLOW_RINGS, brandStyles, glowRingStyle } from './brand';
 
@@ -15,7 +16,12 @@ const useNativeDriver = Platform.OS !== 'web';
  * splash is hidden once this has drawn its first frame.
  */
 export default function AnimatedSplash() {
-  const [done, setDone] = useState(false);
+  // No launch animation for the quick restart after a share.
+  const [done, setDone] = useState(() => {
+    if (!afterShareNote()) return false;
+    SplashScreen.hide();
+    return true;
+  });
   // Created once: logo = the native-splash "D", icon = full icon in, fade = whole overlay.
   const [{ logo, icon, glow, text, fade }] = useState(() => ({
     logo: new Animated.Value(1),
