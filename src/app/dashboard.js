@@ -26,6 +26,7 @@ const KIND = {
   date: { icon: 'gift', color: '#F5A623', label: 'Date' },
   voucher: { icon: 'pricetag', color: '#FF6A88', label: 'Voucher' },
   doc: { icon: 'id-card', color: '#1E40AF', label: 'Document' },
+  ipo: { icon: 'rocket', color: '#2DA44E', label: 'IPO listing' },
 };
 
 const inr = (n) => `₹${Math.round(Math.abs(Number(n) || 0)).toLocaleString('en-IN')}`;
@@ -60,11 +61,12 @@ export default function DashboardScreen() {
   const { items: iddocs } = useSyncedCollection('iddocs', '@diarybyte_iddocs');
   const { items: demat } = useSyncedCollection('demat', '@diarybyte_demat');
   const { items: spends } = useSyncedCollection('spends', '@diarybyte_spends');
+  const { items: ipoapps } = useSyncedCollection('ipoapps', '@diarybyte_ipoapps');
 
   const month = currentMonthKey();
   const worth = netWorth({ investments, debts, expenses, months, demat, spends }, month);
   const positive = worth.total >= 0;
-  const upcoming = upcomingItems({ autopays, investments, debts, tickets, dates, vouchers, iddocs }, DAYS_AHEAD, todayKey());
+  const upcoming = upcomingItems({ autopays, investments, debts, tickets, dates, vouchers, iddocs, ipoapps }, DAYS_AHEAD, todayKey());
   // Money due out (an expiring voucher's value isn't spending).
   const goingOut = upcoming.reduce((sum, u) => sum + (u.kind === 'voucher' ? 0 : u.amount || 0), 0);
   const todo = pendingTodos(todos);

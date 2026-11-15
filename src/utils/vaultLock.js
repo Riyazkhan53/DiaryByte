@@ -8,6 +8,8 @@
 //
 // While the vault is open the key is kept in memory only; locking forgets it.
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 import { fetchCollection, pushCollection } from '../services/api';
 import { notifyLocal, pullFromServer, readLocal, saveAndPush } from '../services/sync';
 import { sha256 } from './sha256';
@@ -36,11 +38,17 @@ const SYNC_TIMEOUT_MS = 8000;
 // "Don't ask for the code" (Settings): the key kept on this device until a
 // time (or always). Never synced.
 const REMEMBER_KEY = '@diarybyte_vault_remember';
+// "Open with fingerprint": the key in the phone's fingerprint-protected
+// secure store; the flag notes which code (salt) it belongs to.
+const BIO_KEY = 'diarybyte_vault_key';
+const BIO_FLAG = '@diarybyte_vault_fingerprint';
+const bioSupported = Platform.OS !== 'web';
 
 const EMPTY = { enabled: false, salt: null, iterations: null, verifier: null, hash: null, updatedAt: null };
 
 let state = { ...EMPTY };
 let remembered = null; // { key: Uint8Array, until: number | null (always), salt }
+let bioSalt = null; // the code (salt) the fingerprint key was saved for
 let loaded = false;
 let loading = null;
 let refreshing = null;
@@ -122,6 +130,7 @@ export const vaultLock = {
         try {
           const raw = await AsyncStorage.getItem(LOCK_KEY);
           if (raw) state = pick({ ...EMPTY, ...JSON.parse(raw) });
+          bioSalt = JSON.parse((await AsyncStorage.getItem(BIO_FLAG)) || 'null')?.salt || null;
           const rem = JSON.parse((await AsyncStorage.getItem(REMEMBER_KEY)) || 'null');
           if (rem?.key) remembered = { key: fromBase64(rem.key), until: rem.until ?? null, salt: rem.salt };
         } catch (_error) {
@@ -230,6 +239,54 @@ export const vaultLock = {
     return true;
   },
 
+  /** True when the vault can be opened with the fingerprint on this phone. */
+  fingerprintOn: () => bioSupported && !!bioSalt && bioSalt === state.salt,
+
+  /** Save the key behind the fingerprint (asks for it). Needs the vault open, or the code. */
+  async enableFingerprint(code = null) {
+    if (!bioSupported) return false;
+    await vaultLock.load();
+    const key = currentKey || rememberedKey() || (code != null ? await keyFor(code) : null);
+    if (!key) return false;
+    try {
+      await SecureStore.setItemAsync(BIO_KEY, toBase64(key), { requireAuthentication: true, authenticationPrompt: 'Confirm with your fingerprint' });
+    } catch (_error) {
+      return false;
+    }
+    bioSalt = state.salt;
+    await AsyncStorage.setItem(BIO_FLAG, JSON.stringify({ salt: bioSalt }));
+    emit();
+    return true;
+  },
+
+  async disableFingerprint() {
+    bioSalt = null;
+    await AsyncStorage.removeItem(BIO_FLAG);
+    if (bioSupported) await SecureStore.deleteItemAsync(BIO_KEY).catch(() => {});
+    emit();
+  },
+
+  /** Open the vault with the fingerprint: true when it worked. */
+  async unlockWithFingerprint() {
+    await vaultLock.load();
+    if (!vaultLock.fingerprintOn()) return false;
+    try {
+      const saved = await SecureStore.getItemAsync(BIO_KEY, { requireAuthentication: true, authenticationPrompt: 'Open the vault' });
+      if (!saved) return false;
+      const key = fromBase64(saved);
+      if (!checkVerifier(key, state.verifier)) {
+        // Saved for an older code: turn it off.
+        await vaultLock.disableFingerprint();
+        return false;
+      }
+      currentKey = key;
+      return true;
+    } catch (_error) {
+      // Cancelled, or the phone's fingerprints changed (the saved key is then gone).
+      return false;
+    }
+  },
+
   /** Ask for the code again from now on. */
   async askForCode() {
     remembered = null;
@@ -287,6 +344,7 @@ export const vaultLock = {
     currentKey = null;
     remembered = null;
     await AsyncStorage.removeItem(REMEMBER_KEY);
+    await vaultLock.disableFingerprint();
     if (oldKey) await rekeyItems(oldKey, null);
     return true;
   },

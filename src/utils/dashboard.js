@@ -8,6 +8,7 @@ import { daysUntil as ticketDaysUntil, sortTickets, ticketType } from './tickets
 import { daysUntil as dateDaysUntil, nextOccurrenceKey, sortDates } from './importantDates.js';
 import { dematSummary } from './demat.js';
 import { EXPIRY_WARN_DAYS, expiringDocs } from './idDocs.js';
+import { allottedListings } from './ipoApps.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const sumOf = (list) => list.reduce((sum, x) => sum + (Number(x.amount) || 0), 0);
@@ -80,7 +81,7 @@ export function netWorth({ investments, debts, expenses, months, demat = [], spe
  * [{ key, kind, title, sub, date, daysLeft, amount?, route, params? }].
  */
 export function upcomingItems(
-  { autopays = [], investments = [], debts = [], tickets = [], dates = [], vouchers = [], iddocs = [] },
+  { autopays = [], investments = [], debts = [], tickets = [], dates = [], vouchers = [], iddocs = [], ipoapps = [] },
   days = 5,
   today = todayKey()
 ) {
@@ -179,6 +180,20 @@ export function upcomingItems(
       route: '/documents',
     })
   );
+
+  // IPOs you were allotted: their listing day.
+  allottedListings(ipoapps, today)
+    .filter((a) => within(a.listingDate))
+    .forEach((a) =>
+      out.push({
+        key: `ipo:${a.id}`,
+        kind: 'ipo',
+        title: `${a.name} lists`,
+        sub: 'IPO allotted · listing day',
+        date: a.listingDate,
+        route: '/ipos',
+      })
+    );
 
   return out
     .map((item) => ({ ...item, daysLeft: daysBetween(today, item.date) }))

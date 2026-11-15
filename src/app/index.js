@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, Platform } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, Platform, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,6 +15,7 @@ import { DATES_STORAGE_KEY, sortDates, daysUntil as daysUntilDate } from '../uti
 import { currentMonthKey } from '../utils/debts';
 import { netWorth, upcomingItems } from '../utils/dashboard';
 import TripAlarmCard from '../components/TripAlarmCard';
+import IpoHomeCards from '../components/IpoHomeCards';
 
 const TABS = [
   {
@@ -171,7 +172,21 @@ const TABS = [
   },
 ];
 
+// Cards per row: phones keep 2 (as before); tablets 3, laptops 4. The grid
+// is capped and centred on very wide screens.
+const GRID_PAD = 16;
+const GRID_GAP = 12;
+const GRID_MAX = 1400;
+function cardWidthFor(width) {
+  if (width < 700) return null; // phones: the original 2-up layout
+  const cols = width >= 1024 ? 4 : 3;
+  const inner = Math.min(width, GRID_MAX) - GRID_PAD * 2;
+  return Math.floor((inner - GRID_GAP * (cols - 1)) / cols);
+}
+
 export default function Dashboard() {
+  const { width: screenWidth } = useWindowDimensions();
+  const cardWidth = cardWidthFor(screenWidth);
   const { theme, userName, isDark, toggleTheme } = useTheme();
   const insets = useSafeAreaInsets();
   const { items: autopays, persist: persistAutopays } = useSyncedCollection(
@@ -200,7 +215,8 @@ export default function Dashboard() {
   const { items: vouchers } = useSyncedCollection('vouchers', '@diarybyte_vouchers');
   // Only { remind: { type, expiry } } is readable without the vault code.
   const { items: iddocs } = useSyncedCollection('iddocs', '@diarybyte_iddocs');
-  const comingUp = upcomingItems({ autopays, investments, debts, tickets, dates, vouchers, iddocs }, 5, todayKey()).length;
+  const { items: ipoapps } = useSyncedCollection('ipoapps', '@diarybyte_ipoapps');
+  const comingUp = upcomingItems({ autopays, investments, debts, tickets, dates, vouchers, iddocs, ipoapps }, 5, todayKey()).length;
 
   const stopReminders = (item, due) => {
     persistAutopays(autopays.map((i) => (i.id === item.id ? { ...i, ackDue: due } : i)));
@@ -232,7 +248,7 @@ export default function Dashboard() {
     <View style={styles.root}>
       <SafeAreaView style={styles.container}>
         <StatusBar style={theme.statusBar} />
-        <View style={[styles.header, { paddingTop: Platform.OS === 'ios' ? 10 : insets.top + 16 }]}>
+        <View style={[styles.header, cardWidth ? styles.headerWide : null, { paddingTop: Platform.OS === 'ios' ? 10 : insets.top + 16 }]}>
           <View style={styles.headerRow}>
             <Text style={[styles.dateLine, { color: theme.textMuted }]}>
               {today.toUpperCase()}
@@ -256,7 +272,7 @@ export default function Dashboard() {
 
         <ScrollView
           style={styles.content}
-          contentContainerStyle={styles.grid}
+          contentContainerStyle={[styles.grid, cardWidth ? styles.gridWide : null]}
           showsVerticalScrollIndicator={false}
         >
           <UpdateReadyBanner />
@@ -320,6 +336,7 @@ export default function Dashboard() {
               </TouchableOpacity>
             </View>
           ))}
+          <IpoHomeCards theme={theme} />
           {soonTickets.map((ticket) => {
             const type = ticketType(ticket.type);
             return (
@@ -384,6 +401,7 @@ export default function Dashboard() {
               key={tab.key}
               style={[
                 styles.card,
+                cardWidth ? { width: cardWidth } : null,
                 { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow },
               ]}
               onPress={() => router.push(tab.route)}
@@ -422,6 +440,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 4,
   },
+  // Wide screens: lined up with the centred card grid.
+  headerWide: { width: '100%', maxWidth: GRID_MAX, alignSelf: 'center', paddingHorizontal: GRID_PAD },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -450,12 +470,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   grid: {
-    padding: 16,
+    padding: GRID_PAD,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: GRID_GAP,
     paddingBottom: 40,
   },
+  gridWide: { width: '100%', maxWidth: GRID_MAX, alignSelf: 'center' },
   reminder: {
     width: '100%',
     flexDirection: 'row',

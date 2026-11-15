@@ -30,6 +30,7 @@ export const SYNCED_COLLECTIONS = [
   { collection: 'tradingconfig', storageKey: '@diarybyte_tradingconfig' },
   { collection: 'learned', storageKey: '@diarybyte_learned' },
   { collection: 'authenticator', storageKey: '@diarybyte_authenticator' },
+  { collection: 'ipoapps', storageKey: '@diarybyte_ipoapps' },
 ];
 
 // Section names for "Items waiting for sync".
@@ -57,6 +58,7 @@ export const COLLECTION_LABELS = {
   tradingconfig: 'Trading settings',
   learned: 'Smart fill (learned formats)',
   authenticator: 'Authenticator',
+  ipoapps: 'IPO applications',
 };
 
 // ------- sync status events -------

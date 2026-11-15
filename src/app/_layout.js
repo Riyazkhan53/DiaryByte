@@ -1,5 +1,4 @@
 import { Stack, ThemeProvider as NavigationThemeProvider, DefaultTheme, DarkTheme } from 'expo-router';
-import { ShareIntentProvider } from 'expo-share-intent';
 import * as SplashScreen from 'expo-splash-screen';
 import { ThemeProvider, useTheme } from '../hooks/useTheme';
 import ServerGate from '../components/ServerGate';
@@ -9,6 +8,7 @@ import GlassBackground from '../components/GlassBackground';
 import AutopayReminderService from '../components/AutopayReminderService';
 import TripAlarmService from '../components/TripAlarmService';
 import DebtReminderService from '../components/DebtReminderService';
+import IpoReminderService from '../components/IpoReminderService';
 import SipService from '../components/SipService';
 import SyncService from '../components/SyncService';
 import ShareIntentHandler from '../components/ShareIntentHandler';
@@ -16,6 +16,7 @@ import OttShareHost from '../components/movies/OttShareHost';
 import AnimatedSplash from '../components/AnimatedSplash';
 import DeleteConfirmHost from '../components/DeleteConfirmHost';
 import { AppShareProvider } from '../components/AppShareProvider';
+import AppLockGate from '../components/AppLockGate';
 import ScreenError from '../components/ScreenError';
 import { trace } from '../utils/shareTrace';
 
@@ -64,6 +65,7 @@ function GlassRoot() {
           <AutopayReminderService />
           <TripAlarmService />
           <DebtReminderService />
+          <IpoReminderService />
           <SipService />
           <SyncService />
           <MaybeServerGate>
@@ -88,14 +90,13 @@ function GlassRoot() {
 
 export default function RootLayout() {
   return (
-    <ShareIntentProvider>
-      <AppShareProvider>
+    <AppShareProvider>
       <ThemeProvider>
         <GlassRoot />
+        <AppLockGate />
         <DeleteConfirmHost />
         <AnimatedSplash />
       </ThemeProvider>
-      </AppShareProvider>
-    </ShareIntentProvider>
+    </AppShareProvider>
   );
 }

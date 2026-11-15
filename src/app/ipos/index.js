@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -18,9 +18,12 @@ import Header from '../../components/Header';
 import { useTheme } from '../../hooks/useTheme';
 import { fetchIpoNews, fetchIpoReview, fetchIpos } from '../../services/api';
 import HScroll from '../../components/HScroll';
+import { useSyncedCollection } from '../../hooks/useSyncedCollection';
+import { todayKey } from '../../utils/autopay';
+import { IPOAPPS_STORAGE_KEY, IPO_LIST_KEY, appFor, canStillApply, listingLabel, newApp, withLatestDates } from '../../utils/ipoApps';
 
 // Saved on this device (IndexedDB on the web), so the screen opens instantly.
-const LIST_KEY = '@diarybyte_ipos';
+const LIST_KEY = IPO_LIST_KEY;
 const REVIEWS_KEY = '@diarybyte_ipo_reviews';
 const MAX_SAVED_REVIEWS = 40;
 const readJson = async (key) => {
@@ -59,6 +62,7 @@ const STATUS_FILTERS = [
   { key: 'closed', label: 'Closed', statuses: ['closed'] },
   { key: 'listed', label: 'Listed', statuses: ['listed'] },
   { key: 'all', label: 'All', statuses: ['open', 'upcoming', 'closed', 'listed'] },
+  { key: 'mine', label: 'Applied', statuses: ['open', 'upcoming', 'closed', 'listed'], mine: true },
 ];
 const BOARD_FILTERS = [
   { key: 'all', label: 'All boards' },
@@ -179,7 +183,77 @@ function ScoreChip({ score }) {
   );
 }
 
-function IpoCard({ ipo, onOpen, theme }) {
+function Btn({ label, onPress, color = GREEN, filled = false, a11y }) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={a11y || label}
+      style={[styles.applyBtn, { borderColor: color, backgroundColor: filled ? color : 'transparent' }]}
+    >
+      <Text style={[styles.applyBtnText, { color: filled ? '#fff' : color }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+/** Applied / allotted controls under an IPO card. */
+function ApplyRow({ ipo, app, today, onMark, onAnswer, onUndo, theme }) {
+  if (!app) {
+    if (ipo.status === 'listed') return null;
+    return (
+      <View style={[styles.applyRow, { borderColor: theme.border }]}>
+        <Text style={[styles.tiny, styles.flex, { color: theme.textMuted }]}>
+          {canStillApply(ipo, today) ? 'Applying? Mark it to get the allotment check and listing reminder.' : 'Applied before it closed? Mark it.'}
+        </Text>
+        <Btn label="Mark as applied" filled onPress={() => onMark(ipo, 'applied')} a11y={`Mark ${ipo.name} as applied`} />
+      </View>
+    );
+  }
+  if (app.status === 'skipped') {
+    return (
+      <View style={[styles.applyRow, { borderColor: theme.border }]}>
+        <Text style={[styles.tiny, styles.flex, { color: theme.textMuted }]}>Not applying (hidden from home)</Text>
+        <Btn label="Applied" onPress={() => onMark(ipo, 'applied')} a11y={`Mark ${ipo.name} as applied`} />
+        <Btn label="Undo" color={theme.textMuted} onPress={() => onUndo(app)} a11y={`Undo for ${ipo.name}`} />
+      </View>
+    );
+  }
+  if (app.result === 'allotted') {
+    return (
+      <View style={[styles.applyRow, { borderColor: theme.border }]}>
+        <Text style={[styles.applyState, styles.flex, { color: '#AF52DE' }]}>
+          🎉 Allotted · {listingLabel(app, today)}
+          {app.listingDate ? ` (${shortDate(app.listingDate)})` : ''}
+        </Text>
+        <Btn label="Change" color={theme.textMuted} onPress={() => onAnswer(app, null)} a11y={`Change the allotment answer for ${ipo.name}`} />
+      </View>
+    );
+  }
+  if (app.result === 'not_allotted') {
+    return (
+      <View style={[styles.applyRow, { borderColor: theme.border }]}>
+        <Text style={[styles.applyState, styles.flex, { color: theme.textMuted }]}>Applied · not allotted</Text>
+        <Btn label="Change" color={theme.textMuted} onPress={() => onAnswer(app, null)} a11y={`Change the allotment answer for ${ipo.name}`} />
+      </View>
+    );
+  }
+  const closed = app.closeDate ? today > app.closeDate : ipo.status === 'closed' || ipo.status === 'listed';
+  return (
+    <View style={[styles.applyRow, { borderColor: theme.border }]}>
+      <Text style={[styles.applyState, styles.flex, { color: GREEN }]}>{closed ? '✓ Applied · IPO allotted?' : '✓ Applied'}</Text>
+      {closed ? (
+        <>
+          <Btn label="Yes" filled onPress={() => onAnswer(app, 'allotted')} a11y={`Yes, ${ipo.name} was allotted`} />
+          <Btn label="No" color={RED} onPress={() => onAnswer(app, 'not_allotted')} a11y={`No, ${ipo.name} was not allotted`} />
+        </>
+      ) : (
+        <Btn label="Undo" color={theme.textMuted} onPress={() => onUndo(app)} a11y={`Undo applied for ${ipo.name}`} />
+      )}
+    </View>
+  );
+}
+
+function IpoCard({ ipo, onOpen, theme, apply }) {
   const gmpColor = ipo.gmp == null ? theme.textMuted : ipo.gmp >= 0 ? GREEN : RED;
   return (
     <TouchableOpacity
@@ -223,6 +297,7 @@ function IpoCard({ ipo, onOpen, theme }) {
         <ScoreChip score={ipo.score} />
         <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
       </View>
+      {apply ? <ApplyRow ipo={ipo} theme={theme} {...apply} app={appFor(apply.apps, ipo)} /> : null}
     </TouchableOpacity>
   );
 }
@@ -416,6 +491,17 @@ export default function IposScreen() {
   const [statusFilter, setStatusFilter] = useState('current');
   const [boardFilter, setBoardFilter] = useState('all');
 
+  const { items: apps, persist: persistApps } = useSyncedCollection('ipoapps', IPOAPPS_STORAGE_KEY);
+  const today = todayKey();
+  const stamp = () => new Date().toISOString();
+  const apply = {
+    apps,
+    today,
+    onMark: (ipo, status) => persistApps([...apps.filter((a) => a.id !== ipo.id), newApp(ipo, status)]),
+    onAnswer: (app, result) => persistApps(apps.map((a) => (a.id === app.id ? { ...a, result, updatedAt: stamp() } : a))),
+    onUndo: (app) => persistApps(apps.filter((a) => a.id !== app.id)),
+  };
+
   const again = useRef({ timer: null, tries: 0 });
   const [retry, setRetry] = useState(0);
 
@@ -425,7 +511,7 @@ export default function IposScreen() {
       .then((data) => {
         setState({ loading: false, data, error: null });
         setNow(Date.now());
-        if (data.ipos?.length) writeJson(LIST_KEY, data);
+        if (data.ipos?.length) writeJson(LIST_KEY, { ...data, savedAt: new Date().toISOString() });
         // The server is searching in the background: ask again in a bit.
         clearTimeout(again.current.timer);
         if (data.refreshing && again.current.tries < 3) {
@@ -465,13 +551,21 @@ export default function IposScreen() {
     return () => clearTimeout(t);
   }, [retry, load]);
 
-  const all = state.data?.ipos || [];
+  const all = useMemo(() => state.data?.ipos || [], [state.data]);
+  // Listing dates often come out after you apply: copy them in.
+  useEffect(() => {
+    if (!all.length || !apps.length) return;
+    const next = withLatestDates(apps, all);
+    if (next) persistApps(next);
+  }, [all, apps, persistApps]);
+  const applied = (i) => appFor(apps, i)?.status === 'applied';
+  const fits = (f, i) => f.statuses.includes(i.status) && (!f.mine || applied(i));
+  const filter = STATUS_FILTERS.find((f) => f.key === statusFilter);
   const onBoard = all.filter((i) => boardFilter === 'all' || i.board === boardFilter);
-  const statuses = STATUS_FILTERS.find((f) => f.key === statusFilter).statuses;
-  const ipos = onBoard.filter((i) => statuses.includes(i.status));
-  const statusCounts = Object.fromEntries(STATUS_FILTERS.map((f) => [f.key, onBoard.filter((i) => f.statuses.includes(i.status)).length]));
+  const ipos = onBoard.filter((i) => fits(filter, i));
+  const statusCounts = Object.fromEntries(STATUS_FILTERS.map((f) => [f.key, onBoard.filter((i) => fits(f, i)).length]));
   const boardCounts = Object.fromEntries(
-    BOARD_FILTERS.map((f) => [f.key, all.filter((i) => statuses.includes(i.status) && (f.key === 'all' || i.board === f.key)).length])
+    BOARD_FILTERS.map((f) => [f.key, all.filter((i) => fits(filter, i) && (f.key === 'all' || i.board === f.key)).length])
   );
   const findIpo = () => {
     const q = lookup.trim();
@@ -542,7 +636,7 @@ export default function IposScreen() {
                 <Text style={[styles.tiny, { color: theme.textMuted }]}>{list.length}</Text>
               </View>
               {list.map((ipo) => (
-                <IpoCard key={ipo.id} ipo={ipo} onOpen={setOpen} theme={theme} />
+                <IpoCard key={ipo.id} ipo={ipo} onOpen={setOpen} theme={theme} apply={apply} />
               ))}
             </View>
           );
@@ -611,4 +705,8 @@ const styles = StyleSheet.create({
   link: { fontSize: 12, textDecorationLine: 'underline' },
   footRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14 },
   refresh: { fontSize: 14, fontWeight: '800' },
+  applyRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth },
+  applyState: { fontSize: 13, fontWeight: '800' },
+  applyBtn: { borderWidth: 1.5, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 },
+  applyBtnText: { fontSize: 13, fontWeight: '800' },
 });

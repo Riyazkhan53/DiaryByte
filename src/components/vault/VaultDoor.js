@@ -76,13 +76,25 @@ export default function VaultDoor({ onOpen, onSetCode }) {
   }));
 
   // "Don't ask for the code" is on (Settings → Vault code): open at once.
+  // "Open with fingerprint": ask for it straight away.
   const autoOpened = useRef(false);
+  const [fingerprint, setFingerprint] = useState(false);
+  const openWithFingerprint = async () => {
+    setMessage(null);
+    if (await vaultLock.unlockWithFingerprint()) onOpen();
+    else setMessage('Fingerprint not used. Turn the dials instead.');
+  };
   useEffect(() => {
     let alive = true;
     vaultLock.load().then(() => {
-      if (alive && !autoOpened.current && vaultLock.skipsCode()) {
+      if (!alive || autoOpened.current) return;
+      if (vaultLock.skipsCode()) {
         autoOpened.current = true;
         onOpen();
+      } else if (vaultLock.fingerprintOn()) {
+        autoOpened.current = true;
+        setFingerprint(true);
+        vaultLock.unlockWithFingerprint().then((ok) => alive && ok && onOpen());
       }
     });
     return () => {
@@ -213,6 +225,12 @@ export default function VaultDoor({ onOpen, onSetCode }) {
             <Text style={[styles.hint, message && styles.wrong]}>
               {message || (hasCode ? 'Set the dials, then turn the handle' : 'Turn the handle to open')}
             </Text>
+            {fingerprint ? (
+              <TouchableOpacity style={styles.fpBtn} onPress={openWithFingerprint} accessibilityLabel="Open with fingerprint">
+                <Ionicons name="finger-print" size={18} color="#3B424A" />
+                <Text style={styles.fpText}>Use fingerprint</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         </LinearGradient>
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.shadow, { opacity: darkness }]} />
@@ -222,6 +240,8 @@ export default function VaultDoor({ onOpen, onSetCode }) {
 }
 
 const styles = StyleSheet.create({
+  fpBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'center', backgroundColor: '#E8ECEF', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 7, marginTop: 6 },
+  fpText: { color: '#3B424A', fontSize: 13, fontWeight: '800' },
   wrap: { flex: 1, justifyContent: 'center' },
   inside: {
     position: 'absolute',

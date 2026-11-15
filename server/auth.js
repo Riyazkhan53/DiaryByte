@@ -11,6 +11,7 @@
 
 const crypto = require('crypto');
 const models = require('./models');
+const { mountPasskeys } = require('./passkeys');
 
 const OWNER_ID = 'owner';
 const USERNAME_RE = /^[a-zA-Z0-9_.-]{3,30}$/;
@@ -147,6 +148,9 @@ function mountAuth(app) {
       res.status(503).json({ error: 'Could not sign in. Try again.' });
     }
   });
+
+  // Passkeys (sign in from a browser without the password).
+  mountPasskeys(app, { getOwner, tokenValid, signToken, bearer, tooManyAttempts, noteFailure });
 
   // Is this token still good?
   app.get('/api/auth/me', async (req, res) => {
