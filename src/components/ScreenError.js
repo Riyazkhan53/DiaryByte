@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
+import { recordStep } from '../utils/shareLog';
 
 /**
  * Shown instead of a blank screen when a screen fails to draw. Says what
@@ -12,6 +13,9 @@ import { router } from 'expo-router';
 export default function ScreenError({ error, retry }) {
   const [copied, setCopied] = useState(false);
   const message = String(error?.message || error || 'Unknown error');
+  useEffect(() => {
+    recordStep(`screen error: ${message}`);
+  }, [message]);
   const details = `${message}\n${String(error?.stack || '')
     .split('\n')
     .slice(0, 6)

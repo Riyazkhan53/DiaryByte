@@ -3,7 +3,7 @@ import { router, usePathname, useRootNavigationState } from 'expo-router';
 import { useAppShare } from './AppShareProvider';
 import { sharedText, shareTarget } from '../utils/shareRoute';
 import { ottPlatform } from '../utils/ottShare';
-import { recordShare } from '../utils/shareLog';
+import { recordShare, recordStep } from '../utils/shareLog';
 
 /**
  * When something is shared into DiaryByte (Android share sheet): a share
@@ -35,7 +35,10 @@ export default function ShareIntentHandler() {
       target,
       from: pathname,
     });
-    if (target && pathname !== target) router.navigate(target);
+    if (target && pathname !== target) {
+      router.navigate(target);
+      setTimeout(() => recordStep(`opened ${target}`), 400);
+    }
   }, [hasShareIntent, shareIntent, navReady, pathname]);
 
   // The share library couldn't read what was shared.

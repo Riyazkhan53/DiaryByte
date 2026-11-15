@@ -8,6 +8,7 @@ import { posterUrl, searchTitles } from '../../services/tmdb';
 import { smartRead, teach } from '../../services/smartFill';
 import { ottPlatform, parseOttShare } from '../../utils/ottShare';
 import { fetchPageTitle } from '../../services/linkTitle';
+import { recordStep } from '../../utils/shareLog';
 
 const VIA = {
   learned: { icon: 'flash', color: '#2DA44E', text: (p) => `Read by Smart fill, learned from your earlier ${p || 'OTT'} shares. No AI used.` },
@@ -49,11 +50,13 @@ export default function ShareToWatchlist({ share, apiKey, onAdd, onClose, mapPla
       setBusy('Finding it on TMDB…');
       try {
         const found = await searchTitles(apiKey, q.trim(), y);
+        recordStep(`TMDB: ${found.length} found`);
         if (searchId.current !== id) return;
         setMatches(found);
         // A clear first match is chosen for you.
         if (found[0] && found[0].title.toLowerCase() === q.trim().toLowerCase()) setPicked(found[0]);
-      } catch (_error) {
+      } catch (error) {
+        recordStep(`TMDB failed: ${error?.message || error}`);
         if (searchId.current === id) setMatches([]);
       } finally {
         if (searchId.current === id) setBusy(null);
@@ -67,6 +70,7 @@ export default function ShareToWatchlist({ share, apiKey, onAdd, onClose, mapPla
     if (!share) return undefined;
     let alive = true;
     Promise.resolve().then(async () => {
+      recordStep('sheet opening');
       setProblem(null);
       setMatches([]);
       setPicked(null);
@@ -89,6 +93,7 @@ export default function ShareToWatchlist({ share, apiKey, onAdd, onClose, mapPla
       setPlatform(learned?.fields?.platform || shared);
       setType(learned?.fields?.type || 'Movie');
       setVia(learned ? 'learned' : guess.fromPage ? 'page' : t ? 'guess' : null);
+      recordStep(`title "${t || ''}" (${learned ? 'smart fill' : guess.fromPage ? 'page' : t ? 'guess' : 'none'})`);
       if (!t) setProblem("Couldn't find the title in what was shared. Type it, or tap Read with AI.");
       if (t) search(t, guess.year);
     });
@@ -144,6 +149,14 @@ export default function ShareToWatchlist({ share, apiKey, onAdd, onClose, mapPla
     teach('ott', share.text, { title: title.trim() }, { platform, type: movie.type }).catch(() => {});
     onClose();
   };
+
+  const drawnFor = useRef(null);
+  useEffect(() => {
+    if (share && via !== null && drawnFor.current !== share) {
+      drawnFor.current = share;
+      recordStep('sheet shown');
+    }
+  }, [share, via]);
 
   const v = via ? VIA[via] : null;
   const input = [styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }];
