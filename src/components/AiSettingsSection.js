@@ -60,6 +60,11 @@ export function AiSettingsSection({ sectionStyle, titleStyle, hintStyle }) {
               {share.text ? `\n“${share.text}”` : ''}
             </Text>
           )}
+          {share.steps?.length ? (
+            <Text style={[hintStyle, { color: theme.textSecondary }]} selectable>
+              {share.steps.join('\n')}
+            </Text>
+          ) : null}
         </View>
       ) : null}
     </View>

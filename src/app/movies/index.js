@@ -31,6 +31,7 @@ import { pickLink, watchTarget } from '../../services/ottLinks';
 import { useAppShare } from '../../components/AppShareProvider';
 import ShareToWatchlist from '../../components/movies/ShareToWatchlist';
 import { sharedText, shareTarget } from '../../utils/shareRoute';
+import { recordStep } from '../../utils/shareLog';
 import { confirmAction, confirmDelete } from '../../utils/confirm';
 import HScroll from '../../components/HScroll';
 
@@ -153,6 +154,7 @@ export default function MoviesScreen() {
     if (!hasShareIntent || shareTarget(shareIntent) !== '/movies') return;
     Promise.resolve().then(() => {
       try {
+        recordStep('Movies got the share');
         setSharedOtt(sharedText(shareIntent));
         setTab('mylist');
         setFilter('watchlist');

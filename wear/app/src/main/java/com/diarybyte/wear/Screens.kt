@@ -72,6 +72,7 @@ internal object Hue {
     val todo = Color(0xFFFF6A88) to Color(0xFFC2185B)
     val passwords = Color(0xFF32ADE6) to Color(0xFF0B5F99)
     val update = Color(0xFF34C759) to Color(0xFF0E8A6A)
+    val codes = Color(0xFF34A853) to Color(0xFF0F766E)
 }
 
 internal fun hex(c: Long) = Color(c)
