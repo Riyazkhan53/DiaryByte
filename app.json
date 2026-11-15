@@ -64,19 +64,10 @@
         {
           "cameraPermission": "Allow DiaryByte to access your camera so you can scan cards.",
           "recordAudioAndroid": false,
-          "barcodeScannerEnabled": false
+          "barcodeScannerEnabled": true
         }
       ],
-      [
-        "expo-share-intent",
-        {
-          "androidIntentFilters": [
-            "text/*",
-            "image/*"
-          ],
-          "disableIOS": true
-        }
-      ]
+      "./plugins/withShareIntentFilters"
     ],
     "extra": {
       "router": {},

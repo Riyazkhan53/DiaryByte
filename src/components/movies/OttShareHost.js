@@ -9,6 +9,11 @@ import { sharedText, shareTarget } from '../../utils/shareRoute';
 import { listPlatform } from '../../utils/ottShare';
 import { trace } from '../../utils/shareTrace';
 import { afterShareNote, restartAfterShare } from '../../utils/afterShare';
+import { activityCreates } from '../../services/shareText';
+import { isAppLocked, subscribeAppLock } from '../../utils/appLock';
+
+// Windows Android had created when the app (JS) started.
+const CREATES_AT_START = activityCreates();
 
 const MOVIES_KEY = '@diarybyte_movies';
 
@@ -32,6 +37,9 @@ export default function OttShareHost() {
   const [toast, setToast] = useState(() => afterShareNote()?.message || null);
   const added = useRef(null);
   const movies = useRef([]);
+  // The sheet waits while the app is locked.
+  const [locked, setLocked] = useState(isAppLocked());
+  useEffect(() => subscribeAppLock(setLocked), []);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -73,19 +81,21 @@ export default function OttShareHost() {
     setToast(added.current);
   };
 
-  // Done with the share: restart the screens (see utils/afterShare), so the
-  // next screen you open isn't blank. Elsewhere this just closes the sheet.
+  // Done with the share. Only if Android recreated the app's window while it
+  // ran (screens would then open blank) does it restart the screens.
   const close = () => {
     setShare(null);
     const message = added.current;
     added.current = null;
-    setTimeout(() => restartAfterShare(message), 350);
+    const creates = activityCreates();
+    trace(`host: sheet closed (window created ${creates}× since start ${CREATES_AT_START})`);
+    if (creates > CREATES_AT_START) setTimeout(() => restartAfterShare(message), 350);
   };
 
   return (
     <>
       <ShareToWatchlist
-        share={share}
+        share={locked ? null : share}
         apiKey={apiKey}
         mapPlatform={listPlatform}
         isInList={(item) => inList(movies.current, item)}

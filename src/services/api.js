@@ -273,3 +273,12 @@ export function readTicketWithAi({ text, image, today }) {
 export function readOttWithAi({ text, metaTitle }) {
   return request('/api/ai/ott', { method: 'POST', body: JSON.stringify({ text, metaTitle }) });
 }
+
+// ------- passkeys (web) -------
+export const passkeyLoginOptions = () => request('/api/auth/passkeys/login/options', { method: 'POST', body: '{}' });
+export const passkeyLoginVerify = (response) => request('/api/auth/passkeys/login/verify', { method: 'POST', body: JSON.stringify({ response }) });
+export const passkeyRegisterOptions = () => request('/api/auth/passkeys/register/options', { method: 'POST', body: '{}' });
+export const passkeyRegisterVerify = (response, name) =>
+  request('/api/auth/passkeys/register/verify', { method: 'POST', body: JSON.stringify({ response, name }) });
+export const listPasskeys = () => request('/api/auth/passkeys');
+export const removePasskey = (id) => request(`/api/auth/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE' });

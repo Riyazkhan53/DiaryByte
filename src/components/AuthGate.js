@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { fetchAuthStatus, loginAccount, registerAccount } from '../services/api';
 import { getSession, sessionReady, signInGuest, signInUser } from '../services/session';
+import { passkeyError, passkeysSupported, signInWithPasskey } from '../services/passkeys';
 import { BRAND_ICON } from './brand';
 
 /**
@@ -83,6 +84,20 @@ function AuthScreen() {
             ? 'The server needs an update before sign-in works (redeploy it).'
             : "Couldn't reach the server. It may be waking up — try again in a moment.")
       );
+      setBusy(null);
+    }
+  };
+
+  // Passkey (web): the device's screen lock instead of the password.
+  const withPasskey = async () => {
+    if (busy) return;
+    setBusy('passkey');
+    setError(null);
+    try {
+      const res = await signInWithPasskey();
+      await signInUser(res.username, res.token); // restarts the app
+    } catch (e) {
+      setError(passkeyError(e));
       setBusy(null);
     }
   };
@@ -160,6 +175,12 @@ function AuthScreen() {
                 <TouchableOpacity style={[styles.primary, busy && styles.dim]} onPress={submit} disabled={!!busy} accessibilityLabel={mode === 'register' ? 'Create account' : 'Sign in'}>
                   {busy === 'user' ? <ActivityIndicator color="#FFF" /> : <Text style={styles.primaryText}>{mode === 'register' ? 'Create account' : 'Sign in'}</Text>}
                 </TouchableOpacity>
+                {mode === 'login' && passkeysSupported() ? (
+                  <TouchableOpacity style={[styles.passkey, busy && styles.dim]} onPress={withPasskey} disabled={!!busy} accessibilityLabel="Sign in with a passkey">
+                    {busy === 'passkey' ? <ActivityIndicator color="#FFF" /> : <Ionicons name="key-outline" size={18} color="#FFF" />}
+                    <Text style={styles.passkeyText}>Sign in with a passkey</Text>
+                  </TouchableOpacity>
+                ) : null}
                 {mode === 'register' ? (
                   <Text style={styles.hint}>
                     There&apos;s no password reset, so keep it somewhere safe. You stay signed in on this device until you sign out.
@@ -197,6 +218,8 @@ function AuthScreen() {
 }
 
 const styles = StyleSheet.create({
+  passkey: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)', borderRadius: 14, paddingVertical: 13, marginTop: 10 },
+  passkeyText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
   blank: { flex: 1, backgroundColor: '#0E192D' },
   root: { flex: 1 },
   flex: { flex: 1 },

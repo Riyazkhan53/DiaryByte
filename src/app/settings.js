@@ -24,6 +24,8 @@ import { DeleteProtectionSection } from '../components/DeleteProtectionSection';
 import { VaultCodeSection } from '../components/VaultCodeSection';
 import { WatchPairSection } from '../components/WatchPairSection';
 import { AiSettingsSection } from '../components/AiSettingsSection';
+import { AppLockSection } from '../components/AppLockSection';
+import { PasskeysSection } from '../components/PasskeysSection';
 import { confirmDelete } from '../utils/confirm';
 import { getSession, isGuest, signOut } from '../services/session';
 
@@ -222,6 +224,34 @@ export default function SettingsScreen() {
         </View>
 
         <VaultCodeSection
+          sectionStyle={[
+            styles.section,
+            {
+              backgroundColor: theme.surface,
+              borderColor: theme.border,
+              shadowColor: theme.shadow,
+            },
+          ]}
+          titleStyle={[styles.sectionTitle, { color: theme.text }]}
+          hintStyle={styles.hint}
+        />
+
+        {guest ? null : (
+          <PasskeysSection
+            sectionStyle={[
+              styles.section,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.border,
+                shadowColor: theme.shadow,
+              },
+            ]}
+            titleStyle={[styles.sectionTitle, { color: theme.text }]}
+            hintStyle={styles.hint}
+          />
+        )}
+
+        <AppLockSection
           sectionStyle={[
             styles.section,
             {

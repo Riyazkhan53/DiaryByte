@@ -514,6 +514,29 @@ function getUserModel() {
   return userModel;
 }
 
+// Passkeys for signing in from a browser (see ../passkeys.js): the public
+// key of each, never anything secret. Also kept out of COLLECTIONS.
+let passkeyModel = null;
+function getPasskeyModel() {
+  if (!passkeyModel) {
+    const schema = new mongoose.Schema(
+      {
+        id: { type: String, required: true, unique: true },
+        publicKey: { type: String, required: true },
+        counter: { type: Number, default: 0 },
+        transports: [String],
+        rpID: String,
+        name: String,
+        createdAt: String,
+        lastUsedAt: String,
+      },
+      { collection: 'passkeys' }
+    );
+    passkeyModel = mongoose.model('passkeys', schema);
+  }
+  return passkeyModel;
+}
+
 // Drop Mongo's own fields so an item looks exactly as the app stored it.
 function toItem(doc) {
   const item = {};
@@ -524,6 +547,7 @@ function toItem(doc) {
 }
 
 module.exports = {
+  getPasskeyModel,
   COLLECTIONS,
   TRASH_DAYS,
   getCollectionNames,
