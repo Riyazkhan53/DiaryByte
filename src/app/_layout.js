@@ -12,10 +12,23 @@ import DebtReminderService from '../components/DebtReminderService';
 import SipService from '../components/SipService';
 import SyncService from '../components/SyncService';
 import ShareIntentHandler from '../components/ShareIntentHandler';
+import OttShareHost from '../components/movies/OttShareHost';
 import AnimatedSplash from '../components/AnimatedSplash';
 import DeleteConfirmHost from '../components/DeleteConfirmHost';
 import { AppShareProvider } from '../components/AppShareProvider';
 import ScreenError from '../components/ScreenError';
+import { trace } from '../utils/shareTrace';
+
+// Record JS errors that would crash the app (so the cause can be seen in
+// Settings → AI after a restart), then let React Native handle them as usual.
+if (globalThis.ErrorUtils?.setGlobalHandler && !globalThis.__diarybyteErrorHook) {
+  globalThis.__diarybyteErrorHook = true;
+  const previous = globalThis.ErrorUtils.getGlobalHandler?.();
+  globalThis.ErrorUtils.setGlobalHandler((error, isFatal) => {
+    trace(`JS error${isFatal ? ' (fatal)' : ''}: ${error?.message || error} @ ${String(error?.stack || '').split('\n').slice(1, 3).join(' | ')}`);
+    previous?.(error, isFatal);
+  });
+}
 
 // A screen that fails to draw shows what went wrong (with Try again / Go
 // home) instead of a blank app; the other screens keep working.
@@ -65,6 +78,7 @@ function GlassRoot() {
             }}
           />
             <ShareIntentHandler />
+            <OttShareHost />
           </MaybeServerGate>
         </AuthGate>
       </GlassBackground>

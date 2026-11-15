@@ -161,3 +161,14 @@ export function titleFromHtml(html) {
   const raw = meta('og:title') || meta('twitter:title') || (h.match(/<title[^>]*>([^<]+)<\/title>/i) || [])[1] || '';
   return decode(raw).replace(/\s+/g, ' ').trim();
 }
+
+// An OTT app's name (from a share) as the Movies list names it.
+const LIST_PLATFORM = {
+  'Prime Video': 'Prime',
+  JioHotstar: 'Hotstar',
+  ZEE5: 'Zee5',
+  'Sun NXT': 'Sun Nxt',
+  aha: 'Aaha',
+  YouTube: 'Youtube',
+};
+export const listPlatform = (name) => LIST_PLATFORM[name] || name || '';

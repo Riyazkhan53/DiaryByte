@@ -28,10 +28,6 @@ import {
 import JustAdded from '../../components/movies/JustAdded';
 import { SA_KEY_STORAGE, fetchStreamingLinks } from '../../services/streamingAvailability';
 import { pickLink, watchTarget } from '../../services/ottLinks';
-import { useAppShare } from '../../components/AppShareProvider';
-import ShareToWatchlist from '../../components/movies/ShareToWatchlist';
-import { sharedText, shareTarget } from '../../utils/shareRoute';
-import { recordStep } from '../../utils/shareLog';
 import { confirmAction, confirmDelete } from '../../utils/confirm';
 import HScroll from '../../components/HScroll';
 
@@ -81,16 +77,6 @@ const KNOWN_PLATFORM_KEYS = PLATFORMS.filter((p) => p !== 'Other').map((p) =>
 
 const TMDB_API_URL = 'https://www.themoviedb.org/settings/api';
 
-// An OTT app's name (from a share) as this list names it.
-const SHARE_PLATFORM = {
-  'Prime Video': 'Prime',
-  JioHotstar: 'Hotstar',
-  ZEE5: 'Zee5',
-  'Sun NXT': 'Sun Nxt',
-  aha: 'Aaha',
-  YouTube: 'Youtube',
-};
-const listPlatform = (name) => SHARE_PLATFORM[name] || name || '';
 
 const makeId = () =>
   `${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -147,25 +133,6 @@ export default function MoviesScreen() {
   const [ottLoading, setOttLoading] = useState(false);
   const [ottError, setOttError] = useState(null);
 
-  // Shared from an OTT app (Netflix, Prime Video...): Add to Watchlist.
-  const { hasShareIntent, shareIntent, resetShareIntent } = useAppShare();
-  const [sharedOtt, setSharedOtt] = useState(null);
-  useEffect(() => {
-    if (!hasShareIntent || shareTarget(shareIntent) !== '/movies') return;
-    Promise.resolve().then(() => {
-      try {
-        recordStep('Movies got the share');
-        setSharedOtt(sharedText(shareIntent));
-        setTab('mylist');
-        setFilter('watchlist');
-      } finally {
-        // Always finish with the share, even if reading it failed.
-        resetShareIntent();
-      }
-    });
-    // Runs once per share.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasShareIntent]);
 
   const languageRef = useRef(language);
   const sortRef = useRef(sort);
@@ -938,14 +905,6 @@ export default function MoviesScreen() {
         </TouchableOpacity>
       ) : null}
 
-      <ShareToWatchlist
-        share={sharedOtt}
-        apiKey={apiKey}
-        mapPlatform={listPlatform}
-        isInList={isInList}
-        onAdd={(movie) => persist([movie, ...movies])}
-        onClose={() => setSharedOtt(null)}
-      />
 
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>

@@ -35,7 +35,9 @@ export default function ShareIntentHandler() {
       target,
       from: pathname,
     });
-    if (target && pathname !== target) {
+    // OTT shares open "Add to Watchlist" where you are (OttShareHost).
+    if (target === '/tickets' && pathname !== target) {
+      recordStep(`navigating to ${target}`);
       router.navigate(target);
       setTimeout(() => recordStep(`opened ${target}`), 400);
     }

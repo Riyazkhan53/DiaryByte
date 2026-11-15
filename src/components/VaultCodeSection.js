@@ -3,6 +3,7 @@ import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View 
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../hooks/useTheme';
 import { VAULT_CODE_LENGTH, isVaultCode, vaultLock } from '../utils/vaultLock';
+import { VaultSkipCode } from './VaultSkipCode';
 
 /** Settings: the Personal Vault's 6-digit combination — set, change or remove it. */
 export function VaultCodeSection({ sectionStyle, titleStyle, hintStyle }) {
@@ -151,6 +152,7 @@ export function VaultCodeSection({ sectionStyle, titleStyle, hintStyle }) {
       )}
 
       {notice ? <Text style={[styles.notice, { color: '#2DA44E' }]}>{notice}</Text> : null}
+      {hasCode && !mode ? <VaultSkipCode hintStyle={hintStyle} /> : null}
       <Text style={[hintStyle, { color: theme.textMuted }]}>
         The Personal Vault opens behind a safe door: turn its six dials to this code and turn the handle. Vault items
         are encrypted with it, so the server only holds scrambled data, and all your devices use the same code. There&apos;s no reset: changing or removing it needs the current code, and if you forget it the
