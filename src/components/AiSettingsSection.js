@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, Switch, Text, View } from 'react-native';
+import { StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../hooks/useTheme';
 import { getAiPrefs, setAiPref } from '../utils/aiPrefs';
 import { lastShare } from '../utils/shareLog';
+import { clearTrace, readTrace } from '../utils/shareTrace';
+import * as Clipboard from 'expo-clipboard';
 
 /** Settings → AI: whether ticket screenshots are read with AI automatically. */
 export function AiSettingsSection({ sectionStyle, titleStyle, hintStyle }) {
   const { theme } = useTheme();
   const [auto, setAuto] = useState(false);
   const [share, setShare] = useState(null);
+  const [traceText, setTraceText] = useState(() => readTrace());
 
   useEffect(() => {
     getAiPrefs().then((p) => setAuto(!!p.autoScreenshots));
@@ -60,7 +63,29 @@ export function AiSettingsSection({ sectionStyle, titleStyle, hintStyle }) {
               {share.text ? `\n“${share.text}”` : ''}
             </Text>
           )}
-          {share.steps?.length ? (
+          {traceText ? (
+            <>
+              <Text style={[styles.shareTitle, { color: theme.textSecondary }]}>Step trace</Text>
+              <Text style={[styles.trace, { color: theme.textSecondary }]} selectable>
+                {traceText}
+              </Text>
+              <View style={styles.traceRow}>
+                <TouchableOpacity onPress={() => Clipboard.setStringAsync(traceText)} accessibilityLabel="Copy step trace">
+                  <Text style={[styles.traceBtn, { color: theme.primary }]}>Copy</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    clearTrace();
+                    setTraceText('');
+                  }}
+                  accessibilityLabel="Clear step trace"
+                >
+                  <Text style={[styles.traceBtn, { color: theme.textMuted }]}>Clear</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : null}
+          {!traceText && share.steps?.length ? (
             <Text style={[hintStyle, { color: theme.textSecondary }]} selectable>
               {share.steps.join('\n')}
             </Text>
@@ -76,4 +101,7 @@ const styles = StyleSheet.create({
   label: { flex: 1, fontSize: 15 },
   share: { borderTopWidth: StyleSheet.hairlineWidth, marginTop: 10, paddingTop: 8, gap: 2 },
   shareTitle: { fontSize: 12, fontWeight: '700' },
+  trace: { fontSize: 11, lineHeight: 16, fontFamily: 'monospace' },
+  traceRow: { flexDirection: 'row', gap: 18, marginTop: 4 },
+  traceBtn: { fontSize: 13, fontWeight: '700' },
 });

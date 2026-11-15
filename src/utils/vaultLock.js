@@ -17,9 +17,11 @@ import {
   decryptItem,
   deriveKey,
   encryptItem,
+  fromBase64,
   isEncryptedItem,
   makeVerifier,
   newSalt,
+  toBase64,
 } from './vaultCrypto';
 
 export const VAULT_CODE_LENGTH = 6;
@@ -31,10 +33,14 @@ const PENDING_KEY = `${LOCK_KEY}_pending`;
 const LOCK_COLLECTION = 'vaultlock';
 const LOCK_ID = 'vault-code';
 const SYNC_TIMEOUT_MS = 8000;
+// "Don't ask for the code" (Settings): the key kept on this device until a
+// time (or always). Never synced.
+const REMEMBER_KEY = '@diarybyte_vault_remember';
 
 const EMPTY = { enabled: false, salt: null, iterations: null, verifier: null, hash: null, updatedAt: null };
 
 let state = { ...EMPTY };
+let remembered = null; // { key: Uint8Array, until: number | null (always), salt }
 let loaded = false;
 let loading = null;
 let refreshing = null;
@@ -91,6 +97,14 @@ async function rekeyItems(oldKey, newKey) {
   await saveAndPush('vault', VAULT_STORAGE_KEY, next);
 }
 
+// The kept key, if "don't ask for the code" is on, not expired, and still
+// for the current code (a new code on any device ends it).
+function rememberedKey() {
+  if (!remembered) return null;
+  if (remembered.salt !== state.salt || (remembered.until != null && Date.now() > remembered.until)) return null;
+  return remembered.key;
+}
+
 async function keyFor(code) {
   if (state.verifier && state.salt) {
     const key = await deriveKey(code, state.salt, state.iterations || KDF_ITERATIONS);
@@ -108,6 +122,8 @@ export const vaultLock = {
         try {
           const raw = await AsyncStorage.getItem(LOCK_KEY);
           if (raw) state = pick({ ...EMPTY, ...JSON.parse(raw) });
+          const rem = JSON.parse((await AsyncStorage.getItem(REMEMBER_KEY)) || 'null');
+          if (rem?.key) remembered = { key: fromBase64(rem.key), until: rem.until ?? null, salt: rem.salt };
         } catch (_error) {
           // Nothing saved yet.
         }
@@ -185,13 +201,42 @@ export const vaultLock = {
     return true;
   },
 
-  /** Forget the key (the vault door shows again). */
+  /** Forget the key (the vault door shows again, unless "don't ask" is on). */
   lock() {
     currentKey = null;
   },
 
-  /** The key while the vault is open (null when no code is set). */
-  key: () => currentKey,
+  /** The key while the vault is open, or while "don't ask for the code" lasts (null otherwise). */
+  key: () => currentKey || rememberedKey(),
+
+  /** True while the vault opens without the code ("don't ask" is on and not expired). */
+  skipsCode: () => !!rememberedKey(),
+
+  /** When "don't ask" ends: a time (ms), 'always', or null when it's off. */
+  skipUntil: () => (rememberedKey() ? (remembered.until == null ? 'always' : remembered.until) : null),
+
+  /**
+   * Open without the code for `ms` (null = always). Needs the vault open, or
+   * the code. Returns false if the code is wrong.
+   */
+  async skipCodeFor(ms, code = null) {
+    await vaultLock.load();
+    const key = currentKey || (code != null ? await keyFor(code) : null);
+    if (!key) return false;
+    currentKey = key;
+    remembered = { key, until: ms == null ? null : Date.now() + ms, salt: state.salt };
+    await AsyncStorage.setItem(REMEMBER_KEY, JSON.stringify({ key: toBase64(key), until: remembered.until, salt: remembered.salt }));
+    emit();
+    return true;
+  },
+
+  /** Ask for the code again from now on. */
+  async askForCode() {
+    remembered = null;
+    currentKey = null;
+    await AsyncStorage.removeItem(REMEMBER_KEY);
+    emit();
+  },
 
   /**
    * Set or change the code (`current` is needed to change it). Re-encrypts
@@ -218,6 +263,11 @@ export const vaultLock = {
     });
     await pushLock();
     currentKey = key;
+    // "Don't ask for the code" carries over to the new code on this device.
+    if (remembered) {
+      remembered = { ...remembered, key, salt };
+      await AsyncStorage.setItem(REMEMBER_KEY, JSON.stringify({ key: toBase64(key), until: remembered.until, salt }));
+    }
     await rekeyItems(oldKey, key);
     return true;
   },
@@ -235,6 +285,8 @@ export const vaultLock = {
     await writeLock({ ...EMPTY, updatedAt: new Date().toISOString() });
     await pushLock();
     currentKey = null;
+    remembered = null;
+    await AsyncStorage.removeItem(REMEMBER_KEY);
     if (oldKey) await rekeyItems(oldKey, null);
     return true;
   },

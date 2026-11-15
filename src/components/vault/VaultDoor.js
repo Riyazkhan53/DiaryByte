@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, PanResponder, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -74,6 +74,21 @@ export default function VaultDoor({ onOpen, onSetCode }) {
     swing: new Animated.Value(0),
     shake: new Animated.Value(0),
   }));
+
+  // "Don't ask for the code" is on (Settings → Vault code): open at once.
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    let alive = true;
+    vaultLock.load().then(() => {
+      if (alive && !autoOpened.current && vaultLock.skipsCode()) {
+        autoOpened.current = true;
+        onOpen();
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [onOpen]);
 
   useEffect(() => {
     const unsubscribe = vaultLock.subscribe(() => setHasCode(vaultLock.enabled()));
