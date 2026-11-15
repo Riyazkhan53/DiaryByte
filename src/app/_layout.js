@@ -9,6 +9,7 @@ import AutopayReminderService from '../components/AutopayReminderService';
 import TripAlarmService from '../components/TripAlarmService';
 import DebtReminderService from '../components/DebtReminderService';
 import IpoReminderService from '../components/IpoReminderService';
+import TodoReminderService from '../components/TodoReminderService';
 import SipService from '../components/SipService';
 import SyncService from '../components/SyncService';
 import ShareIntentHandler from '../components/ShareIntentHandler';
@@ -66,6 +67,7 @@ function GlassRoot() {
           <TripAlarmService />
           <DebtReminderService />
           <IpoReminderService />
+          <TodoReminderService />
           <SipService />
           <SyncService />
           <MaybeServerGate>

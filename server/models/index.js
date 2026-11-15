@@ -114,7 +114,7 @@ const COLLECTIONS = {
     fields: ['id', 'enabled', 'salt', 'iterations', 'verifier', 'hash', 'updatedAt'],
   },
   todo: {
-    fields: ['id', 'title', 'note', 'done', 'createdAt', 'completedAt'],
+    fields: ['id', 'title', 'note', 'done', 'createdAt', 'completedAt', 'dueDate', 'dueTime'],
   },
   expenditure: {
     // sourceId links an expense to the EMI/bill in "debts" it pays.

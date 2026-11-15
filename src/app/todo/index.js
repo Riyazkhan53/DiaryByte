@@ -8,6 +8,7 @@ import {
   FlatList,
   SafeAreaView,
   Modal,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
@@ -15,6 +16,10 @@ import SyncRow from '../../components/SyncRow';
 import { useTheme } from '../../hooks/useTheme';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 import { confirmDelete } from '../../utils/confirm';
+import DatePicker from '../../components/DatePicker';
+import TimePicker from '../../components/TimePicker';
+import { todayKey } from '../../utils/autopay';
+import { dueLabel, isOverdue, sortByDue } from '../../utils/todoDue';
 
 const STORAGE_KEY = '@diarybyte_todo';
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -28,6 +33,10 @@ export default function TodoScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [hasDue, setHasDue] = useState(false);
+  const [dueDate, setDueDate] = useState(todayKey());
+  const [dueTime, setDueTime] = useState('10:00');
   const [hideDone, setHideDone] = useState(true);
 
   // Auto-delete completed tasks one week after they were completed.
@@ -49,23 +58,46 @@ export default function TodoScreen() {
   }, [items]);
 
   const openAdd = () => {
+    setEditingId(null);
     setTitle('');
     setNote('');
+    setHasDue(false);
+    setDueDate(todayKey());
+    setDueTime('10:00');
     setModalVisible(true);
   };
 
-  const addItem = () => {
+  const openEdit = (item) => {
+    setEditingId(item.id);
+    setTitle(item.title || '');
+    setNote(item.note || '');
+    setHasDue(!!(item.dueDate && item.dueTime));
+    setDueDate(item.dueDate || todayKey());
+    setDueTime(item.dueTime || '10:00');
+    setModalVisible(true);
+  };
+
+  const saveItem = () => {
     if (!title.trim()) return;
-    persist([
-      {
-        id: `${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`,
-        title: title.trim(),
-        note: note.trim(),
-        done: false,
-        createdAt: new Date().toISOString(),
-      },
-      ...items,
-    ]);
+    const fields = {
+      title: title.trim(),
+      note: note.trim(),
+      dueDate: hasDue ? dueDate : null,
+      dueTime: hasDue ? dueTime : null,
+    };
+    if (editingId) {
+      persist(items.map((i) => (i.id === editingId ? { ...i, ...fields } : i)));
+    } else {
+      persist([
+        {
+          id: `${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`,
+          ...fields,
+          done: false,
+          createdAt: new Date().toISOString(),
+        },
+        ...items,
+      ]);
+    }
     setTitle('');
     setNote('');
     setModalVisible(false);
@@ -102,7 +134,8 @@ export default function TodoScreen() {
 
   const doneCount = items.filter((i) => i.done).length;
   const pendingCount = items.length - doneCount;
-  const visible = hideDone ? items.filter((i) => !i.done) : items;
+  const visible = sortByDue(hideDone ? items.filter((i) => !i.done) : items);
+  const now = new Date();
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
@@ -187,7 +220,7 @@ export default function TodoScreen() {
                   color={item.done ? theme.primaryDark : theme.textMuted}
                 />
               </TouchableOpacity>
-              <View style={styles.body}>
+              <TouchableOpacity style={styles.body} onPress={() => openEdit(item)} accessibilityLabel={`Edit ${item.title}`}>
                 <Text
                   style={[
                     styles.title,
@@ -203,7 +236,20 @@ export default function TodoScreen() {
                     {item.note}
                   </Text>
                 ) : null}
-              </View>
+                {item.dueDate && item.dueTime ? (
+                  <View style={styles.dueRow}>
+                    <Ionicons
+                      name={isOverdue(item, now) ? 'alarm' : 'alarm-outline'}
+                      size={13}
+                      color={isOverdue(item, now) ? theme.danger : theme.primaryDark}
+                    />
+                    <Text style={[styles.dueText, { color: isOverdue(item, now) ? theme.danger : theme.primaryDark }]}>
+                      {dueLabel(item, now)}
+                      {isOverdue(item, now) ? ' · overdue' : ''}
+                    </Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
               <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteItem(item.id)} accessibilityLabel={`Delete ${item.title}`}>
                 <Ionicons name="trash-outline" size={19} color={theme.danger} />
               </TouchableOpacity>
@@ -216,6 +262,7 @@ export default function TodoScreen() {
         style={[styles.fab, { backgroundColor: theme.secondary, shadowColor: theme.secondary }]}
         onPress={openAdd}
         activeOpacity={0.8}
+        accessibilityLabel="Add task"
       >
         <Ionicons name="add" size={32} color="#FFF" />
       </TouchableOpacity>
@@ -223,7 +270,8 @@ export default function TodoScreen() {
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modal, { backgroundColor: theme.sheet }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Add Task</Text>
+            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{editingId ? 'Edit Task' : 'Add Task'}</Text>
             <TextInput
               style={[styles.input, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderNeutral, color: theme.text }]}
               placeholder="What needs to be done?"
@@ -239,6 +287,28 @@ export default function TodoScreen() {
               onChangeText={setNote}
               multiline
             />
+            <TouchableOpacity
+              style={[styles.dueToggle, { backgroundColor: theme.surfaceAlt, borderColor: hasDue ? theme.primary : theme.borderNeutral }]}
+              onPress={() => setHasDue((v) => !v)}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: hasDue }}
+              accessibilityLabel="Date and time"
+            >
+              <Ionicons name={hasDue ? 'alarm' : 'alarm-outline'} size={20} color={hasDue ? theme.primaryDark : theme.textMuted} />
+              <View style={styles.body}>
+                <Text style={[styles.dueToggleTitle, { color: theme.text }]}>Date and time</Text>
+                <Text style={[styles.dueToggleSub, { color: theme.textMuted }]}>
+                  {hasDue ? `${dueLabel({ dueDate, dueTime })} · reminder 1 hour before` : 'Off · tap to set, get a reminder 1 hour before'}
+                </Text>
+              </View>
+              <Ionicons name={hasDue ? 'checkbox' : 'square-outline'} size={22} color={hasDue ? theme.primaryDark : theme.textMuted} />
+            </TouchableOpacity>
+            {hasDue ? (
+              <View style={styles.duePickers}>
+                <DatePicker value={dueDate} onChange={setDueDate} />
+                <TimePicker value={dueTime} onChange={setDueTime} />
+              </View>
+            ) : null}
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={[styles.cancelBtn, { backgroundColor: theme.surfaceAlt }]}
@@ -248,12 +318,13 @@ export default function TodoScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.saveBtn, { backgroundColor: theme.primary }]}
-                onPress={addItem}
+                onPress={saveItem}
                 disabled={!title.trim()}
               >
-                <Text style={[styles.saveText, { color: theme.onPrimary }]}>Add</Text>
+                <Text style={[styles.saveText, { color: theme.onPrimary }]}>{editingId ? 'Save' : 'Add'}</Text>
               </TouchableOpacity>
             </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -319,7 +390,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 24,
   },
-  modal: { borderRadius: 20, padding: 20 },
+  modal: { borderRadius: 20, padding: 20, maxHeight: '92%', width: '100%', maxWidth: 520, alignSelf: 'center' },
+  dueRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5 },
+  dueText: { fontSize: 12, fontWeight: '700' },
+  dueToggle: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 12 },
+  dueToggleTitle: { fontSize: 15, fontWeight: '600' },
+  dueToggleSub: { fontSize: 12, marginTop: 2 },
+  duePickers: { gap: 12, marginBottom: 8 },
   modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 16 },
   input: {
     borderRadius: 12,
