@@ -88,6 +88,12 @@ const COLLECTIONS = {
   },
   // Smart fill: message formats learned from shared tickets and OTT shares
   // (anchor text around each field), so the next one is read without AI.
+  // Authenticator (2-step codes): each account { id, enc, createdAt },
+  // sealed with the vault code on the phone. The server can't read the
+  // keys; the watch unlocks them with the vault code.
+  authenticator: {
+    fields: ['id', 'enc', 'createdAt'],
+  },
   learned: {
     fields: ['id', 'kind', 'source', 'parts', 'slots', 'constants', 'sig', 'hits', 'label', 'createdAt', 'updatedAt'],
   },

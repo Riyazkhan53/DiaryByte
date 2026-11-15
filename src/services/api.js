@@ -12,6 +12,7 @@ const COLLECTIONS = [
   'vault',
   'iddocs',
   'learned',
+  'authenticator',
   'vaultlock',
   'todo',
   'expenditure',

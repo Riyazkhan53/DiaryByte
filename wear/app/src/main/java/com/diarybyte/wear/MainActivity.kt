@@ -148,6 +148,7 @@ fun App() {
         composable("tickets") { TicketsScreen(summary) }
         composable("dates") { DatesScreen(summary) }
         composable("passwords") { PasswordsScreen(api) }
+        composable("codes") { CodesScreen(api) }
         composable("server") { ServerScreen(store) { nav.popBackStack() } }
     }
 }
@@ -254,6 +255,7 @@ fun HomeScreen(
             item {
                 GradChip("✅", "To-do", if (s.todos.isEmpty()) "All done" else "${s.todos.size} open", Hue.todo) { onOpen("todo") }
             }
+            item { GradChip("🛡️", "Codes", "2-step codes", Hue.codes) { onOpen("codes") } }
             item { GradChip("🔑", "Passwords", "Tap to unlock", Hue.passwords) { onOpen("passwords") } }
         }
         item {

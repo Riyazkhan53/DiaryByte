@@ -58,6 +58,14 @@ const TABS = [
     gradient: ['#C77DFF', '#AF52DE'],
   },
   {
+    key: 'authenticator',
+    label: 'Authenticator',
+    description: '2-step codes, also on your watch',
+    icon: 'shield-checkmark-outline',
+    route: '/authenticator',
+    gradient: ['#34A853', '#0F766E'],
+  },
+  {
     key: 'documents',
     label: 'Personal Documents',
     description: 'Aadhaar, PAN, passport and other IDs',

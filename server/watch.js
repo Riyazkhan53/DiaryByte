@@ -266,6 +266,27 @@ function mountWatch(app, { engineService }) {
     }
   });
 
+  // Authenticator accounts for the watch's Codes screen: still sealed with
+  // the vault code (the server can't read them), plus the vault lock's
+  // salt, rounds and verifier so the watch can turn the code you type into
+  // the key and check it. The watch makes the codes itself.
+  app.get('/api/watch/authenticator', async (req, res) => {
+    try {
+      const items = (await load('authenticator'))
+        .filter((a) => typeof a.enc === 'string')
+        .map((a) => ({ id: a.id, enc: a.enc }));
+      const lock = (await load('vaultlock')).find((l) => l.id === 'vault-code') || null;
+      res.set('Cache-Control', 'no-store');
+      res.json({
+        items,
+        lock: lock && lock.salt && lock.verifier ? { salt: lock.salt, iterations: lock.iterations || 50000, verifier: lock.verifier } : null,
+      });
+    } catch (error) {
+      console.error('[watch] authenticator failed', error.message);
+      res.status(500).json({ error: 'Could not load codes' });
+    }
+  });
+
   // Tick a task done from the watch.
   app.post('/api/watch/todo/:id/done', async (req, res) => {
     try {

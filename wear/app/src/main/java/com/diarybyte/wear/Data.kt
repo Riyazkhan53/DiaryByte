@@ -249,6 +249,9 @@ class Api(private val context: Context) {
         }
     }
 
+    /** Authenticator accounts, still sealed with the vault code, and the vault lock's public part. */
+    suspend fun authenticator(): JSONObject = call("GET", "/api/watch/authenticator")
+
     suspend fun todoDone(id: String) {
         call("POST", "/api/watch/todo/${java.net.URLEncoder.encode(id, "UTF-8")}/done")
     }
