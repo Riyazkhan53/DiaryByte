@@ -340,6 +340,9 @@ const COLLECTIONS = {
       'alertEntries',
       'alertExits',
       'alertSummary',
+      // watchlist packages: your own saved sets, and the one in use
+      'packages',
+      'activePackage',
       'updatedAt',
     ],
   },

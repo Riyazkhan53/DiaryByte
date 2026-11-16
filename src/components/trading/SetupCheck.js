@@ -19,6 +19,7 @@ import { sessionVwap } from '../../engine/indicators.js';
 import { MARKETS, searchStocks } from '../../services/stocks';
 import { evaluateSymbol, fetchCandles, fetchStockQuotes } from '../../services/api';
 import { combineSetup } from '../../utils/combinedSetup';
+import { marketConfig, withMarketChanges } from '../../utils/engineMarket';
 import { WARN, istTime } from './format';
 import { SetupReportCard } from './ReportCard';
 import HScroll from '../HScroll';
@@ -119,8 +120,12 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
     persist: persistConfig,
     pullNow: pullConfig,
   } = useSyncedCollection('tradingconfig', CONFIG_KEY);
-  const configDoc = configDocs[0] || null;
-  const watchlist = configDoc?.watchlist || [];
+  // Each market has its own watchlist (India in ₹, US in $); the Setup tab
+  // shows both and the ★ adds a stock to its own market's list.
+  const nseWatch = marketConfig(configDocs, 'NSE').watchlist;
+  const usWatch = marketConfig(configDocs, 'US').watchlist;
+  const watchlist = [...nseWatch, ...usWatch];
+  const watchOf = (s) => (marketOfSymbol(s) === 'US' ? usWatch : nseWatch);
 
   const [fields, setFields] = useState(EMPTY_FIELDS);
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD);
@@ -231,17 +236,21 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
     fillFromLiveData(stock.symbol);
   };
 
-  const inWatchlist = !!symbol && watchlist.includes(symbol);
+  const inWatchlist = !!symbol && watchOf(symbol).includes(symbol);
 
-  // ★: add or remove the current (Indian) stock from the shared watchlist.
+  // ★: add or remove the current stock from its market's watchlist (shared
+  // with the Signals tab, which the server scans).
   const toggleWatchlist = () => {
     if (!symbol) return;
-    if (!inWatchlist && watchlist.length >= MAX_WATCHLIST) {
-      setNotice({ error: true, text: `The watchlist holds ${MAX_WATCHLIST} stocks. Remove one first.` });
+    const mkt = marketOfSymbol(symbol) === 'US' ? 'US' : 'NSE';
+    const list = watchOf(symbol);
+    if (!inWatchlist && list.length >= MAX_WATCHLIST) {
+      setNotice({ error: true, text: `The ${mkt === 'US' ? 'US' : 'NSE'} watchlist holds ${MAX_WATCHLIST} stocks. Remove one first.` });
       return;
     }
-    const next = inWatchlist ? watchlist.filter((s) => s !== symbol) : [...watchlist, symbol];
-    persistConfig([{ ...(configDoc || { id: 'default' }), watchlist: next, updatedAt: new Date().toISOString() }]);
+    const next = inWatchlist ? list.filter((s) => s !== symbol) : [...list, symbol];
+    persistConfig(withMarketChanges(configDocs, mkt, { watchlist: next }));
+    setNotice({ error: false, text: `${inWatchlist ? 'Removed from' : 'Added to'} the ${mkt === 'US' ? 'US' : 'NSE'} watchlist${inWatchlist ? '' : ': the server scans it every 5 minutes in market hours'}.` });
   };
 
   const pickStock = (stock) => {
@@ -678,7 +687,7 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
               <Ionicons name="search" size={20} color={theme.onPrimary} />
             )}
           </TouchableOpacity>
-          {symbol && marketOfSymbol(symbol) === 'IN' ? (
+          {symbol ? (
             <TouchableOpacity
               style={[styles.iconBtn, { backgroundColor: theme.surfaceAlt }]}
               onPress={toggleWatchlist}
