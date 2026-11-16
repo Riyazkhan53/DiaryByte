@@ -23,6 +23,7 @@ import { EngineReportCard } from './ReportCard';
 import BacktestCard from './BacktestCard';
 import MarketSwitch from './MarketSwitch';
 import { marketConfig, moneyMarket, shortSymbol, withMarketChanges } from '../../utils/engineMarket';
+import { MAX_WATCHLIST, activePackageOf, deletePackageChanges, packagesFor, pickPackageChanges, savePackageChanges } from '../../utils/watchlistPackages';
 import {
   evaluateSymbol,
   fetchCollection,
@@ -165,6 +166,9 @@ export default function Signals({ header, onPaperTrade, market = 'NSE', onMarket
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [scanning, setScanning] = useState(false);
+  // Watchlist packages: the one waiting for "Use it", and the save-as name.
+  const [pkgPick, setPkgPick] = useState(null);
+  const [pkgName, setPkgName] = useState(null);
   const inMarket = inMarketOf(market);
 
   const symbol = (selected && watchlist.includes(selected) ? selected : null) || watchlist[0] || null;
@@ -223,7 +227,7 @@ export default function Signals({ header, onPaperTrade, market = 'NSE', onMarket
   const saveConfig = (changes) => persistConfig(withMarketChanges(configDocs, market, changes));
 
   const addSymbol = (s) => {
-    if (!watchlist.includes(s.symbol)) saveConfig({ watchlist: [...watchlist, s.symbol].slice(0, 10) });
+    if (!watchlist.includes(s.symbol)) saveConfig({ watchlist: [...watchlist, s.symbol].slice(0, MAX_WATCHLIST) });
     setSelected(s.symbol);
     setResults([]);
     setQuery('');
@@ -402,7 +406,105 @@ export default function Signals({ header, onPaperTrade, market = 'NSE', onMarket
 
         {/* Watchlist */}
         <View style={cardStyle}>
-          <Text style={[styles.title, { color: theme.text }]}>Watchlist ({market === 'US' ? 'NASDAQ' : 'NSE'})</Text>
+          <Text style={[styles.title, { color: theme.text }]}>Watchlist ({market === 'US' ? 'US' : 'NSE'})</Text>
+          {/* Packages: ready-made sets (and your own) that replace the watchlist */}
+          {(() => {
+            const pkgs = packagesFor(market, configDoc);
+            const active = activePackageOf(market, configDoc, watchlist);
+            return (
+              <>
+                <Text style={[styles.pkgLabel, { color: theme.textSecondary }]}>
+                  Packages{active ? ` · scanning ${active.emoji} ${active.name}` : ''}
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pkgRow}>
+                  {pkgs.map((p) => {
+                    const on = active?.id === p.id;
+                    return (
+                      <TouchableOpacity
+                        key={p.id}
+                        onPress={() => (on ? null : setPkgPick(p))}
+                        onLongPress={() =>
+                          p.own &&
+                          confirmDelete('Delete package', `Delete your "${p.name}" package? Your watchlist stays as it is.`, () =>
+                            saveConfig(deletePackageChanges(configDoc, p.id))
+                          )
+                        }
+                        accessibilityLabel={`Package ${p.name}`}
+                        accessibilityState={{ selected: on }}
+                        style={[styles.pkgChip, { backgroundColor: on ? theme.primary : theme.surfaceAlt, borderColor: on ? theme.primary : pkgPick?.id === p.id ? theme.primary : theme.borderNeutral }]}
+                      >
+                        <Text style={[styles.chipText, { color: on ? theme.onPrimary : theme.text }]}>
+                          {p.emoji} {p.name} · {p.symbols.length}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {watchlist.length && !active ? (
+                    <TouchableOpacity
+                      onPress={() => setPkgName('')}
+                      accessibilityLabel="Save the watchlist as a package"
+                      style={[styles.pkgChip, { borderColor: theme.primary, borderStyle: 'dashed' }]}
+                    >
+                      <Text style={[styles.chipText, { color: theme.primary }]}>＋ Save as package</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </ScrollView>
+                {pkgPick ? (
+                  <View style={[styles.pkgConfirm, { backgroundColor: theme.surfaceAlt, borderColor: theme.primary }]}>
+                    <Text style={[styles.hint, styles.noTop, { color: theme.text }]}>
+                      Scan {pkgPick.emoji} <Text style={styles.bold}>{pkgPick.name}</Text>: {pkgPick.symbols.map(shortSymbol).join(', ')}. This replaces your
+                      watchlist{watchlist.length ? ` (${watchlist.map(shortSymbol).join(', ')})` : ''}.
+                    </Text>
+                    <View style={styles.pkgBtns}>
+                      <TouchableOpacity onPress={() => setPkgPick(null)} style={[styles.pkgBtn, { borderColor: theme.borderNeutral }]}>
+                        <Text style={[styles.outlineText, { color: theme.textSecondary }]}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => {
+                          saveConfig(pickPackageChanges(pkgPick));
+                          setSelected(pkgPick.symbols[0]);
+                          setPkgPick(null);
+                        }}
+                        style={[styles.pkgBtn, { backgroundColor: theme.primary, borderColor: theme.primary }]}
+                        accessibilityLabel={`Use package ${pkgPick.name}`}
+                      >
+                        <Text style={[styles.outlineText, { color: theme.onPrimary }]}>Use it</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : null}
+                {pkgName != null ? (
+                  <View style={[styles.pkgConfirm, { backgroundColor: theme.surfaceAlt, borderColor: theme.primary }]}>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: theme.surface, borderColor: theme.borderNeutral, color: theme.text }]}
+                      placeholder="Package name (e.g. My breakout picks)"
+                      placeholderTextColor={theme.textMuted}
+                      value={pkgName}
+                      onChangeText={setPkgName}
+                      autoFocus
+                    />
+                    <View style={styles.pkgBtns}>
+                      <TouchableOpacity onPress={() => setPkgName(null)} style={[styles.pkgBtn, { borderColor: theme.borderNeutral }]}>
+                        <Text style={[styles.outlineText, { color: theme.textSecondary }]}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        disabled={!pkgName.trim()}
+                        onPress={() => {
+                          const changes = savePackageChanges(configDoc, pkgName, watchlist);
+                          if (changes) saveConfig(changes);
+                          setPkgName(null);
+                        }}
+                        style={[styles.pkgBtn, { backgroundColor: theme.primary, borderColor: theme.primary }, !pkgName.trim() && styles.disabled]}
+                        accessibilityLabel="Save package"
+                      >
+                        <Text style={[styles.outlineText, { color: theme.onPrimary }]}>Save</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : null}
+              </>
+            );
+          })()}
           <View style={styles.chips}>
             {watchlist.map((s) => (
               <TouchableOpacity
@@ -443,7 +545,7 @@ export default function Signals({ header, onPaperTrade, market = 'NSE', onMarket
             </TouchableOpacity>
           ))}
           <Text style={[styles.hint, { color: theme.textMuted }]}>
-            Up to 10 stocks. Long-press one to remove it. The server scans them every 5 minutes in market hours
+            Up to {MAX_WATCHLIST} stocks. Pick a package or add your own; long-press a stock (or your own package) to remove it. The server scans them every 5 minutes in market hours
             {market === 'US' ? ` (${info.open}–${info.close} New York, about 8 pm–2:30 am IST in winter, 7 pm–1:30 am in summer) and paper-trades the entries by itself.` : '.'}
           </Text>
           <TouchableOpacity style={[styles.outlineBtn, { borderColor: theme.primary }]} onPress={scanNow} disabled={scanning || !watchlist.length}>
@@ -977,4 +1079,10 @@ const styles = StyleSheet.create({
   cancelText: { fontSize: 15, fontWeight: '600' },
   save: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center' },
   saveText: { fontSize: 15, fontWeight: '700' },
+  pkgLabel: { fontSize: 12, fontWeight: '700', marginTop: 4, marginBottom: 6 },
+  pkgRow: { gap: 8, paddingBottom: 8 },
+  pkgChip: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 7 },
+  pkgConfirm: { borderWidth: 1, borderRadius: 12, padding: 10, gap: 8, marginBottom: 8 },
+  pkgBtns: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end' },
+  pkgBtn: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 8 },
 });
