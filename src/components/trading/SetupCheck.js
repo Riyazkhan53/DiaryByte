@@ -19,14 +19,15 @@ import { sessionVwap } from '../../engine/indicators.js';
 import { MARKETS, searchStocks } from '../../services/stocks';
 import { evaluateSymbol, fetchCandles, fetchStockQuotes } from '../../services/api';
 import { combineSetup } from '../../utils/combinedSetup';
-import { marketConfig, withMarketChanges } from '../../utils/engineMarket';
+import { marketConfig } from '../../utils/engineMarket';
+import { activePackageOf } from '../../utils/watchlistPackages';
+import PackageManager from './PackageManager';
 import { WARN, istTime } from './format';
 import { SetupReportCard } from './ReportCard';
 import HScroll from '../HScroll';
 
 const STORAGE_KEY = '@diarybyte_setups';
 const CONFIG_KEY = '@diarybyte_tradingconfig';
-const MAX_WATCHLIST = 10;
 const priceText = (value, mkt) =>
   `${mkt === 'US' ? '$' : '₹'}${Number(value).toLocaleString(mkt === 'US' ? 'en-US' : 'en-IN', { maximumFractionDigits: 2 })}`;
 
@@ -120,16 +121,19 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
     persist: persistConfig,
     pullNow: pullConfig,
   } = useSyncedCollection('tradingconfig', CONFIG_KEY);
-  // Each market has its own watchlist (India in ₹, US in $); the Setup tab
+  // Each market has its own watchlist (India in ₹, US in $), set by its
+  // default package; the Setup tab shows the selected market's.
   // shows both and the ★ adds a stock to its own market's list.
-  const nseWatch = marketConfig(configDocs, 'NSE').watchlist;
-  const usWatch = marketConfig(configDocs, 'US').watchlist;
-  const watchlist = [...nseWatch, ...usWatch];
-  const watchOf = (s) => (marketOfSymbol(s) === 'US' ? usWatch : nseWatch);
+  const nse = marketConfig(configDocs, 'NSE');
+  const usm = marketConfig(configDocs, 'US');
 
   const [fields, setFields] = useState(EMPTY_FIELDS);
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD);
   const [market, setMarket] = useState('IN');
+  const [pkgOpen, setPkgOpen] = useState(false);
+  const engineMkt = market === 'US' ? 'US' : 'NSE';
+  const marketWatch = (market === 'US' ? usm : nse).watchlist;
+  const marketPkg = activePackageOf(engineMkt, (market === 'US' ? usm : nse).doc, marketWatch);
   const [name, setName] = useState('');
   const [symbol, setSymbol] = useState(null);
   const [results, setResults] = useState([]);
@@ -150,16 +154,6 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
   useEffect(() => {
     if (configLoaded && !configDocs.length) pullConfig();
   }, [configLoaded, configDocs.length, pullConfig]);
-
-  // Stocks checked before (newest first), for one-tap picking.
-  const recent = [];
-  [...log]
-    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
-    .forEach((e) => {
-      if (e.symbol && !watchlist.includes(e.symbol) && !recent.some((r) => r.symbol === e.symbol)) {
-        recent.push({ symbol: e.symbol, name: e.name, market: e.market });
-      }
-    });
 
   const result = scoreSetup(fields, threshold);
   // Picked stocks also get the live intraday engine (the Signals tab's rules,
@@ -227,30 +221,13 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
     }
   };
 
-  // One tap from the watchlist or recent stocks: select it and fill it.
+  // One tap from the package's stocks: select it and fill it.
   const quickPick = (stock) => {
     setMarket(stock.market || marketOfSymbol(stock.symbol));
     setSymbol(stock.symbol);
     setName(stock.name || shortSymbol(stock.symbol));
     setResults([]);
     fillFromLiveData(stock.symbol);
-  };
-
-  const inWatchlist = !!symbol && watchOf(symbol).includes(symbol);
-
-  // ★: add or remove the current stock from its market's watchlist (shared
-  // with the Signals tab, which the server scans).
-  const toggleWatchlist = () => {
-    if (!symbol) return;
-    const mkt = marketOfSymbol(symbol) === 'US' ? 'US' : 'NSE';
-    const list = watchOf(symbol);
-    if (!inWatchlist && list.length >= MAX_WATCHLIST) {
-      setNotice({ error: true, text: `The ${mkt === 'US' ? 'US' : 'NSE'} watchlist holds ${MAX_WATCHLIST} stocks. Remove one first.` });
-      return;
-    }
-    const next = inWatchlist ? list.filter((s) => s !== symbol) : [...list, symbol];
-    persistConfig(withMarketChanges(configDocs, mkt, { watchlist: next }));
-    setNotice({ error: false, text: `${inWatchlist ? 'Removed from' : 'Added to'} the ${mkt === 'US' ? 'US' : 'NSE'} watchlist${inWatchlist ? '' : ': the server scans it every 5 minutes in market hours'}.` });
   };
 
   const pickStock = (stock) => {
@@ -602,44 +579,6 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
       {/* Inputs */}
       <View style={cardStyle}>
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Stock</Text>
-        {watchlist.length || recent.length ? (
-          <HScroll
-            style={styles.pickScroll}
-            contentContainerStyle={styles.pickRow}
-            keyboardShouldPersistTaps="handled"
-          >
-            {[
-              ...watchlist.map((s) => ({ symbol: s, starred: true })),
-              ...recent.slice(0, 8),
-            ].map((s) => {
-              const selected = s.symbol === symbol;
-              return (
-                <TouchableOpacity
-                  key={s.symbol}
-                  style={[
-                    styles.pickChip,
-                    {
-                      backgroundColor: selected ? theme.primary : theme.surfaceAlt,
-                      borderColor: selected ? theme.primary : theme.borderNeutral,
-                    },
-                  ]}
-                  onPress={() => quickPick(s)}
-                  accessibilityLabel={`Check ${shortSymbol(s.symbol)}`}
-                >
-                  <Ionicons
-                    name={s.starred ? 'star' : 'time-outline'}
-                    size={13}
-                    color={selected ? theme.onPrimary : s.starred ? '#FFB400' : theme.textMuted}
-                  />
-                  <Text style={[styles.pickText, { color: selected ? theme.onPrimary : theme.text }]}>
-                    {shortSymbol(s.symbol)}
-                    {marketOfSymbol(s.symbol) === 'US' ? ' 🇺🇸' : ''}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </HScroll>
-        ) : null}
         <View style={[styles.segment, { backgroundColor: theme.surfaceAlt }]}>
           {MARKETS.map((m) => (
             <TouchableOpacity
@@ -658,6 +597,32 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
             </TouchableOpacity>
           ))}
         </View>
+        {/* The selected market's default package, one tap to check a stock */}
+        <View style={styles.pkgHead}>
+          <Text style={[styles.pkgHeadText, { color: theme.textMuted }]} numberOfLines={1}>
+            {marketPkg ? `${marketPkg.emoji} ${marketPkg.name}` : marketWatch.length ? 'Your watchlist' : 'No watchlist yet'}
+          </Text>
+          <TouchableOpacity onPress={() => setPkgOpen(true)} style={[styles.gearBtn, { backgroundColor: theme.surfaceAlt }]} accessibilityLabel="Manage packages">
+            <Ionicons name="settings-outline" size={18} color={theme.primary} />
+          </TouchableOpacity>
+        </View>
+        {marketWatch.length ? (
+          <HScroll style={styles.pickScroll} contentContainerStyle={styles.pickRow} keyboardShouldPersistTaps="handled">
+            {marketWatch.map((sym) => {
+              const selected = sym === symbol;
+              return (
+                <TouchableOpacity
+                  key={sym}
+                  style={[styles.pickChip, { backgroundColor: selected ? theme.primary : theme.surfaceAlt, borderColor: selected ? theme.primary : theme.borderNeutral }]}
+                  onPress={() => quickPick({ symbol: sym })}
+                  accessibilityLabel={`Check ${shortSymbol(sym)}`}
+                >
+                  <Text style={[styles.pickText, { color: selected ? theme.onPrimary : theme.text }]}>{shortSymbol(sym)}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </HScroll>
+        ) : null}
         <View style={styles.searchRow}>
           <TextInput
             style={[inputStyle, styles.flex]}
@@ -687,15 +652,6 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
               <Ionicons name="search" size={20} color={theme.onPrimary} />
             )}
           </TouchableOpacity>
-          {symbol ? (
-            <TouchableOpacity
-              style={[styles.iconBtn, { backgroundColor: theme.surfaceAlt }]}
-              onPress={toggleWatchlist}
-              accessibilityLabel={inWatchlist ? 'Remove from watchlist' : 'Add to watchlist'}
-            >
-              <Ionicons name={inWatchlist ? 'star' : 'star-outline'} size={20} color="#FFB400" />
-            </TouchableOpacity>
-          ) : null}
         </View>
         {results.map((stock) => (
           <TouchableOpacity
@@ -916,6 +872,14 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
         This tool counts how many indicators agree. It doesn’t predict price and isn’t financial
         advice. Always use a stop-loss.
       </Text>
+      <PackageManager
+        visible={pkgOpen}
+        market={engineMkt}
+        configDocs={configDocs}
+        persistConfig={persistConfig}
+        suggest={symbol}
+        onClose={() => setPkgOpen(false)}
+      />
     </ScrollView>
   );
 }
@@ -1091,4 +1055,7 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     paddingHorizontal: 8,
   },
+  pkgHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
+  pkgHeadText: { flex: 1, fontSize: 12, fontWeight: '700' },
+  gearBtn: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
 });

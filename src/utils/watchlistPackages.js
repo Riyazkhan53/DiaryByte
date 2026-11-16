@@ -34,12 +34,17 @@ export const PRESET_PACKAGES = {
 const key = (market) => (market === 'US' ? 'US' : 'NSE');
 const sameSet = (a, b) => a.length === b.length && a.every((s) => b.includes(s));
 
-/** Presets then your own packages for a market's settings doc. */
+/**
+ * Presets then your own packages for a market's settings doc. A saved package
+ * with a preset's id is your edited copy of that preset (edited: true).
+ */
 export function packagesFor(market, doc) {
-  const own = (doc?.packages || [])
-    .filter((p) => p && p.id && p.name && Array.isArray(p.symbols))
-    .map((p) => ({ ...p, emoji: p.emoji || '⭐', own: true }));
-  return [...PRESET_PACKAGES[key(market)], ...own];
+  const saved = (doc?.packages || []).filter((p) => p && p.id && p.name && Array.isArray(p.symbols));
+  const byId = new Map(saved.map((p) => [p.id, p]));
+  const presets = PRESET_PACKAGES[key(market)].map((p) => (byId.has(p.id) ? { ...p, ...byId.get(p.id), emoji: p.emoji, preset: true, edited: true } : { ...p, preset: true }));
+  const presetIds = new Set(presets.map((p) => p.id));
+  const own = saved.filter((p) => !presetIds.has(p.id)).map((p) => ({ ...p, emoji: p.emoji || '⭐', own: true }));
+  return [...presets, ...own];
 }
 
 /** The package the watchlist matches right now (same stocks), or null. */
@@ -59,6 +64,32 @@ export function savePackageChanges(doc, name, watchlist, makeId = () => `pkg-${D
   if (!clean || !(watchlist || []).length) return null;
   const pkg = { id: makeId(), name: clean, symbols: watchlist.slice(0, MAX_WATCHLIST) };
   return { packages: [...(doc?.packages || []), pkg], activePackage: pkg.id };
+}
+
+/**
+ * Settings changes that save `pkg` ({ id?, name, symbols }) as yours: a new
+ * package, an edit of yours, or your copy of a preset. When it is the default
+ * (the package being scanned), the watchlist follows its stocks.
+ */
+export function upsertPackageChanges(doc, pkg, makeId = () => `pkg-${Date.now().toString(36)}`) {
+  const name = String(pkg?.name || '').trim().slice(0, 40);
+  if (!name) return null;
+  const id = pkg.id || makeId();
+  const symbols = [...new Set(pkg.symbols || [])].slice(0, MAX_WATCHLIST);
+  const rest = (doc?.packages || []).filter((p) => p.id !== id);
+  const changes = { packages: [...rest, { id, name, symbols }] };
+  if (doc?.activePackage === id) changes.watchlist = symbols;
+  return changes;
+}
+
+/** Settings changes that put a preset back to its original stocks. */
+export function resetPresetChanges(doc, id) {
+  const preset = [...PRESET_PACKAGES.NSE, ...PRESET_PACKAGES.US].find((p) => p.id === id);
+  if (!preset) return null;
+  return {
+    packages: (doc?.packages || []).filter((p) => p.id !== id),
+    ...(doc?.activePackage === id ? { watchlist: preset.symbols.slice(0, MAX_WATCHLIST) } : {}),
+  };
 }
 
 /** Settings changes that remove one of your packages. */
