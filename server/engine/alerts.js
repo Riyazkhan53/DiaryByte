@@ -67,16 +67,17 @@ function closedAlert(t) {
 }
 
 /** Roll-call of the watchlist after the first scan of the day (`time` = 'HH:MM' IST). */
+/** Morning summary: only the stocks showing LONG/SHORT; null when there are none (nothing is sent). */
 function summaryAlert(results, time) {
-  const order = { 'BUY CANDIDATE': 0, 'SELL CANDIDATE': 1, WAIT: 2, NEUTRAL: 3, 'NO TRADE': 4 };
-  const label = { 'BUY CANDIDATE': 'LONG', 'SELL CANDIDATE': 'SHORT', WAIT: 'WAIT', NEUTRAL: 'NEUTRAL', 'NO TRADE': 'NO TRADE' };
+  const label = { 'BUY CANDIDATE': 'LONG', 'SELL CANDIDATE': 'SHORT' };
   const rows = results
-    .filter((x) => x.state)
-    .sort((a, b) => (order[a.state] ?? 9) - (order[b.state] ?? 9))
-    .map((x) => `${bare(x.symbol)}: ${label[x.state] || x.state}${x.failedConditions?.length && !x.state.endsWith('CANDIDATE') ? ` (${x.failedConditions.slice(0, 2).join(', ')})` : ''}`);
+    .filter((x) => label[x.state])
+    .sort((a, b) => (a.state === b.state ? 0 : a.state === 'BUY CANDIDATE' ? -1 : 1))
+    .map((x) => `${bare(x.symbol)}: ${label[x.state]}`);
+  if (!rows.length) return null;
   return {
-    title: `☀️ Watchlist at ${time || 'the open'} IST`,
-    body: rows.length ? rows.join('\n') : 'No readings yet — the feed may still be warming up.',
+    title: `☀️ Entries at ${time || 'the open'} IST`,
+    body: rows.join('\n'),
     tags: ['sunny'],
     priority: 2,
   };
