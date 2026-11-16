@@ -6,22 +6,26 @@
 //          status ('open' | 'closed'), exitPrice?, exitDate?,
 //          exitReason? ('target' | 'stop' | 'manual'), followedPlan?, review? }
 
-import { estimateCosts } from '../engine/risk.js';
+import { DEFAULT_CHARGES_US, estimateCosts } from '../engine/risk.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
 /**
- * Estimated round-trip charges for an Indian (₹) trade at `exitPrice`, as
- * intraday equity. US trades return null (broker fees vary too much).
+ * Estimated round-trip charges at `exitPrice`, in the trade's currency: NSE
+ * intraday equity charges for ₹ trades, US regulatory fees (SEC, FINRA TAF)
+ * plus any commission for $ trades. `charges` overrides the market defaults
+ * (the trading settings).
  */
-export function tradeCosts(trade, exitPrice) {
-  if (trade.market === 'US' || !(exitPrice > 0) || !(trade.quantity > 0)) return null;
+export function tradeCosts(trade, exitPrice, charges) {
+  if (!(exitPrice > 0) || !(trade.quantity > 0) || !(trade.entryPrice > 0)) return null;
+  const us = trade.market === 'US';
+  const c = us ? { ...DEFAULT_CHARGES_US, ...charges, model: 'us' } : charges;
   const entryValue = trade.entryPrice * trade.quantity;
   const exitValue = exitPrice * trade.quantity;
-  return trade.side === 'short' ? estimateCosts(exitValue, entryValue) : estimateCosts(entryValue, exitValue);
+  return trade.side === 'short' ? estimateCosts(exitValue, entryValue, c, trade.quantity) : estimateCosts(entryValue, exitValue, c, trade.quantity);
 }
 
-/** Net P/L after estimated charges (₹ trades), or plain P/L for US trades. */
+/** Net P/L after estimated charges, in the trade's currency. */
 export function tradeNetPnl(trade, price) {
   const pnl = tradePnl(trade, price);
   const costs = tradeCosts(trade, price);
@@ -116,11 +120,16 @@ export function tradeStats(closed) {
   });
   const grossWin = byCurrency(wins);
   const grossLoss = byCurrency(losses);
-  const inrCosts = round2(rows.reduce((s, x) => s + (tradeCosts(x.trade, x.trade.exitPrice) || 0), 0));
+  const costsIn = (cur) =>
+    round2(rows.filter((x) => (x.trade.market === 'US' ? 'USD' : 'INR') === cur).reduce((s, x) => s + (tradeCosts(x.trade, x.trade.exitPrice) || 0), 0));
+  const inrCosts = costsIn('INR');
+  const usdCosts = costsIn('USD');
   return {
-    // Estimated charges on ₹ trades, and ₹ P/L after them.
+    // Estimated charges per currency, and P/L after them.
     costsINR: inrCosts,
     netAfterCostsINR: round2(byCurrency(rows).INR - inrCosts),
+    costsUSD: usdCosts,
+    netAfterCostsUSD: round2(byCurrency(rows).USD - usdCosts),
     count: rows.length,
     wins: wins.length,
     losses: losses.length,

@@ -26,6 +26,8 @@ import HScroll from '../HScroll';
 const STORAGE_KEY = '@diarybyte_setups';
 const CONFIG_KEY = '@diarybyte_tradingconfig';
 const MAX_WATCHLIST = 10;
+const priceText = (value, mkt) =>
+  `${mkt === 'US' ? '$' : '₹'}${Number(value).toLocaleString(mkt === 'US' ? 'en-US' : 'en-IN', { maximumFractionDigits: 2 })}`;
 
 const shortSymbol = (s) => s.replace(/\.(NS|BO)$/, '');
 const marketOfSymbol = (s) => (/\.(NS|BO)$/.test(s) ? 'IN' : 'US');
@@ -131,7 +133,6 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
   // Which chart the indicators are read from: '5m' (like a broker's intraday
   // chart, including the candle still forming) or '1d' (daily).
   const [timeframe, setTimeframe] = useState('5m');
-  const tfWord = timeframe === '5m' ? '5-minute' : 'daily';
   const tfTag = timeframe === '5m' ? '5-min' : 'daily';
   const [notice, setNotice] = useState(null);
   const [nowPrices, setNowPrices] = useState({});
@@ -156,10 +157,13 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
     });
 
   const result = scoreSetup(fields, threshold);
-  // Indian stocks also get the live intraday engine (the Signals tab's rules);
-  // the verdict combines both, with the intraday engine deciding.
-  const intradayFor = symbol && marketOfSymbol(symbol) === 'IN' ? symbol : null;
+  // Picked stocks also get the live intraday engine (the Signals tab's rules,
+  // NSE or US market hours, ₹ or $ settings); the verdict combines both, with
+  // the intraday engine deciding.
+  const intradayFor = symbol || null;
+  const engineMarketOf = (s) => (marketOfSymbol(s) === 'US' ? 'US' : 'NSE');
   const ev = intraday.symbol === intradayFor ? intraday.ev : null;
+  const evMkt = intradayFor ? marketOfSymbol(intradayFor) : 'IN';
   const combined = combineSetup(result, ev, timeframe === '5m' ? '5-minute' : 'daily');
   const signalColor = SIGNAL_COLORS[combined.verdict] || SIGNAL_COLORS.WAIT;
   const dailyColor = SIGNAL_COLORS[result.signal] || SIGNAL_COLORS.WAIT;
@@ -180,14 +184,14 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
     };
   }, [logSymbols]);
 
-  // While an NSE stock is picked and the market is open, re-check the intraday
+  // While a stock is picked and its market is open, re-check the intraday
   // signal every 15 seconds (the server refetches candles as each 5-min
   // candle closes, and the last traded price every 15 seconds).
   const marketLive = !!intraday.ev?.data?.marketOpen;
   useEffect(() => {
     if (!intradayFor || !marketLive) return undefined;
     const timer = setInterval(() => {
-      evaluateSymbol(intradayFor)
+      evaluateSymbol(intradayFor, engineMarketOf(intradayFor))
         .then((r) => setIntraday((cur) => (cur.symbol === intradayFor ? { ...cur, ev: r, error: null } : cur)))
         .catch(() => {});
     }, 15000);
@@ -248,9 +252,9 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
   };
 
   const loadIntraday = (sym) => {
-    if (!sym || marketOfSymbol(sym) !== 'IN') return;
+    if (!sym) return;
     setIntraday({ symbol: sym, ev: null, loading: true, error: null });
-    evaluateSymbol(sym)
+    evaluateSymbol(sym, engineMarketOf(sym))
       .then((r) => setIntraday((cur) => (cur.symbol === sym ? { symbol: sym, ev: r, loading: false, error: null } : cur)))
       .catch((e) =>
         setIntraday((cur) =>
@@ -309,8 +313,8 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
         text:
           `Filled from ${five ? `the 5-minute chart up to ${lastDay ? istTime(lastDay, false) : 'now'} IST` : `daily prices up to ${lastDay ? formatWhen(lastDay) : 'today'}`}` +
           `${data.fetchedAt ? ` (fetched ${istTime(data.fetchedAt)} IST)` : ''}.` +
-          `${q?.price > 0 ? ` Current price ₹${inputs.price}${q.time ? ` traded at ${istTime(q.time, false)} IST` : ''}.` : ''}` +
-          `${q?.previousClose > 0 ? ` Previous close ₹${inputs.prevClose} = the last session's closing price.` : ''}` +
+          `${q?.price > 0 ? ` Current price ${priceText(inputs.price, marketOfSymbol(sym))}${q.time ? ` traded at ${istTime(q.time, false)} IST` : ''}.` : ''}` +
+          `${q?.previousClose > 0 ? ` Previous close ${priceText(inputs.prevClose, marketOfSymbol(sym))} = the last session's closing price.` : ''}` +
           (five
             ? ' EMA, RSI, MACD and VWAP match a 5-minute chart (candle in progress included); small differences from your broker come from the price feed.'
             : ' EMA, RSI and MACD are from the daily chart: compare them with a 1D chart.'),
@@ -406,8 +410,6 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
       color: theme.text,
     },
   ];
-  const priceText = (value, mkt) =>
-    `${mkt === 'US' ? '$' : '₹'}${Number(value).toLocaleString(mkt === 'US' ? 'en-US' : 'en-IN', { maximumFractionDigits: 2 })}`;
 
   return (
     <ScrollView
@@ -468,7 +470,7 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
                 <Text style={[styles.explainLine, { color: theme.text }]}>
                   <Text style={styles.bold}>Intraday (5-min): </Text>
                   {ev
-                    ? `${ev.state} · long ${ev.score.long} / short ${ev.score.short} (needs ${ev.threshold})${ev.candle ? ` · price ₹${ev.indicators.price} = ${istTime(ev.candle.t, false)}–${istTime(ev.candle.t + 5 * 60000, false)} candle close, checked ${istTime(ev.evaluatedAt)} IST` : ''}${ev.quote?.price ? ` · last traded ₹${Number(ev.quote.price).toFixed(2)}${ev.quote.time ? ` at ${istTime(ev.quote.time)}` : ''}` : ''}`
+                    ? `${ev.state} · long ${ev.score.long} / short ${ev.score.short} (needs ${ev.threshold})${ev.candle ? ` · price ${priceText(ev.indicators.price, evMkt)} = ${istTime(ev.candle.t, false)}–${istTime(ev.candle.t + 5 * 60000, false)} IST candle close, checked ${istTime(ev.evaluatedAt)} IST` : ''}${ev.quote?.price ? ` · last traded ${priceText(Number(ev.quote.price).toFixed(2), evMkt)}${ev.quote.time ? ` at ${istTime(ev.quote.time)}` : ''}` : ''}${ev.data && ev.data.marketOpen === false ? ` · ${evMkt === 'US' ? 'US market closed (opens 9:30 New York, about 8 pm IST)' : 'NSE closed'}: last session's candles` : ''}`
                     : intraday.loading
                       ? 'checking…'
                       : intraday.error || '—'}
@@ -493,15 +495,11 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
                 {combined.plan ? (
                   <Text style={[styles.explainLine, { color: theme.text }]}>
                     <Text style={styles.bold}>Plan: </Text>
-                    {combined.plan.quantity} @ ₹{combined.plan.entry} · stop ₹{combined.plan.stop} · target ₹
-                    {combined.plan.target} · max loss ₹{combined.plan.maxLoss}
+                    {combined.plan.quantity} @ {priceText(combined.plan.entry, evMkt)} · stop {priceText(combined.plan.stop, evMkt)} · target{' '}
+                    {priceText(combined.plan.target, evMkt)} · max loss {priceText(combined.plan.maxLoss, evMkt)}
                   </Text>
                 ) : null}
               </View>
-            ) : symbol ? (
-              <Text style={[styles.hint, { color: theme.textMuted }]}>
-                Intraday signals cover NSE stocks only, so this is the {tfWord} setup alone.
-              </Text>
             ) : null}
 
             <Text style={[styles.dailyTitle, { color: theme.textSecondary }]}>

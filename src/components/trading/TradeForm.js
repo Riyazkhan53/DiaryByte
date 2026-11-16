@@ -26,7 +26,7 @@ const str = (n) => (n != null && Number.isFinite(Number(n)) ? String(n) : '');
  * Add or edit a paper trade. `initial` is an existing trade, a draft from a
  * Setup Check, or null for a blank one. Remount with a new `key` to reset.
  */
-export default function TradeForm({ visible, initial, onSave, onClose, config }) {
+export default function TradeForm({ visible, initial, onSave, onClose, config, usConfig }) {
   const { theme } = useTheme();
   const [market, setMarket] = useState(initial?.market === 'US' ? 'US' : 'IN');
   const [name, setName] = useState(initial?.name || '');
@@ -55,10 +55,12 @@ export default function TradeForm({ visible, initial, onSave, onClose, config })
     draft.stopLoss > 0 && draft.entryPrice > 0 && !risk;
   const valid = name.trim() && draft.entryPrice > 0 && draft.quantity > 0 && !stopWrongSide;
 
-  // Indian trades: quantity from the risk budget, charges and cash (settings in Signals).
+  // Quantity from the risk budget, charges and cash, with each market's own
+  // settings (₹ for India, $ for US; set in Signals).
+  const marketCfg = market === 'US' ? usConfig : config;
   const sizing =
-    market === 'IN' && draft.entryPrice > 0 && draft.stopLoss > 0
-      ? sizeForStop({ side, entry: draft.entryPrice, stop: draft.stopLoss, config })
+    marketCfg && draft.entryPrice > 0 && draft.stopLoss > 0
+      ? sizeForStop({ side, entry: draft.entryPrice, stop: draft.stopLoss, config: marketCfg })
       : null;
 
   const runSearch = async () => {
@@ -239,7 +241,7 @@ export default function TradeForm({ visible, initial, onSave, onClose, config })
               <View style={[styles.sizeBox, { backgroundColor: theme.surfaceAlt }]}>
                 <Text style={[styles.hint, styles.noTop, { color: sizing.ok ? theme.text : theme.danger }]}>
                   {sizing.ok
-                    ? `Risk budget ₹${sizing.riskBudget}: up to ${sizing.quantity} share${sizing.quantity > 1 ? 's' : ''}${sizing.capped ? ` (your max per trade; the budget allows more)` : ''} (max loss ₹${sizing.maxLoss} incl. ~₹${sizing.costs} charges, ₹${sizing.cashUsed} cash).`
+                    ? `Risk budget ${money(sizing.riskBudget)}: up to ${sizing.quantity} share${sizing.quantity > 1 ? 's' : ''}${sizing.capped ? ` (your max per trade; the budget allows more)` : ''} (max loss ${money(sizing.maxLoss)} incl. ~${money(sizing.costs)} ${market === 'US' ? 'fees' : 'charges'}, ${money(sizing.cashUsed)} cash).`
                     : `No trade: ${sizing.reason}.`}
                 </Text>
                 {sizing.ok && sizing.quantity !== draft.quantity ? (

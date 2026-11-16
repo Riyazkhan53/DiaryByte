@@ -33,6 +33,7 @@ export default function TradingScreen() {
   // Engine screens (Signals, History) show one market at a time: India or US.
   const [engineMarket, setEngineMarket] = useState('NSE');
   const config = marketConfig(configDocs, 'NSE').config;
+  const usConfig = marketConfig(configDocs, 'US').config;
   const marketWatchlist = marketConfig(configDocs, engineMarket).watchlist;
   const [tab, setTab] = useState('setup');
   const tabScroll = useRef(null);
@@ -170,6 +171,7 @@ export default function TradingScreen() {
         onSave={saveTrade}
         onClose={hideForm}
         config={config}
+        usConfig={usConfig}
       />
     </SafeAreaView>
   );
