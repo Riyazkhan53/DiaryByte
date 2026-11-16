@@ -28,6 +28,7 @@ import {
   fetchCollection,
   fetchEngineStatus,
   fetchKiteLoginUrl,
+  fetchSignalHistory,
   runEngineScan,
   startDemoTrade,
 } from '../../services/api';
@@ -38,6 +39,7 @@ import {
   PROFIT,
   WARN,
   STATE_LABEL,
+  activeEntry,
   formatDay,
   istTime,
   formatMoney,
@@ -150,6 +152,7 @@ export default function Signals({ header, onPaperTrade, market = 'NSE', onMarket
   const [statusProblem, setStatusProblem] = useState(null);
   const [selected, setSelected] = useState(null);
   const [evaluation, setEvaluation] = useState(null);
+  const [recentSignals, setRecentSignals] = useState({ symbol: null, signals: [], at: 0 });
   const [ledger, setLedger] = useState({ trades: [] });
   // Demo trade request: { busy, message, error }
   const [demo, setDemo] = useState({ busy: false, message: null, error: false });
@@ -191,6 +194,11 @@ export default function Signals({ header, onPaperTrade, market = 'NSE', onMarket
         .then((trades) => !cancelled && setLedger({ trades: trades.filter(inMarket) }))
         .catch(() => {});
       if (!symbol) return;
+      // The scanner's latest records for this stock: an entry it flagged
+      // stays on screen for its candle even after the live check says WAIT.
+      fetchSignalHistory({ symbol, days: 1, limit: 6, market, timeframe: '5m' })
+        .then((h) => !cancelled && setRecentSignals({ symbol, signals: h.signals || [], at: Date.now() }))
+        .catch(() => {});
       if (quiet !== true) setLoading(true);
       evaluateSymbol(symbol, market)
         .then((r) => {
@@ -442,6 +450,45 @@ export default function Signals({ header, onPaperTrade, market = 'NSE', onMarket
             {scanning ? <ActivityIndicator size="small" color={theme.primary} /> : <Text style={[styles.outlineText, { color: theme.primary }]}>Scan watchlist now</Text>}
           </TouchableOpacity>
         </View>
+
+        {/* An entry the scanner flagged that is still inside its window */}
+        {(() => {
+          const entry = recentSignals.symbol === symbol ? activeEntry(recentSignals.signals, recentSignals.at) : null;
+          if (!entry || (ev && ev.state === entry.state)) return null;
+          const long = entry.state === 'BUY CANDIDATE';
+          const c = long ? PROFIT : LOSS;
+          const p = entry.plan || {};
+          const nowPrice = ev?.quote?.price ?? ev?.indicators?.price;
+          const move = nowPrice && p.entry ? ((nowPrice - p.entry) / p.entry) * 100 : null;
+          const left = Math.max(1, Math.round((entry.until - recentSignals.at) / 60000));
+          return (
+            <View style={[cardStyle, { borderColor: c, borderWidth: 2 }]}>
+              <View style={styles.stripRow}>
+                <Ionicons name={long ? 'trending-up' : 'trending-down'} size={20} color={c} />
+                <Text style={[styles.state, { color: c }]}>{STATE_LABEL[entry.state]} · {shortSymbol(entry.symbol)}</Text>
+              </View>
+              <Text style={[styles.priceLine, { color: theme.text }]}>
+                Flagged at the {istTime(entry.candleTime, false)}–{istTime(entry.candleTime + 5 * 60000, false)} IST candle · still valid about {left} min
+              </Text>
+              {p.entry ? (
+                <Text style={[styles.priceLine, { color: theme.text }]}>
+                  <Text style={styles.bold}>Entry ~{formatMoney(p.entry, mm)}</Text> · stop {formatMoney(p.stop, mm)} · target {formatMoney(p.target, mm)}
+                  {p.quantity ? ` · ${p.quantity} share${p.quantity > 1 ? 's' : ''}` : ''}
+                </Text>
+              ) : null}
+              {move != null ? (
+                <Text style={[styles.priceLine, { color: Math.abs(move) > 0.5 ? WARN : theme.textSecondary }]}>
+                  Now {formatMoney(nowPrice, mm)} ({move >= 0 ? '+' : ''}
+                  {move.toFixed(2)}% from entry){Math.abs(move) > 0.5 ? ' · price has moved away, skip it if your broker shows the same' : ''}
+                </Text>
+              ) : null}
+              <Text style={[styles.priceNote, { color: theme.textMuted }]}>
+                {ev ? `The live check below now says ${STATE_LABEL[ev.state] || ev.state}: it` : 'The live check'} re-reads every new 5-minute candle. Take this entry only if the price is still near
+                the entry and your own check agrees; it is not an order.
+              </Text>
+            </View>
+          );
+        })()}
 
         {/* Signal */}
         {symbol ? (

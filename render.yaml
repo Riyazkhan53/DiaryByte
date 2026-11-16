@@ -29,6 +29,9 @@ services:
       # claude-opus-5-5) and AI_EFFORT (low | medium | high).
       - key: ANTHROPIC_API_KEY
         sync: false
+      # The server pings its own health check every 10 minutes so a free
+      # instance doesn't fall asleep (and stop the trading scanner). Set
+      # KEEP_AWAKE=off on a paid instance.
     healthCheckPath: /api/health
 
   # --- Static web app ---

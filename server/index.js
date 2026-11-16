@@ -570,6 +570,8 @@ if (require.main === module) {
   connectDatabase()
     .then(() => {
       setTimeout(() => engineService.startScanner(), SCANNER_START_DELAY_MS).unref();
+      // Free Render instances sleep after 15 idle minutes, and the scanner with them.
+      require('./keepAwake').startKeepAwake();
     })
     .catch((error) => {
       console.error('[api] Failed to start', error);
