@@ -53,3 +53,16 @@ export function istTime(value, seconds = true) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}${seconds ? `:${pad(d.getUTCSeconds())}` : ''}`;
 }
+
+// An entry signal stays worth acting on for the candle after it: the scanner
+// flags it when its 5-minute candle closes, and the next close may already
+// say WAIT before you reach your broker app.
+export const ENTRY_VALID_MS = 10 * 60000; // from the signal candle's start
+
+/** The newest BUY/SELL candidate still inside its window, or null. */
+export function activeEntry(signals, now = Date.now(), validMs = ENTRY_VALID_MS) {
+  const s = (signals || []).find((x) => x.state === 'BUY CANDIDATE' || x.state === 'SELL CANDIDATE');
+  if (!s || !Number.isFinite(s.candleTime)) return null;
+  const until = s.candleTime + validMs;
+  return now < until ? { ...s, until } : null;
+}
