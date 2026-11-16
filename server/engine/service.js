@@ -72,8 +72,10 @@ async function getConfig(market = 'NSE') {
   cfg.alertTopic = market === 'NSE' && isTopic(doc?.alertTopic) ? doc.alertTopic : null;
   cfg.alertsOn = !!cfg.alertTopic && doc?.alertsOn !== false;
   cfg.alertEntries = doc?.alertEntries !== false;
-  cfg.alertExits = doc?.alertExits !== false;
-  cfg.alertSummary = doc?.alertSummary !== false;
+  // Only BUY/SELL entries by default; closed trades and the morning summary
+  // are opt-in.
+  cfg.alertExits = doc?.alertExits === true;
+  cfg.alertSummary = doc?.alertSummary === true;
   return cfg;
 }
 
@@ -422,7 +424,8 @@ async function scan(market = 'NSE') {
       if (state.summaryDay !== day && weekday >= 1 && weekday <= 5 && minutes >= 9 * 60 + 20 && E.isNseOpen(now)) {
         state.summaryDay = day;
         const hhmm = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
-        await sendAlert(cfg.alertTopic, summaryAlert(results, hhmm));
+        const summary = summaryAlert(results, hhmm);
+        if (summary) await sendAlert(cfg.alertTopic, summary);
       }
     }
     return { market: mkt, results };
@@ -501,7 +504,7 @@ async function testAlert(topic) {
   if (!to) throw Object.assign(new Error('Set up phone alerts first'), { status: 400 });
   const ok = await sendAlert(to, {
     title: '🔔 DiaryByte alerts are on',
-    body: 'You will get entry signals, closed paper trades and a morning watchlist summary here.',
+    body: 'You will get BUY / SELL entry signals here (no WAIT). Turn alerts on or off in DiaryByte Settings.',
     tags: ['bell'],
   });
   if (!ok) throw Object.assign(new Error("Couldn't reach ntfy.sh from the server"), { status: 502 });

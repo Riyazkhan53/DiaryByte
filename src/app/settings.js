@@ -26,6 +26,7 @@ import { WatchPairSection } from '../components/WatchPairSection';
 import { AiSettingsSection } from '../components/AiSettingsSection';
 import { AppLockSection } from '../components/AppLockSection';
 import { PasskeysSection } from '../components/PasskeysSection';
+import { TradingAlertsSection } from '../components/TradingAlertsSection';
 import { confirmDelete } from '../utils/confirm';
 import { getSession, isGuest, signOut } from '../services/session';
 
@@ -263,6 +264,21 @@ export default function SettingsScreen() {
           titleStyle={[styles.sectionTitle, { color: theme.text }]}
           hintStyle={styles.hint}
         />
+
+        {guest ? null : (
+          <TradingAlertsSection
+            sectionStyle={[
+              styles.section,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.border,
+                shadowColor: theme.shadow,
+              },
+            ]}
+            titleStyle={[styles.sectionTitle, { color: theme.text }]}
+            hintStyle={styles.hint}
+          />
+        )}
 
         <DeleteProtectionSection
           sectionStyle={[

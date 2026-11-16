@@ -9,9 +9,9 @@ import { sendTestAlert } from '../../services/api';
 const NTFY_APP = 'https://play.google.com/store/apps/details?id=io.heckel.ntfy';
 
 /**
- * Phone alerts from the scanner through the free ntfy app: entry signals,
- * closed paper trades and a morning watchlist summary. Works with the app
- * closed, since the server sends them.
+ * Phone alerts from the scanner through the free ntfy app: BUY/SELL entry
+ * signals (closed paper trades and a morning summary are opt-in). Never WAIT.
+ * Works with the app closed, since the server sends them.
  */
 export default function AlertsCard({ configDoc, saveConfig }) {
   const { theme } = useTheme();
@@ -61,7 +61,7 @@ export default function AlertsCard({ configDoc, saveConfig }) {
         <View style={styles.flex}>
           <Text style={[styles.title, { color: theme.text }]}>Phone alerts</Text>
           <Text style={[styles.summary, { color: theme.textMuted }]} numberOfLines={1}>
-            {on ? 'Entries, closed trades and a morning summary' : topic ? 'Paused' : 'Get signals even with the app closed'}
+            {on ? 'BUY / SELL signals only' : topic ? 'Paused' : 'Get BUY / SELL signals even with the app closed'}
           </Text>
         </View>
         <View style={[styles.pill, { backgroundColor: (on ? '#2DA44E' : '#8E8E93') + '22' }]}>
@@ -93,9 +93,9 @@ export default function AlertsCard({ configDoc, saveConfig }) {
             <>
               {[
                 { key: 'alertsOn', label: 'Alerts on', value: on },
-                { key: 'alertEntries', label: 'Entry signals (LONG / SHORT)', value: configDoc?.alertEntries !== false },
-                { key: 'alertExits', label: 'Paper & demo trades closing', value: configDoc?.alertExits !== false },
-                { key: 'alertSummary', label: 'Morning watchlist summary (09:20)', value: configDoc?.alertSummary !== false },
+                { key: 'alertEntries', label: 'BUY / SELL entry signals', value: configDoc?.alertEntries !== false },
+                { key: 'alertExits', label: 'Paper & demo trades closing', value: configDoc?.alertExits === true },
+                { key: 'alertSummary', label: 'Morning summary of BUY / SELL stocks (09:20)', value: configDoc?.alertSummary === true },
               ].map((s) => (
                 <View key={s.key} style={styles.switchRow}>
                   <Text style={[styles.flex, styles.text, { color: s.key !== 'alertsOn' && !on ? theme.textMuted : theme.text }]}>{s.label}</Text>
