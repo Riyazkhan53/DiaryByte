@@ -121,6 +121,8 @@ export default function CompletedTrades({ header, trades, persist, sync }) {
                 {hasIn ? <Stat label="Est. charges (₹)" value={formatMoney(stats.costsINR, 'IN')} /> : null}
                 {hasIn ? <Stat label="Net after charges" value={formatPnl(stats.netAfterCostsINR, 'IN')} color={pnlColor(stats.netAfterCostsINR)} /> : null}
                 {hasUs ? <Stat label="Net P/L ($)" value={formatPnl(stats.net.USD, 'US')} color={pnlColor(stats.net.USD)} /> : null}
+                {hasUs ? <Stat label="Est. fees ($)" value={formatMoney(stats.costsUSD, 'US')} /> : null}
+                {hasUs ? <Stat label="Net after fees ($)" value={formatPnl(stats.netAfterCostsUSD, 'US')} color={pnlColor(stats.netAfterCostsUSD)} /> : null}
                 <Stat label="Avg win" value={formatPct(stats.avgWinPct)} color={PROFIT} />
                 <Stat label="Avg loss" value={formatPct(stats.avgLossPct)} color={LOSS} />
                 {stats.avgR != null ? <Stat label="Avg result" value={formatR(stats.avgR)} color={pnlColor(stats.avgR)} /> : null}
