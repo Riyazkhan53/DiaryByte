@@ -642,8 +642,10 @@ export default function IposScreen() {
                   ? state.data.source === 'ai'
                     ? `Searched with AI ${ago(state.data.fetchedAt, now)}`
                     : state.data.free && state.data.free.ok === false
-                      ? `NSE didn't answer (${state.data.free.error || 'unavailable'}): showing saved IPOs`
-                      : `From NSE ${ago(state.data.fetchedAt, now)}${state.data.free?.gmpSource ? ` · GMP from ${state.data.free.gmpSource}` : ''} · free`
+                      ? `Free sources didn't answer (${state.data.free.error || 'unavailable'}): showing saved IPOs`
+                      : state.data.free?.source === 'gmp'
+                        ? `From ${state.data.free.gmpSource} ${ago(state.data.fetchedAt, now)} (NSE didn't answer) · free`
+                        : `From NSE ${ago(state.data.fetchedAt, now)}${state.data.free?.gmpSource ? ` · GMP from ${state.data.free.gmpSource}` : ''} · free`
                   : ''}
           </Text>
           <TouchableOpacity onPress={() => load(true)} disabled={state.loading} accessibilityLabel="Refresh the IPO list (free)">
@@ -690,7 +692,7 @@ export default function IposScreen() {
 
         {state.data ? (
           <Text style={[styles.tiny, styles.disclaimer, { color: theme.textMuted }]}>
-            List, dates, price band and subscription from NSE (free). GMP from grey-market websites: unofficial and can be missing. Listing dates marked (est.) are bidding
+            List, dates, price band and subscription from NSE, or from grey-market websites when NSE does not answer (free). GMP is from those websites: unofficial and can be missing. Listing dates marked (est.) are bidding
             close + 3 working days. Demand score: QIB 40, overall 20, retail 10, GMP 30 points. AI credit is used only when you open an IPO review. Decision support, not investment
             advice.
           </Text>
