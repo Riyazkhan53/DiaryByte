@@ -38,6 +38,8 @@ export default function TradeForm({ visible, initial, onSave, onClose, config, u
   const [target, setTarget] = useState(str(initial?.target));
   const [entryDate, setEntryDate] = useState(initial?.entryDate || todayKey());
   const [plan, setPlan] = useState(initial?.plan || '');
+  // Close by itself when the price reaches the target or stop-loss (on unless turned off).
+  const [autoClose, setAutoClose] = useState(initial?.autoClose !== false);
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [notice, setNotice] = useState(null);
@@ -105,6 +107,7 @@ export default function TradeForm({ visible, initial, onSave, onClose, config, u
       target: draft.target > 0 ? draft.target : undefined,
       entryDate,
       plan: plan.trim() || undefined,
+      autoClose,
     });
   };
 
@@ -252,6 +255,28 @@ export default function TradeForm({ visible, initial, onSave, onClose, config, u
               </View>
             ) : null}
 
+            <TouchableOpacity
+              style={[styles.autoRow, { backgroundColor: theme.surfaceAlt, borderColor: autoClose ? theme.primary : theme.borderNeutral }]}
+              onPress={() => setAutoClose((v) => !v)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: autoClose }}
+              accessibilityLabel="Auto-close at target or stop-loss"
+            >
+              <Ionicons name={autoClose ? 'checkbox' : 'square-outline'} size={22} color={autoClose ? theme.primary : theme.textMuted} />
+              <View style={styles.flex}>
+                <Text style={[styles.autoTitle, { color: theme.text }]}>Auto-close at target or stop-loss</Text>
+                <Text style={[styles.hint, styles.noTop, { color: theme.textMuted }]}>
+                  {!symbol
+                    ? 'Pick the stock from search so its live price can be checked.'
+                    : !(draft.stopLoss > 0) && !(draft.target > 0)
+                      ? 'Set a stop-loss or target for this to work.'
+                      : autoClose
+                        ? 'Closes at that price by itself, even with the app closed (checked every 5 minutes in market hours).'
+                        : 'Off: you close it yourself.'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
             <Text style={[styles.label, styles.gap, { color: theme.textSecondary }]}>Entry date</Text>
             <DatePicker value={entryDate} onChange={setEntryDate} />
 
@@ -314,4 +339,6 @@ const styles = StyleSheet.create({
   cancelText: { fontSize: 15, fontWeight: '600' },
   save: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center' },
   saveText: { fontSize: 15, fontWeight: '700' },
+  autoRow: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 12, padding: 12, marginTop: 12 },
+  autoTitle: { fontSize: 14, fontWeight: '700' },
 });

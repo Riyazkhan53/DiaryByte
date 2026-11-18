@@ -417,6 +417,9 @@ const COLLECTIONS = {
       'exitReason',
       'followedPlan',
       'review',
+      // auto-close at target / stop-loss (on unless false), and who closed it ('auto')
+      'autoClose',
+      'closedBy',
       'createdAt',
       'updatedAt',
     ],

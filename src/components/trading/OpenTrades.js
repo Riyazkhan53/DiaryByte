@@ -50,22 +50,69 @@ export default function OpenTrades({ header, trades, persist, sync, onNew, onEdi
   const [followedPlan, setFollowedPlan] = useState(null);
   const [review, setReview] = useState('');
 
+  // Trades the server auto-closed while the app was away: fetch them once.
+  const onPull = sync?.onPull;
+  useEffect(() => {
+    if (onPull) onPull();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per visit
+  }, []);
+
+  // Live prices: on open, on refresh, and every minute while this tab is open.
   const symbols = [...new Set(open.map((t) => t.symbol).filter(Boolean))].sort().join(',');
   useEffect(() => {
     if (!symbols) return undefined;
     let cancelled = false;
-    fetchStockQuotes(symbols.split(','))
-      .then((body) => {
-        if (!cancelled) setPrices(body?.quotes || {});
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setRefreshing(false);
-      });
+    const load = () =>
+      fetchStockQuotes(symbols.split(','))
+        .then((body) => {
+          if (!cancelled) setPrices(body?.quotes || {});
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) setRefreshing(false);
+        });
+    load();
+    const timer = setInterval(load, 60000);
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
   }, [symbols, version]);
+
+  // Auto-close: trades with it on close at their target or stop-loss as soon
+  // as a fetched price reaches it (the server does the same every 5 minutes).
+  useEffect(() => {
+    const hits = trades
+      .filter((t) => t.status !== 'closed' && t.autoClose !== false && t.symbol)
+      .map((t) => {
+        const q = prices[t.symbol];
+        if (!q || q.stale) return null;
+        const hit = levelHit(t, q.price);
+        return hit ? { id: t.id, hit } : null;
+      })
+      .filter(Boolean);
+    if (!hits.length) return;
+    const now = new Date().toISOString();
+    persist(
+      trades.map((t) => {
+        const h = hits.find((x) => x.id === t.id);
+        if (!h) return t;
+        return {
+          ...t,
+          status: 'closed',
+          exitPrice: h.hit === 'stop' ? t.stopLoss : t.target,
+          exitDate: todayKey(),
+          exitReason: h.hit,
+          closedBy: 'auto',
+          updatedAt: now,
+        };
+      })
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when prices change
+  }, [prices]);
+
+  const toggleAuto = (t) =>
+    persist(trades.map((x) => (x.id === t.id ? { ...x, autoClose: x.autoClose === false, updatedAt: new Date().toISOString() } : x)));
 
   const refresh = () => {
     setRefreshing(true);
@@ -261,6 +308,18 @@ export default function OpenTrades({ header, trades, persist, sync, onNew, onEdi
                 {rr ? ` · planned ${rr}:1` : ''}
                 {t.setupSignal ? ` · from ${t.setupSignal} check` : ''}
               </Text>
+              <TouchableOpacity
+                style={styles.autoRow}
+                onPress={() => toggleAuto(t)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: t.autoClose !== false }}
+                accessibilityLabel={`Auto-close ${t.name} at target or stop-loss`}
+              >
+                <Ionicons name={t.autoClose !== false ? 'checkbox' : 'square-outline'} size={18} color={t.autoClose !== false ? theme.primary : theme.textMuted} />
+                <Text style={[styles.sub, { color: t.autoClose !== false ? theme.text : theme.textMuted }]}>
+                  Auto-close at target / stop-loss{t.autoClose !== false && !t.symbol ? ' (needs a stock with a live price)' : ''}
+                </Text>
+              </TouchableOpacity>
               {hit ? (
                 <View style={[styles.alert, { backgroundColor: (hit === 'target' ? '#2DA44E' : '#E5383B') + '1F' }]}>
                   <Ionicons name={hit === 'target' ? 'flag-outline' : 'alert-circle-outline'} size={16} color={hit === 'target' ? '#2DA44E' : '#E5383B'} />
@@ -418,4 +477,5 @@ const styles = StyleSheet.create({
   save: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center' },
   saveText: { fontSize: 15, fontWeight: '700' },
   disabled: { opacity: 0.4 },
+  autoRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
 });
