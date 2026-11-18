@@ -1,11 +1,12 @@
-// IPO Watch: Indian IPOs (open, upcoming, just listed) found by Claude with
-// web search, a per-IPO review (Apply / Neutral / Avoid), and free news
-// headlines from Google News' search feed.
+// IPO Watch: Indian IPOs (open, upcoming, just listed), a per-IPO review
+// (Apply / Neutral / Avoid) by Claude, and free news headlines from Google
+// News' search feed.
 //
-// There is no free official IPO API, so Claude searches public pages and
-// reports what it found through a strict "report" tool. Results are cached
-// in MongoDB (ipocache) so repeat opens cost nothing: the list for 6 hours,
-// a review for 3 hours while bidding is open (12 hours otherwise).
+// The list is free: NSE's IPO data (dates, price band, subscription) and
+// grey-market pages for GMP (server/ipoFeed.js), re-read at most every 30
+// minutes. Claude (AI credits) is used only when you ask: a review of one IPO,
+// cached for 3 hours while bidding is open (12 hours otherwise), or "Search
+// with AI" for the whole list when the free sources are down.
 
 const Anthropic = require('@anthropic-ai/sdk');
 const { getModel } = require('../models');
@@ -13,7 +14,6 @@ const { getModel } = require('../models');
 const AnthropicClient = Anthropic.default || Anthropic;
 const MODEL = process.env.AI_MODEL || 'claude-opus-5-5';
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'].includes(process.env.AI_EFFORT) ? process.env.AI_EFFORT : 'medium';
-const LIST_TTL_MS = 6 * 3600 * 1000;
 const REVIEW_TTL_OPEN_MS = 3 * 3600 * 1000;
 const REVIEW_TTL_MS = 12 * 3600 * 1000;
 const NEWS_TTL_MS = 30 * 60 * 1000;
@@ -317,39 +317,72 @@ function searchAndStore() {
   });
 }
 
-/**
- * { ipos, fetchedAt, sources, cached, refreshing }. Saved IPOs come back at
- * once; when the last search is older than 6 hours a new one starts in the
- * background (refreshing: true) and the app asks again a little later.
- * `refresh` waits for a new search. With nothing saved yet, it waits too.
- */
-async function listIpos({ refresh = false } = {}) {
-  const meta = await cacheGet('list').catch(() => null);
-  const fresh = meta && Date.now() - Date.parse(meta.fetchedAt) < LIST_TTL_MS;
-  let ipos = await storedIpos();
-  if (refresh || !ipos.length) {
-    if (refresh || !fresh) {
-      await searchAndStore();
-      const after = await cacheGet('list').catch(() => null);
-      ipos = await storedIpos();
-      return { ipos, fetchedAt: after?.fetchedAt || new Date().toISOString(), sources: after?.data?.sources || [], cached: false, refreshing: false };
+// ---------------- the free refresh (NSE + grey-market pages, no AI) ----------------
+
+const FREE_TTL_MS = 30 * 60 * 1000; // the free sources are re-read at most every 30 min
+
+/** Read the free sources and store what they gave. Never uses AI credits. */
+function freeRefresh() {
+  return once('free', async () => {
+    const { fetchFreeIpos } = require('../ipoFeed');
+    let meta;
+    try {
+      const out = await fetchFreeIpos();
+      const ipos = out.ipos
+        .map((i) => {
+          const ipo = { ...i, id: slug(i.name), status: 'upcoming' };
+          ipo.status = statusOn(ipo, istDate());
+          return ipo;
+        })
+        .filter((i) => i.id);
+      await storeIpos(ipos);
+      meta = { ok: true, source: 'nse', gmpSource: out.gmpSource, found: ipos.length, notes: out.errors.slice(0, 5) };
+    } catch (error) {
+      console.error('[ipo] free refresh failed', error.message);
+      meta = { ok: false, source: 'nse', error: error.message };
     }
+    await cacheSet('free', meta).catch(() => {});
+    return meta;
+  });
+}
+
+/**
+ * { ipos, fetchedAt, source, free, cached, refreshing }. Saved IPOs come back
+ * at once, kept up to date from free sources (NSE for the list, dates, price
+ * band and subscription; grey-market pages for GMP). `refresh` waits for a
+ * free re-read. AI web search (credits) runs only with `ai`, when you ask.
+ */
+async function listIpos({ refresh = false, ai = false } = {}) {
+  if (ai) {
+    await searchAndStore();
+    const after = await cacheGet('list').catch(() => null);
+    return { ipos: await storedIpos(), fetchedAt: after?.fetchedAt || new Date().toISOString(), sources: after?.data?.sources || [], source: 'ai', cached: false, refreshing: false };
   }
-  let refreshing = inflight.has('list');
+  const meta = await cacheGet('free').catch(() => null);
+  const fresh = meta && meta.data?.ok && Date.now() - Date.parse(meta.fetchedAt) < FREE_TTL_MS;
+  let ipos = await storedIpos();
+  if (refresh || (!fresh && !ipos.length)) {
+    const free = await freeRefresh();
+    ipos = await storedIpos();
+    return { ipos, fetchedAt: new Date().toISOString(), source: 'free', free, cached: false, refreshing: false };
+  }
+  let refreshing = inflight.has('free');
   if (!fresh && !refreshing) {
     refreshing = true;
-    searchAndStore().catch((e) => console.error('[ipo] background search failed', e.message));
+    freeRefresh().catch(() => {});
   }
-  return { ipos, fetchedAt: meta?.fetchedAt || null, sources: meta?.data?.sources || [], cached: true, refreshing };
+  return { ipos, fetchedAt: meta?.fetchedAt || null, source: 'free', free: meta?.data || null, cached: true, refreshing };
 }
 
 /** { review, fetchedAt, cached } for one IPO by name. */
-async function reviewIpo(name, { refresh = false } = {}) {
+async function reviewIpo(name, { refresh = false, cachedOnly = false } = {}) {
   const clean = String(name || '').trim().slice(0, 80);
   const id = slug(clean);
   if (!id) throw Object.assign(new Error('Which IPO?'), { status: 400 });
   const key = `review:${id}`;
   const cached = await cacheGet(key).catch(() => null);
+  // Only what's saved (any age), never a new search: opening an IPO is free.
+  if (cachedOnly) return cached ? { ...cached.data, fetchedAt: cached.fetchedAt, cached: true } : { review: null, cached: true };
   if (cached && !refresh) {
     const ttl = cached.data?.review?.status === 'open' ? REVIEW_TTL_OPEN_MS : REVIEW_TTL_MS;
     if (Date.now() - Date.parse(cached.fetchedAt) < ttl) return { ...cached.data, fetchedAt: cached.fetchedAt, cached: true };

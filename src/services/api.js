@@ -248,14 +248,18 @@ export const serverAddress = () => API_URL;
 
 // ------- IPO Watch (AI web research on the server) -------
 
-/** { ipos, fetchedAt, sources, cached }. `refresh` runs a new search (costs AI credit). */
-export function fetchIpos(refresh = false) {
-  return request(`/api/ipos${refresh ? '?refresh=1' : ''}`);
+/**
+ * { ipos, fetchedAt, source, free, cached, refreshing }. Free: NSE data and
+ * grey-market GMP. `refresh` re-reads them now (free); `ai` runs an AI web
+ * search for the whole list instead (costs AI credit).
+ */
+export function fetchIpos(refresh = false, ai = false) {
+  return request(`/api/ipos${ai ? '?ai=1' : refresh ? '?refresh=1' : ''}`);
 }
 
 /** AI review of one IPO by name: { review, sources, fetchedAt, cached }. */
-export function fetchIpoReview(name, refresh = false) {
-  return request(`/api/ipos/review?name=${encodeURIComponent(name)}${refresh ? '&refresh=1' : ''}`);
+export function fetchIpoReview(name, refresh = false, cachedOnly = false) {
+  return request(`/api/ipos/review?name=${encodeURIComponent(name)}${refresh ? '&refresh=1' : ''}${cachedOnly ? '&cached=1' : ''}`);
 }
 
 /** Latest news headlines about an IPO: { items: [{ title, url, source, publishedAt }] }. */
