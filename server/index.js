@@ -244,10 +244,10 @@ function createApp() {
   });
 
   // IPO Watch (AI web research + free news headlines). Before /api/:collection.
-  // GET /api/ipos?refresh=1 → { ipos, fetchedAt, sources, cached }
+  // GET /api/ipos?refresh=1 (free re-read) | ?ai=1 (AI web search, credits) → { ipos, fetchedAt, source, free, cached, refreshing }
   app.get('/api/ipos', async (req, res) => {
     try {
-      res.json(await ipo.listIpos({ refresh: req.query.refresh === '1' }));
+      res.json(await ipo.listIpos({ refresh: req.query.refresh === '1', ai: req.query.ai === '1' }));
     } catch (error) {
       aiError(res, error, 'ipo list');
     }
@@ -255,7 +255,7 @@ function createApp() {
   // GET /api/ipos/review?name=…&refresh=1 → { review, sources, fetchedAt, cached }
   app.get('/api/ipos/review', async (req, res) => {
     try {
-      res.json(await ipo.reviewIpo(req.query.name, { refresh: req.query.refresh === '1' }));
+      res.json(await ipo.reviewIpo(req.query.name, { refresh: req.query.refresh === '1', cachedOnly: req.query.cached === '1' }));
     } catch (error) {
       aiError(res, error, 'ipo review');
     }

@@ -129,7 +129,7 @@ function datesLine(ipo) {
   const list = shortDate(ipo.listingDate);
   const parts = [];
   if (open || close) parts.push(`Bids ${open || '?'} – ${close || '?'}`);
-  if (list) parts.push(`${ipo.status === 'listed' ? 'Listed' : 'Lists'} ${list}`);
+  if (list) parts.push(`${ipo.status === 'listed' ? 'Listed' : 'Lists'} ${list}${ipo.listingEstimated && ipo.status !== 'listed' ? ' (est.)' : ''}`);
   return parts.join(' · ') || 'Dates not announced';
 }
 
@@ -259,7 +259,7 @@ function IpoCard({ ipo, onOpen, theme, apply }) {
     <TouchableOpacity
       activeOpacity={0.8}
       onPress={() => onOpen(ipo)}
-      accessibilityLabel={`${ipo.name}: open the AI review`}
+      accessibilityLabel={`${ipo.name}: details and AI review`}
       style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow }]}
     >
       <View style={styles.cardTop}>
@@ -292,7 +292,7 @@ function IpoCard({ ipo, onOpen, theme, apply }) {
             {ipo.gmpPct != null ? ` (${ipo.gmpPct >= 0 ? '+' : ''}${ipo.gmpPct}%)` : ''}
           </Text>
         ) : (
-          <Text style={[styles.gmp, { color: theme.textMuted }]}>{ipo.status === 'upcoming' ? 'Score after bidding opens' : 'No GMP reported'}</Text>
+          <Text style={[styles.gmp, { color: theme.textMuted }]}>{ipo.status === 'upcoming' ? 'GMP not available yet' : 'GMP not available'}</Text>
         )}
         <ScoreChip score={ipo.score} />
         <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
@@ -303,7 +303,7 @@ function IpoCard({ ipo, onOpen, theme, apply }) {
 }
 
 function ReviewModal({ target, onClose, theme }) {
-  const [state, setState] = useState({ loading: true, data: null, error: null });
+  const [state, setState] = useState({ loading: false, data: null, error: null });
   const [news, setNews] = useState(null);
   const name = target?.name;
 
@@ -324,12 +324,21 @@ function ReviewModal({ target, onClose, theme }) {
   useEffect(() => {
     if (!name) return undefined;
     let live = true;
-    // A saved review shows at once; the server's (usually cached) copy follows.
+    // A review already paid for shows at once (this device, then the server's
+    // saved copy). A new AI review only runs when you tap "Get AI review".
     readJson(REVIEWS_KEY).then((all) => {
       const saved = all?.[reviewKey(name)];
       if (live && saved) setState((s) => (s.data ? s : { ...s, data: saved }));
     });
-    const start = setTimeout(() => load(false), 0);
+    const start = setTimeout(() => {
+      fetchIpoReview(name, false, true)
+        .then((data) => {
+          if (!live || !data?.review) return;
+          setState((s) => ({ ...s, data }));
+          saveReview(name, data);
+        })
+        .catch(() => {});
+    }, 0);
     fetchIpoNews(name)
       .then((r) => live && setNews(r.items || []))
       .catch(() => live && setNews([]));
@@ -369,6 +378,31 @@ function ReviewModal({ target, onClose, theme }) {
               </View>
             ) : null}
             {state.error ? <Text style={[styles.line, { color: RED }]}>{state.error}</Text> : null}
+            {!review && !state.loading ? (
+              <>
+                {target?.openDate || target?.priceHigh ? (
+                  <>
+                    <Text style={[styles.line, { color: theme.textSecondary }]}>{datesLine(target)}</Text>
+                    <Text style={[styles.line, { color: theme.text }]}>{priceLine(target)}</Text>
+                    <SubscriptionBars sub={target.subscription} theme={theme} />
+                    {target.gmp != null ? (
+                      <Text style={[styles.line, { color: target.gmp >= 0 ? GREEN : RED }]}>
+                        GMP {target.gmp >= 0 ? '+' : '−'}₹{Math.abs(target.gmp)}
+                        {target.gmpPct != null ? ` (${target.gmpPct >= 0 ? '+' : ''}${target.gmpPct}%)` : ''}
+                        {target.gmpSource ? ` · ${target.gmpSource}` : ''} (unofficial)
+                      </Text>
+                    ) : null}
+                  </>
+                ) : null}
+                <TouchableOpacity onPress={() => load(false)} style={[styles.reviewBtn, { backgroundColor: GREEN }]} accessibilityLabel="Get AI review (uses AI credit)">
+                  <Ionicons name="sparkles" size={18} color="#fff" />
+                  <Text style={styles.reviewBtnText}>Get AI review</Text>
+                </TouchableOpacity>
+                <Text style={[styles.tiny, { color: theme.textMuted, textAlign: 'center' }]}>
+                  Apply / Neutral / Avoid with reasons, risks, financials and valuation. Uses AI credit (about a minute); saved for 12 hours.
+                </Text>
+              </>
+            ) : null}
             {review ? (
               <>
                 <LinearGradient colors={[v.color, v.color + 'BB']} style={styles.verdict}>
@@ -505,9 +539,9 @@ export default function IposScreen() {
   const again = useRef({ timer: null, tries: 0 });
   const [retry, setRetry] = useState(0);
 
-  const load = useCallback((refresh) => {
-    setState((s) => ({ ...s, loading: true, error: null }));
-    fetchIpos(refresh)
+  const load = useCallback((refresh, ai = false) => {
+    setState((s) => ({ ...s, loading: true, error: null, ai }));
+    fetchIpos(refresh, ai)
       .then((data) => {
         setState({ loading: false, data, error: null });
         setNow(Date.now());
@@ -597,20 +631,32 @@ export default function IposScreen() {
         <View style={styles.statusRow}>
           <Text style={[styles.tiny, { color: theme.textMuted, flex: 1 }]}>
             {state.loading
-              ? state.data
-                ? `Showing saved IPOs · checking for updates…`
-                : 'Finding IPOs… the first search takes about a minute.'
-              : state.data?.refreshing
-                ? `Showing saved IPOs (searched ${ago(state.data.fetchedAt, now)}) · looking for new ones in the background…`
+              ? state.ai
+                ? 'Searching the web with AI… about a minute (uses AI credit).'
                 : state.data
-                  ? `Updated ${ago(state.data.fetchedAt, now)} · tap an IPO for the AI review`
+                  ? 'Showing saved IPOs · checking NSE for updates…'
+                  : 'Getting IPOs from NSE…'
+              : state.data?.refreshing
+                ? 'Showing saved IPOs · checking NSE in the background…'
+                : state.data
+                  ? state.data.source === 'ai'
+                    ? `Searched with AI ${ago(state.data.fetchedAt, now)}`
+                    : state.data.free && state.data.free.ok === false
+                      ? `NSE didn't answer (${state.data.free.error || 'unavailable'}): showing saved IPOs`
+                      : `From NSE ${ago(state.data.fetchedAt, now)}${state.data.free?.gmpSource ? ` · GMP from ${state.data.free.gmpSource}` : ''} · free`
                   : ''}
           </Text>
-          <TouchableOpacity onPress={() => load(true)} disabled={state.loading} accessibilityLabel="Refresh the IPO list">
+          <TouchableOpacity onPress={() => load(true)} disabled={state.loading} accessibilityLabel="Refresh the IPO list (free)">
             {state.loading ? <ActivityIndicator color={GREEN} /> : <Ionicons name="refresh" size={20} color={GREEN} />}
           </TouchableOpacity>
         </View>
         {state.error ? <Text style={[styles.line, { color: RED, marginBottom: 10 }]}>{state.error}</Text> : null}
+        {!state.loading && (state.data?.free?.ok === false || (state.data && !all.length)) ? (
+          <TouchableOpacity onPress={() => load(false, true)} style={[styles.aiBtn, { borderColor: AMBER }]} accessibilityLabel="Search IPOs with AI (uses AI credit)">
+            <Ionicons name="sparkles-outline" size={16} color={AMBER} />
+            <Text style={[styles.aiBtnText, { color: AMBER }]}>Search with AI instead (uses AI credit)</Text>
+          </TouchableOpacity>
+        ) : null}
         {state.data ? (
           <>
             <FilterChips options={STATUS_FILTERS} value={statusFilter} onChange={setStatusFilter} counts={statusCounts} theme={theme} />
@@ -644,8 +690,9 @@ export default function IposScreen() {
 
         {state.data ? (
           <Text style={[styles.tiny, styles.disclaimer, { color: theme.textMuted }]}>
-            Found by AI web search of public IPO pages, so figures can lag. Demand score: QIB 40, overall 20, retail 10, GMP 30 points. GMP is unofficial. Decision support, not
-            investment advice. Refreshing runs a new search (uses AI credit).
+            List, dates, price band and subscription from NSE (free). GMP from grey-market websites: unofficial and can be missing. Listing dates marked (est.) are bidding
+            close + 3 working days. Demand score: QIB 40, overall 20, retail 10, GMP 30 points. AI credit is used only when you open an IPO review. Decision support, not investment
+            advice.
           </Text>
         ) : null}
       </ScrollView>
@@ -705,6 +752,10 @@ const styles = StyleSheet.create({
   link: { fontSize: 12, textDecorationLine: 'underline' },
   footRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14 },
   refresh: { fontSize: 14, fontWeight: '800' },
+  reviewBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 14, paddingVertical: 12, marginTop: 10 },
+  reviewBtnText: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  aiBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderRadius: 12, paddingVertical: 9, marginBottom: 10 },
+  aiBtnText: { fontSize: 13, fontWeight: '700' },
   applyRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth },
   applyState: { fontSize: 13, fontWeight: '800' },
   applyBtn: { borderWidth: 1.5, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 },

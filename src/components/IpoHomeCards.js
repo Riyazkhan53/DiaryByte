@@ -20,8 +20,8 @@ import {
 } from '../utils/ipoApps';
 
 // The saved IPO list is refreshed from the server when older than this. The
-// server answers from its stored list and searches again at most every 6 h.
-const LIST_MAX_AGE_MS = 3 * 3600000;
+// server re-reads NSE and the GMP pages (free) at most every 30 minutes.
+const LIST_MAX_AGE_MS = 30 * 60000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const shortDate = (key) => (key && /^\d{4}-\d{2}-\d{2}$/.test(key) ? `${Number(key.slice(8))} ${MONTHS[Number(key.slice(5, 7)) - 1]}` : null);
 
