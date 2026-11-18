@@ -456,6 +456,13 @@ function startScanner() {
         const cfg = await getConfig(market);
         if (cfg.scannerOn) await scan(market);
         else await updateOpenTrades();
+        // Your own paper trades: close the ones at their target or stop.
+        try {
+          const done = await require('./paperAutoClose').autoClosePaperTrades(market);
+          if (done.length) console.log(`[engine] auto-closed ${done.length} paper trade(s) in ${market}`);
+        } catch (error) {
+          console.error('[engine] paper auto-close failed', error.message);
+        }
       } catch (error) {
         ms.lastError = error.message;
       }

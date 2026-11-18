@@ -76,7 +76,7 @@ export default function CompletedTrades({ header, trades, persist, sync }) {
     persist(
       trades.map((t) =>
         t.id === reviewing.id
-          ? { ...t, status: 'open', exitPrice: undefined, exitDate: undefined, exitReason: undefined, updatedAt: new Date().toISOString() }
+          ? { ...t, status: 'open', exitPrice: undefined, exitDate: undefined, exitReason: undefined, closedBy: undefined, updatedAt: new Date().toISOString() }
           : t
       )
     );
@@ -201,6 +201,7 @@ export default function CompletedTrades({ header, trades, persist, sync }) {
               </View>
               <Text style={[styles.sub, { color: theme.textMuted }]}>
                 {exitReasonLabel(t.exitReason)}
+                {t.closedBy === 'auto' ? ' · auto' : ''}
                 {rr ? ` · planned ${rr}:1` : ''}
                 {t.setupSignal ? ` · entered on a ${t.setupSignal} check (${t.setupSignal === 'SELL' ? t.setupBearPct : t.setupBullPct}%)` : ''}
                 {t.followedPlan === true ? ' · followed plan' : t.followedPlan === false ? ' · broke plan' : ''}
