@@ -11,7 +11,7 @@
 const UA = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36';
 const NSE = 'https://www.nseindia.com';
 const NSE_PAGE = `${NSE}/market-data/all-upcoming-issues-ipo`;
-const TIMEOUT_MS = 12000;
+const TIMEOUT_MS = 10000;
 const KEEP_LISTED_DAYS = 45;
 const DEFAULT_GMP_URLS = ['https://ipowatch.in/ipo-grey-market-premium-latest-ipo-gmp/', 'https://www.investorgain.com/report/live-ipo-gmp/331/'];
 
@@ -146,25 +146,114 @@ const text = (html) =>
     .replace(/\s+/g, ' ')
     .trim();
 
-/** Every HTML table with a GMP column → [{ name, gmp }] (gmp in ₹, or null when blank). */
-function parseGmpTables(html) {
+/**
+ * Day and month (no year), e.g. "18 Nov", "18-Nov", "Nov 18" → "YYYY-MM-DD"
+ * in the year that puts it nearest `today` (an IPO is weeks away, not months).
+ */
+function dayMonth(day, mon, today) {
+  const m = MONTHS[String(mon || '').slice(0, 3).toLowerCase()];
+  const d = Number(day);
+  if (!m || !(d >= 1 && d <= 31)) return null;
+  const y0 = Number(today.slice(0, 4));
+  const best = [y0 - 1, y0, y0 + 1]
+    .map((y) => `${y}-${pad(m)}-${pad(d)}`)
+    .sort((x, z) => Math.abs(Date.parse(x) - Date.parse(today)) - Math.abs(Date.parse(z) - Date.parse(today)))[0];
+  return best;
+}
+
+/** A single date cell: full dates, or "18-Nov" / "18 Nov" / "Nov 18" without a year. */
+function cellDate(textValue, today) {
+  const full = parseDate(textValue);
+  if (full) return full;
+  const s = String(textValue || '').trim();
+  const dayFirst = () => {
+    const m = s.match(/(\d{1,2})[\s\-/]*([A-Za-z]{3,})/);
+    return m ? dayMonth(m[1], m[2], today) : null;
+  };
+  const monthFirst = () => {
+    const m = s.match(/([A-Za-z]{3,})[\s\-/]*(\d{1,2})\b/);
+    return m ? dayMonth(m[2], m[1], today) : null;
+  };
+  return /^[A-Za-z]/.test(s) ? monthFirst() || dayFirst() : dayFirst() || monthFirst();
+}
+
+/** "18-20 Nov", "18 Nov - 20 Nov", "28 Nov-2 Dec", "Nov 18-20" → { open, close }. */
+function dateRange(textValue, today) {
+  const s = String(textValue || '').replace(/\s+/g, ' ').trim();
+  let m = s.match(/^(\d{1,2})\s*[-–]\s*(\d{1,2})\s+([A-Za-z]{3,})/);
+  if (m) return { open: dayMonth(m[1], m[3], today), close: dayMonth(m[2], m[3], today) };
+  m = s.match(/(\d{1,2})\s*([A-Za-z]{3,})\s*[-–to]+\s*(\d{1,2})\s*([A-Za-z]{3,})/);
+  if (m) return { open: dayMonth(m[1], m[2], today), close: dayMonth(m[3], m[4], today) };
+  m = s.match(/([A-Za-z]{3,})\s*(\d{1,2})\s*[-–]\s*([A-Za-z]{3,})\s*(\d{1,2})/);
+  if (m) return { open: dayMonth(m[2], m[1], today), close: dayMonth(m[4], m[3], today) };
+  m = s.match(/([A-Za-z]{3,})\s*(\d{1,2})\s*[-–]\s*(\d{1,2})/);
+  if (m) return { open: dayMonth(m[2], m[1], today), close: dayMonth(m[3], m[1], today) };
+  const one = cellDate(s, today);
+  return { open: one, close: null };
+}
+
+const cleanName = (n) =>
+  String(n || '')
+    .replace(/\b(NSE|BSE)\s*SME\b/gi, '')
+    .replace(/\(\s*(SME|Mainboard|NSE|BSE)[^)]*\)/gi, '')
+    .replace(/\bIPO\b/gi, '')
+    .replace(/\bSME\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .replace(/[\s\-–:|]+$/, '')
+    .trim();
+
+/**
+ * Every HTML table with a GMP column → [{ name, gmp, priceLow, priceHigh,
+ * openDate, closeDate, listingDate, lotSize, board, subscription }]. Columns
+ * are found by their headings, so it reads ipowatch.in ("Current IPOs | IPO
+ * GMP | IPO Price | Gain | Date | Type") and investorgain-style tables
+ * ("Name | GMP | Sub | Price | Lot | Open | Close | Listing") alike.
+ */
+function parseGmpTables(html, today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10)) {
   const out = [];
   const tables = String(html || '').match(/<table[\s\S]*?<\/table>/gi) || [];
   tables.forEach((table) => {
     const rows = (table.match(/<tr[\s\S]*?<\/tr>/gi) || []).map((tr) => (tr.match(/<t[hd][^>]*>[\s\S]*?<\/t[hd]>/gi) || []).map(text));
     const hi = rows.findIndex((cells) => cells.some((c) => /\bgmp\b/i.test(c)));
     if (hi < 0) return;
-    const head = rows[hi];
-    const gi = head.findIndex((c) => /\bgmp\b/i.test(c) && !/%|percent|gain|est/i.test(c));
-    const gmpCol = gi >= 0 ? gi : head.findIndex((c) => /\bgmp\b/i.test(c));
-    let ni = head.findIndex((c, i) => i !== gmpCol && /ipo|name|company/i.test(c));
+    const head = rows[hi].map((c) => c.toLowerCase());
+    const col = (re, not) => head.findIndex((c) => re.test(c) && !(not && not.test(c)));
+    const gi = col(/\bgmp\b/, /%|percent|gain|est|l\/h|low|high/);
+    const gmpCol = gi >= 0 ? gi : col(/\bgmp\b/);
+    let ni = head.findIndex((c, i) => i !== gmpCol && /ipo|name|company|issuer/.test(c) && !/price|size|date|gmp/.test(c));
     if (ni < 0) ni = 0;
+    const priceCol = col(/price/, /gmp|listing/);
+    const dateCol = col(/^date$|\bdates?\b/, /listing|allot|boa|updated/);
+    const openCol = col(/\bopen/);
+    const closeCol = col(/\bclose/);
+    const listCol = col(/listing/, /gain|price|gmp/);
+    const lotCol = col(/\blot\b/);
+    const typeCol = col(/\btype\b|board|exchange/);
+    const subCol = col(/\bsub/);
     rows.slice(hi + 1).forEach((cells) => {
-      const name = cells[ni];
+      const rawName = cells[ni];
       const raw = cells[gmpCol];
-      if (!name || raw == null || /\bgmp\b/i.test(name)) return;
+      if (!rawName || raw == null || /\bgmp\b/i.test(rawName)) return;
+      const name = cleanName(rawName);
+      if (!name) return;
       const m = String(raw).replace(/,/g, '').match(/(-)?\s*₹?\s*(\d+(?:\.\d+)?)/);
-      out.push({ name, gmp: m ? Number(m[2]) * (m[1] ? -1 : 1) : null });
+      const band = priceCol >= 0 ? parsePriceBand(cells[priceCol]) : { low: null, high: null };
+      let range = dateCol >= 0 ? dateRange(cells[dateCol], today) : { open: null, close: null };
+      if (openCol >= 0 || closeCol >= 0) range = { open: openCol >= 0 ? cellDate(cells[openCol], today) : range.open, close: closeCol >= 0 ? cellDate(cells[closeCol], today) : range.close };
+      const typeText = `${typeCol >= 0 ? cells[typeCol] : ''} ${rawName}`;
+      const sub = subCol >= 0 ? num(cells[subCol]) : null;
+      out.push({
+        name,
+        gmp: m ? Number(m[2]) * (m[1] ? -1 : 1) : null,
+        priceLow: band.low,
+        priceHigh: band.high,
+        openDate: range.open,
+        closeDate: range.close,
+        listingDate: listCol >= 0 ? cellDate(cells[listCol], today) : null,
+        lotSize: lotCol >= 0 ? num(cells[lotCol]) : null,
+        board: /\bsme\b/i.test(typeText) ? 'sme' : /main/i.test(typeText) ? 'mainboard' : null,
+        subscription: sub > 0 ? { overall: sub, qib: null, nii: null, retail: null, asOf: null } : null,
+      });
     });
   });
   return out;
@@ -221,12 +310,12 @@ async function nseJson(path, fetchImpl) {
   throw new Error('NSE refused the request');
 }
 
-async function fetchGmp(fetchImpl, urls) {
+async function fetchGmp(fetchImpl, urls, today) {
   for (const url of urls) {
     try {
       const res = await fetchImpl(url, { headers: { 'User-Agent': UA, Accept: 'text/html' }, signal: AbortSignal.timeout(TIMEOUT_MS) });
       if (!res.ok) continue;
-      const rows = parseGmpTables(await res.text());
+      const rows = parseGmpTables(await res.text(), today);
       if (rows.length) return { rows, source: new URL(url).hostname.replace(/^www\./, '') };
     } catch (_error) {
       // try the next page
@@ -240,8 +329,15 @@ async function fetchGmp(fetchImpl, urls) {
  * { ipos: [app IPO fields + symbol], gmpSource, errors: [] }.
  * Throws only when NSE gave nothing at all.
  */
-async function fetchFreeIpos({ fetchImpl = globalThis.fetch, today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10), gmpUrls } = {}) {
+// After NSE times out (it often stalls requests from cloud servers), skip it
+// for a while so refreshing stays quick; the grey-market pages carry the list.
+const NSE_PAUSE_MS = 60 * 60000;
+let nseDownUntil = 0;
+
+/** IPOs from NSE: { ipos, errors }; ipos is null when NSE gave nothing. */
+async function nseIpos(fetchImpl, today) {
   const errors = [];
+  if (Date.now() < nseDownUntil) return { ipos: null, errors: ['NSE skipped: it did not answer in the last hour'] };
   const lists = await Promise.all(
     ['/api/ipo-current-issue', '/api/all-upcoming-issues?category=ipo', '/api/public-past-issues'].map((p) =>
       nseJson(p, fetchImpl).catch((e) => {
@@ -250,7 +346,10 @@ async function fetchFreeIpos({ fetchImpl = globalThis.fetch, today = new Date(Da
       })
     )
   );
-  if (lists.every((l) => l == null)) throw new Error(errors[0] || 'NSE gave no IPO data');
+  if (lists.every((l) => l == null)) {
+    nseDownUntil = Date.now() + NSE_PAUSE_MS;
+    return { ipos: null, errors };
+  }
   const [current, upcoming, past] = lists.map(rowsOf);
   const cutoff = new Date(Date.parse(`${today}T00:00:00Z`) - KEEP_LISTED_DAYS * 86400000).toISOString().slice(0, 10);
   const byName = new Map();
@@ -289,22 +388,60 @@ async function fetchFreeIpos({ fetchImpl = globalThis.fetch, today = new Date(Da
       // lot size stays as saved
     }
   }
-
-  // GMP (unofficial) for anything not listed yet.
-  const urls = gmpUrls || (process.env.IPO_GMP_URLS ? process.env.IPO_GMP_URLS.split(',').map((u) => u.trim()).filter(Boolean) : DEFAULT_GMP_URLS);
-  const gmp = await fetchGmp(fetchImpl, urls);
-  if (!gmp.rows.length) errors.push('GMP pages gave nothing');
-  const asOf = new Date().toISOString();
-  ipos.forEach((ipo) => {
-    if (ipo.listingDate && !ipo.listingEstimated && ipo.listingDate < today) return;
-    const hit = matchGmp(ipo.name, gmp.rows);
-    if (hit && hit.gmp != null) {
-      ipo.gmp = hit.gmp;
-      ipo.gmpAsOf = asOf;
-      ipo.gmpSource = gmp.source;
-    }
-  });
-  return { ipos, gmpSource: gmp.source, errors };
+  return { ipos, errors };
 }
 
-module.exports = { fetchFreeIpos, _test: { parseDate, parsePriceBand, fromNseRow, parseCategories, parseGmpTables, matchGmp, addWorkingDays, deepNum } };
+/** A GMP-page row as IPO fields (only what it carries). */
+function fromGmpRow(r, today) {
+  const ipo = { name: r.name };
+  ['priceLow', 'priceHigh', 'openDate', 'closeDate', 'lotSize', 'board', 'subscription'].forEach((k) => r[k] != null && (ipo[k] = r[k]));
+  if (r.listingDate) ipo.listingDate = r.listingDate;
+  else if (r.closeDate) {
+    ipo.listingDate = addWorkingDays(r.closeDate, 3);
+    ipo.listingEstimated = true;
+  }
+  if (r.gmp != null && !(ipo.listingDate && !ipo.listingEstimated && ipo.listingDate < today)) {
+    ipo.gmp = r.gmp;
+    ipo.gmpAsOf = new Date().toISOString();
+  }
+  return ipo;
+}
+
+/**
+ * The current IPO picture from free sources: NSE (exact dates, category-wise
+ * subscription) when it answers, and the grey-market pages for GMP, and for
+ * the list itself when NSE doesn't. { ipos, source: 'nse' | 'gmp' | 'nse+gmp',
+ * gmpSource, nseOk, errors }. Throws only when both gave nothing.
+ */
+async function fetchFreeIpos({ fetchImpl = globalThis.fetch, today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10), gmpUrls } = {}) {
+  const urls = gmpUrls || (process.env.IPO_GMP_URLS ? process.env.IPO_GMP_URLS.split(',').map((u) => u.trim()).filter(Boolean) : DEFAULT_GMP_URLS);
+  const [nse, gmp] = await Promise.all([nseIpos(fetchImpl, today), fetchGmp(fetchImpl, urls, today)]);
+  const errors = [...nse.errors];
+  if (!gmp.rows.length) errors.push('GMP pages gave nothing');
+  if (!nse.ipos && !gmp.rows.length) throw new Error(errors[0] || 'No IPO source answered');
+
+  let ipos;
+  if (nse.ipos) {
+    ipos = nse.ipos;
+    // GMP (unofficial) for anything not listed yet.
+    const asOf = new Date().toISOString();
+    ipos.forEach((ipo) => {
+      if (ipo.listingDate && !ipo.listingEstimated && ipo.listingDate < today) return;
+      const hit = matchGmp(ipo.name, gmp.rows);
+      if (hit && hit.gmp != null) {
+        ipo.gmp = hit.gmp;
+        ipo.gmpAsOf = asOf;
+        ipo.gmpSource = gmp.source;
+      }
+    });
+    // Anything on the GMP page that NSE doesn't list (e.g. BSE SME issues).
+    gmp.rows
+      .filter((r) => !ipos.some((i) => matchGmp(i.name, [r])))
+      .forEach((r) => ipos.push({ ...fromGmpRow(r, today), gmpSource: gmp.source }));
+  } else {
+    ipos = gmp.rows.map((r) => ({ ...fromGmpRow(r, today), gmpSource: gmp.source }));
+  }
+  return { ipos, source: nse.ipos ? (gmp.rows.length ? 'nse+gmp' : 'nse') : 'gmp', gmpSource: gmp.source, nseOk: !!nse.ipos, errors };
+}
+
+module.exports = { fetchFreeIpos, _test: { parseDate, parsePriceBand, fromNseRow, parseCategories, parseGmpTables, matchGmp, addWorkingDays, deepNum, dateRange, cellDate, cleanName, fromGmpRow, resetNse: () => (nseDownUntil = 0) } };

@@ -328,18 +328,32 @@ function freeRefresh() {
     let meta;
     try {
       const out = await fetchFreeIpos();
+      // Reuse a saved IPO's id when the names match ("Crystal Crop Protection"
+      // vs "Crystal Crop Protection Ltd"), so a source switch makes no duplicates.
+      const saved = await getModel('iporecords').find({}).lean().catch(() => []);
+      const words = (n) => slug(n).split('-').filter((w) => w && !['sme', 'nse', 'bse', 'emerge'].includes(w));
+      const idFor = (name) => {
+        const want = words(name);
+        const hit = saved.find((d) => {
+          const have = words(d.data?.name || d.id);
+          if (!want.length || !have.length || have[0] !== want[0]) return false;
+          const common = want.filter((w) => have.includes(w)).length;
+          return common / Math.min(want.length, have.length) >= 0.75;
+        });
+        return hit ? hit.id : slug(name);
+      };
       const ipos = out.ipos
         .map((i) => {
-          const ipo = { ...i, id: slug(i.name), status: 'upcoming' };
+          const ipo = { ...i, id: idFor(i.name), status: 'upcoming' };
           ipo.status = statusOn(ipo, istDate());
           return ipo;
         })
         .filter((i) => i.id);
       await storeIpos(ipos);
-      meta = { ok: true, source: 'nse', gmpSource: out.gmpSource, found: ipos.length, notes: out.errors.slice(0, 5) };
+      meta = { ok: true, source: out.source, nseOk: out.nseOk, gmpSource: out.gmpSource, found: ipos.length, notes: out.errors.slice(0, 5) };
     } catch (error) {
       console.error('[ipo] free refresh failed', error.message);
-      meta = { ok: false, source: 'nse', error: error.message };
+      meta = { ok: false, source: 'none', error: error.message };
     }
     await cacheSet('free', meta).catch(() => {});
     return meta;
