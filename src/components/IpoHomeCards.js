@@ -35,7 +35,8 @@ async function readList() {
 
 /**
  * Home screen IPO cards:
- * - IPOs with GMP above 20% to apply for, until they close or you tap Applied
+ * - "Good to apply" suggestions while bidding is open (GMP above 20%), until
+ *   it closes or you tap Applied / ✕. Nothing is applied for you.
  * - "Did you get an allotment?" for applied IPOs once bidding has closed
  * - listing-day reminders for IPOs you were allotted
  */
@@ -90,14 +91,13 @@ export default function IpoHomeCards({ theme }) {
           <View key={`hot:${ipo.id}`} style={styles.wrap}>
             <LinearGradient colors={['#1F9D55', '#2DA44E']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.banner}>
               <TouchableOpacity style={styles.main} onPress={openIpos} activeOpacity={0.8} accessibilityLabel={`${ipo.name}: open IPO Watch`}>
-                <Ionicons name="flame" size={20} color="#FFF" />
+                <Ionicons name="thumbs-up" size={20} color="#FFF" />
                 <View style={styles.text}>
                   <Text style={styles.title} numberOfLines={1}>
-                    Apply: {ipo.name}
+                    Good to apply: {ipo.name}
                   </Text>
                   <Text style={styles.sub} numberOfLines={1}>
-                    GMP +{pct}%{ipo.status === 'upcoming' ? ` · opens ${shortDate(ipo.openDate) || 'soon'}` : ''}
-                    {close ? ` · closes ${close}` : ''}
+                    Bidding open · GMP +{pct}%{close ? (ipo.closeDate === today ? ' · closes today' : ` · till ${close}`) : ''}
                   </Text>
                 </View>
               </TouchableOpacity>
