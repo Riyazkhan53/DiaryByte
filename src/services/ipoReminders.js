@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { ensureNotificationPermission, setupAutopayNotifications } from './autopayReminders';
 import { addDays, fromKey, todayKey } from '../utils/autopay';
-import { allottedListings } from '../utils/ipoApps';
+import { HOT_GMP_PCT, allottedListings, appFor, gmpPctOf } from '../utils/ipoApps';
 
 export { IPOAPPS_STORAGE_KEY } from '../utils/ipoApps';
 const WEB_NOTIFIED_KEY = '@diarybyte_ipo_web_notified';
@@ -16,8 +16,23 @@ const isNative = Platform.OS !== 'web';
  * allotted IPO, and 6 PM the day after bidding closes for an applied IPO
  * (allotment is usually out by then). [{ key, date, hour, title, body }]
  */
-export function ipoReminders(apps, today = todayKey()) {
+export function ipoReminders(apps, today = todayKey(), ipos = []) {
   const out = [];
+  // "Good to apply" on the morning bidding opens, for IPOs with GMP above
+  // 20% you haven't marked (a suggestion: you apply in your broker app).
+  (ipos || [])
+    .filter((i) => i?.id && i.openDate && !appFor(apps, i) && (gmpPctOf(i) ?? -Infinity) > HOT_GMP_PCT)
+    .filter((i) => i.status !== 'listed' && (!i.closeDate || i.closeDate >= today))
+    .forEach((i) => {
+      const close = i.closeDate ? ` · bidding open till ${Number(i.closeDate.slice(8))} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(i.closeDate.slice(5, 7)) - 1]}` : '';
+      out.push({
+        key: `ipo-open:${i.id}`,
+        date: i.openDate,
+        hour: 10,
+        title: `👍 Good to apply: ${i.name}`,
+        body: `GMP +${gmpPctOf(i)}% (unofficial)${close}. Apply in your broker app if you agree, then mark it applied in DiaryByte.`,
+      });
+    });
   allottedListings(apps, today)
     .filter((a) => a.listingDate)
     .forEach((a) => {
@@ -49,13 +64,13 @@ function setupChannel() {
 let queue = Promise.resolve();
 
 /** Replace every scheduled IPO reminder with a fresh set built from `apps`. */
-export function rescheduleIpoReminders(apps) {
+export function rescheduleIpoReminders(apps, ipos = []) {
   if (!isNative) return Promise.resolve();
-  queue = queue.then(() => rescheduleNow(apps));
+  queue = queue.then(() => rescheduleNow(apps, ipos));
   return queue;
 }
 
-async function rescheduleNow(apps) {
+async function rescheduleNow(apps, ipos) {
   try {
     await setupAutopayNotifications();
     await setupChannel();
@@ -63,7 +78,7 @@ async function rescheduleNow(apps) {
     await Promise.all(
       scheduled.filter((n) => n.content?.data?.type === 'ipo').map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier))
     );
-    const wanted = ipoReminders(apps);
+    const wanted = ipoReminders(apps, todayKey(), ipos);
     if (!wanted.length) return;
     if (!(await ensureNotificationPermission())) return;
     const now = Date.now();
@@ -88,7 +103,7 @@ async function rescheduleNow(apps) {
 }
 
 /** Web: while the app is open, one browser notification per reminder on its day. */
-export async function showDueIpoWebNotifications(apps) {
+export async function showDueIpoWebNotifications(apps, ipos = []) {
   if (isNative || typeof window === 'undefined' || !('Notification' in window)) return;
   if (window.Notification.permission !== 'granted') return;
   const today = todayKey();
@@ -99,7 +114,7 @@ export async function showDueIpoWebNotifications(apps) {
   } catch {
     notified = {};
   }
-  const due = ipoReminders(apps, today).filter((r) => r.date === today && hour >= r.hour && !notified[r.key]);
+  const due = ipoReminders(apps, today, ipos).filter((r) => r.date === today && hour >= r.hour && !notified[r.key]);
   if (!due.length) return;
   due.forEach((r) => {
     try {

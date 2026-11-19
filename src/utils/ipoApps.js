@@ -39,14 +39,25 @@ export function canStillApply(ipo, today) {
 
 export const appFor = (apps, ipo) => (apps || []).find((a) => a.id === ipo?.id);
 
+/** Is bidding open on `today` (between the open and close dates)? */
+export function biddingOpen(ipo, today) {
+  const open = dateKey(ipo?.openDate);
+  const close = dateKey(ipo?.closeDate);
+  if (close && today > close) return false;
+  if (open && today < open) return false;
+  // Inside the known dates; with only a close date, trust the status.
+  return open ? true : ipo?.status === 'open';
+}
+
 /**
- * Open and upcoming IPOs with GMP above HOT_GMP_PCT that you haven't marked
- * applied (or skipped), until their close date. Soonest close first.
+ * "Good to apply" suggestions: IPOs whose bidding is open today, with GMP
+ * above HOT_GMP_PCT, that you haven't marked applied (or skipped). Nothing is
+ * applied for you; upcoming IPOs wait for their open date. Soonest close first.
  */
 export function hotIpos(ipos, apps, today, minPct = HOT_GMP_PCT) {
   return (ipos || [])
     .filter((i) => i?.id && !appFor(apps, i))
-    .filter((i) => i.status !== 'listed' && canStillApply(i, today))
+    .filter((i) => i.status !== 'listed' && biddingOpen(i, today))
     .filter((i) => (gmpPctOf(i) ?? -Infinity) > minPct)
     .sort((a, b) => String(a.closeDate || '9').localeCompare(String(b.closeDate || '9')));
 }
