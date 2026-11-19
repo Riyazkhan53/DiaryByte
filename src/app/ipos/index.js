@@ -18,6 +18,7 @@ import Header from '../../components/Header';
 import { useTheme } from '../../hooks/useTheme';
 import { fetchIpoNews, fetchIpoReview, fetchIpos } from '../../services/api';
 import HScroll from '../../components/HScroll';
+import { confirmAction } from '../../utils/confirm';
 import { useSyncedCollection } from '../../hooks/useSyncedCollection';
 import { todayKey } from '../../utils/autopay';
 import { IPOAPPS_STORAGE_KEY, IPO_LIST_KEY, appFor, canStillApply, listingLabel, newApp, withLatestDates } from '../../utils/ipoApps';
@@ -203,9 +204,9 @@ function ApplyRow({ ipo, app, today, onMark, onAnswer, onUndo, theme }) {
     return (
       <View style={[styles.applyRow, { borderColor: theme.border }]}>
         <Text style={[styles.tiny, styles.flex, { color: theme.textMuted }]}>
-          {canStillApply(ipo, today) ? 'Applying? Mark it to get the allotment check and listing reminder.' : 'Applied before it closed? Mark it.'}
+          {canStillApply(ipo, today) ? 'Apply in your broker app, then tap "I applied" for the allotment check and listing reminder.' : 'Applied before it closed? Tap "I applied".'}
         </Text>
-        <Btn label="Mark as applied" filled onPress={() => onMark(ipo, 'applied')} a11y={`Mark ${ipo.name} as applied`} />
+        <Btn label="I applied" filled onPress={() => onMark(ipo, 'applied')} a11y={`I applied for ${ipo.name} (mark it)`} />
       </View>
     );
   }
@@ -213,7 +214,7 @@ function ApplyRow({ ipo, app, today, onMark, onAnswer, onUndo, theme }) {
     return (
       <View style={[styles.applyRow, { borderColor: theme.border }]}>
         <Text style={[styles.tiny, styles.flex, { color: theme.textMuted }]}>Not applying (hidden from home)</Text>
-        <Btn label="Applied" onPress={() => onMark(ipo, 'applied')} a11y={`Mark ${ipo.name} as applied`} />
+        <Btn label="I applied" onPress={() => onMark(ipo, 'applied')} a11y={`I applied for ${ipo.name} (mark it)`} />
         <Btn label="Undo" color={theme.textMuted} onPress={() => onUndo(app)} a11y={`Undo for ${ipo.name}`} />
       </View>
     );
@@ -531,7 +532,15 @@ export default function IposScreen() {
   const apply = {
     apps,
     today,
-    onMark: (ipo, status) => persistApps([...apps.filter((a) => a.id !== ipo.id), newApp(ipo, status)]),
+    onMark: (ipo, status) =>
+      status === 'applied'
+        ? confirmAction(
+            'Did you apply?',
+            `Mark ${ipo.name} as applied only after you've applied in your broker app. DiaryByte never applies for you; this just turns on the allotment check and listing reminder.`,
+            'I applied',
+            () => persistApps([...apps.filter((a) => a.id !== ipo.id), newApp(ipo, status)])
+          )
+        : persistApps([...apps.filter((a) => a.id !== ipo.id), newApp(ipo, status)]),
     onAnswer: (app, result) => persistApps(apps.map((a) => (a.id === app.id ? { ...a, result, updatedAt: stamp() } : a))),
     onUndo: (app) => persistApps(apps.filter((a) => a.id !== app.id)),
   };

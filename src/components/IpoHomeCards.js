@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useSyncedCollection } from '../hooks/useSyncedCollection';
+import { confirmAction } from '../utils/confirm';
 import { fetchIpos } from '../services/api';
 import { todayKey } from '../utils/autopay';
 import {
@@ -102,8 +103,19 @@ export default function IpoHomeCards({ theme }) {
                 </View>
               </TouchableOpacity>
               <View style={styles.actions}>
-                <TouchableOpacity onPress={() => mark(ipo, 'applied')} style={styles.pill} accessibilityLabel={`Mark ${ipo.name} as applied`}>
-                  <Text style={styles.pillText}>Applied</Text>
+                <TouchableOpacity
+                  onPress={() =>
+                    confirmAction(
+                      'Did you apply?',
+                      `Mark ${ipo.name} as applied only after you've applied in your broker app. DiaryByte never applies for you; this just turns on the allotment check and listing reminder.`,
+                      'I applied',
+                      () => mark(ipo, 'applied')
+                    )
+                  }
+                  style={styles.pill}
+                  accessibilityLabel={`I applied for ${ipo.name} (mark it)`}
+                >
+                  <Text style={styles.pillText}>I applied</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => mark(ipo, 'skipped')} style={styles.iconBtn} accessibilityLabel={`Not applying for ${ipo.name}`}>
                   <Ionicons name="close" size={18} color="#FFF" />
