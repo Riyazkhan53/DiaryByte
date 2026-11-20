@@ -27,6 +27,7 @@ export function linkLabel(url) {
   const known = [
     ['bookmyshow', 'BookMyShow'],
     ['bms.to', 'BookMyShow'],
+    ['bmsurl', 'BookMyShow'],
     ['district', 'District'],
     ['paytm', 'Paytm'],
     ['insider', 'Insider'],
@@ -49,7 +50,9 @@ function guessType(text) {
   if (/\b(concert|live|event|show|standup|stand-up|comedy|festival|match|stadium)\b/.test(t) && !/\b(screen|audi|cinemas?|imax|4dx)\b/.test(t)) {
     return 'event';
   }
-  if (/\b(movie|film|cinemas?|theatre|theater|screen|audi|imax|4dx|pvr|inox|cinepolis|bookmyshow)\b/.test(t)) return 'movie';
+  if (/\b(movie|film|cinemas?|theatre|theater|screen|audi|imax|4dx|pvr|inox|cinepolis|bookmyshow|bmsurl)\b/.test(t)) return 'movie';
+  // BookMyShow's share: "we're watching <movie>".
+  if (/\b(?:we(?:'|’)?re|we are|i(?:'|’)?m|i am)\s+(?:going\s+to\s+)?watching\b/.test(t)) return 'movie';
   return 'other';
 }
 
@@ -123,6 +126,8 @@ const clean = (s) =>
 // Pieces of a message that are labels or dates, never the title.
 const NOT_TITLE = /^(?:booking|pnr|seats?|ticket|order|confirmation|date|time|dep|arr|doj|trn|fare|amount|total|qty|hi|hey|hello|dear|your|thank|thanks|view|mon|tue|wed|thu|fri|sat|sun)\b/i;
 
+const PROMO = /\b(?:don(?:'|’)?t miss|do not miss|check (?:it|this) out|book (?:now|your)|grab (?:your|now)|enjoy|here(?:'|’)?s|find (?:ticket|your)|let(?:'|’)?s go|you(?:'|’)?re invited|join (?:me|us))\b/i;
+
 function extractTitle(text, type, metaTitle) {
   if (type === 'flight') {
     const m = text.match(/\b(indigo|air india express|air india|akasa(?: air)?|spicejet|vistara)\b(?:\s+flight)?\s*([A-Z0-9]{2}\s?-?\d{2,4})?/i);
@@ -133,6 +138,8 @@ function extractTitle(text, type, metaTitle) {
     if (m) return `Train ${m[1]}`;
   }
   const patterns = [
+    // BookMyShow: "Hey there, we're watching O.M Operation Mole . Find ticket details…"
+    /\b(?:we(?:'|’)?re|we are|i(?:'|’)?m|i am)\s+(?:going\s+to\s+)?(?:watching|seeing|attending)\s+["“']?(.+?)["”']?\s*(?:\.\s|\.$|!|\n|,|\s[-–]\s|\bon\b|\bat\b|$)/i,
     /tickets?\s+(?:booked\s+)?for\s+["“']?(.+?)["”']?\s*(?:\(|\bon\b|\bat\b|,|\.\s|\n|$)/i,
     /\bbooked\s+(?:\d+\s+tickets?\s+for\s+)?["“']?(.+?)["”']?\s*(?:\(|\bon\b|\bat\b|,|\.\s|\n|$)/i,
     /\b(?:movie|event|show|film)\s*[:-]\s*(.+?)\s*(?:\(|\n|$)/i,
@@ -142,7 +149,8 @@ function extractTitle(text, type, metaTitle) {
     const m = text.match(re);
     if (m && clean(m[1]).length >= 2 && !URL_RE.test(m[1])) return clean(m[1]).slice(0, 80);
   }
-  if (metaTitle && clean(metaTitle)) return clean(metaTitle).slice(0, 80);
+  // The share's subject line, unless it is a promo line ("Don't miss this one!").
+  if (metaTitle && clean(metaTitle) && !PROMO.test(metaTitle)) return clean(metaTitle).slice(0, 80);
   // Otherwise the first piece of the message that isn't a label, date or number.
   const piece = text
     .split(/\n|\.\s|\s\|\s|\s[-–]\s|,\s/)
