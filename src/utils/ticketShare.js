@@ -32,6 +32,7 @@ export function linkLabel(url) {
     ['paytm', 'Paytm'],
     ['insider', 'Insider'],
     ['pvrcinemas', 'PVR'],
+    ['pvrinox', 'PVR INOX'],
     ['irctc', 'IRCTC'],
     ['redbus', 'redBus'],
     ['goindigo', 'IndiGo'],
@@ -107,6 +108,9 @@ function extractBookingRef(text) {
 
 function extractSeat(text, type) {
   const seat = '[A-Z]{1,2}[- ]?\\d{1,3}[A-Z]?';
+  // PVR: "2seats (G5,G6, AUDI 10)": the seats inside the brackets.
+  const paren = text.match(new RegExp(`(?<![A-Za-z])seats?\\s*\\(\\s*(${seat}(?:\\s*,\\s*${seat})*)`, 'i'));
+  if (paren) return paren[1].replace(/\s*,\s*/g, ', ').toUpperCase();
   const m = text.match(
     new RegExp(`\\bseats?(?:\\(s\\))?\\s*(?:no\\.?|numbers?|nos?\\.?)?\\s*(?:is|are)?\\s*[:#-]?\\s*(?:[A-Z]+[- ](?=[A-Z]{1,2}[- ]?\\d))?(${seat}(?:\\s*(?:,|&|and)\\s*${seat})*)`, 'i')
   );
@@ -126,6 +130,9 @@ const clean = (s) =>
 // Pieces of a message that are labels or dates, never the title.
 const NOT_TITLE = /^(?:booking|pnr|seats?|ticket|order|confirmation|date|time|dep|arr|doj|trn|fare|amount|total|qty|hi|hey|hello|dear|your|thank|thanks|view|mon|tue|wed|thu|fri|sat|sun)\b/i;
 
+// "SATHYAVAN SAVITHIRI" → "Sathyavan Savithiri" (mixed case is kept as written).
+const titleCase = (t) => (/[a-z]/.test(t) || !/[A-Z]{3}/.test(t) ? t : t.toLowerCase().replace(/(^|[\s\-:(])([a-z])/g, (m, a, b) => a + b.toUpperCase()));
+
 const PROMO = /\b(?:don(?:'|’)?t miss|do not miss|check (?:it|this) out|book (?:now|your)|grab (?:your|now)|enjoy|here(?:'|’)?s|find (?:ticket|your)|let(?:'|’)?s go|you(?:'|’)?re invited|join (?:me|us))\b/i;
 
 function extractTitle(text, type, metaTitle) {
@@ -138,16 +145,17 @@ function extractTitle(text, type, metaTitle) {
     if (m) return `Train ${m[1]}`;
   }
   const patterns = [
+    // "Movie- SATHYAVAN SAVITHIRI (TAMIL)" (PVR), "Movie: Leo"
+    /\b(?:movie|event|show|film)\s*[:-]\s*(.+?)\s*(?:\(|\n|\btotal|\bbooking|\bamount|\bseats?\b|\.\s|$)/i,
     // BookMyShow: "Hey there, we're watching O.M Operation Mole . Find ticket details…"
     /\b(?:we(?:'|’)?re|we are|i(?:'|’)?m|i am)\s+(?:going\s+to\s+)?(?:watching|seeing|attending)\s+["“']?(.+?)["”']?\s*(?:\.\s|\.$|!|\n|,|\s[-–]\s|\bon\b|\bat\b|$)/i,
     /tickets?\s+(?:booked\s+)?for\s+["“']?(.+?)["”']?\s*(?:\(|\bon\b|\bat\b|,|\.\s|\n|$)/i,
-    /\bbooked\s+(?:\d+\s+tickets?\s+for\s+)?["“']?(.+?)["”']?\s*(?:\(|\bon\b|\bat\b|,|\.\s|\n|$)/i,
-    /\b(?:movie|event|show|film)\s*[:-]\s*(.+?)\s*(?:\(|\n|$)/i,
+    /\bbooked\s+(?!successfully|confirmed)(?:\d+\s+tickets?\s+for\s+)?["“']?(.+?)["”']?\s*(?:\(|\bon\b|\bat\b|,|\.\s|\n|$)/i,
     /["“‘](.{2,60}?)["”’]/,
   ];
   for (const re of patterns) {
     const m = text.match(re);
-    if (m && clean(m[1]).length >= 2 && !URL_RE.test(m[1])) return clean(m[1]).slice(0, 80);
+    if (m && clean(m[1]).length >= 2 && !URL_RE.test(m[1])) return titleCase(clean(m[1])).slice(0, 80);
   }
   // The share's subject line, unless it is a promo line ("Don't miss this one!").
   if (metaTitle && clean(metaTitle) && !PROMO.test(metaTitle)) return clean(metaTitle).slice(0, 80);
@@ -165,7 +173,11 @@ function extractVenue(text) {
     text.match(/(?:\bat\s+|^)((?:PVR|INOX|Cinepolis|Miraj|Carnival|Sathyam|AGS|Rohini|Kasi)\b[^\n]*)/im) ||
     text.match(/\bat\s+(?!\d)([A-Z][^\n]*?)(?=\s+on\b|\s+at\s+\d|\.\s|\n|$)/);
   if (!m) return '';
-  return clean(m[1].replace(URL_RE, '').split(/\s+(?:on|seats?|booking)\b/i)[0]).slice(0, 80);
+  // Stop at the end of the sentence ("…Kanakapura Road.You must carry…").
+  let venue = clean(m[1].replace(URL_RE, '').split(/\.(?=\s*[A-Z])|\.\s/)[0].split(/\s+(?:on|seats?|booking)\b/i)[0]);
+  const hall = text.match(/\b(audi(?:torium)?|screen)\s*[-:#]?\s*(\d{1,2})\b/i);
+  if (hall && !/\b(audi|screen)\b/i.test(venue)) venue = `${venue}, ${hall[1][0].toUpperCase()}${hall[1].slice(1).toLowerCase()} ${hall[2]}`;
+  return venue.slice(0, 80);
 }
 
 function extractRoute(text) {
