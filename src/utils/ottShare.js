@@ -95,8 +95,10 @@ function fromSlug(url) {
     return '';
   }
   const parts = path.split('/').filter(Boolean);
+  // Generic path parts: sections like "movie-bundle" (SonyLIV), "tv-shows".
   const skip = /^(in|en|detail|details|movies?|shows?|tv|title|watch|video|series|season-\d+|episode.*|gp|dp|play|web-series|kids|[a-z]{2}-[a-z]{2})$/i;
-  const slug = parts.find((p) => !skip.test(p) && /[a-z]/i.test(p) && /[-_]/.test(p) && !/^\d/.test(p) && !/^[0-9A-Z]{8,}$/.test(p));
+  const generic = /^(movies?|shows?|tv|tv-?shows?|web-?series|series|originals?|premium|kids|sports|music|live-?tv|channels?|collections?|bundles?|specials?|trailers?|clips?|episodes?)(-(bundle|bundles|details?|collection|list|page|hub))?$/i;
+  const slug = parts.find((p) => !skip.test(p) && !generic.test(p) && /[a-z]/i.test(p) && /[-_]/.test(p) && !/^\d/.test(p) && !/^[0-9A-Z]{8,}$/.test(p));
   if (!slug) return '';
   return slug
     .replace(/[-_]\d{6,}$/, '')
@@ -130,6 +132,12 @@ export function parseOttShare(text, { metaTitle = '' } = {}) {
   if (!title) {
     const before = s.match(new RegExp(`^\\s*(.{2,80}?)\\s+(?:[|–—-]|on)\\s+(?:${platformRe})\\b`, 'im'));
     if (before && !URL_RE.test(before[1])) title = before[1];
+  }
+  // A share whose first line is the title and the link comes later
+  // (SonyLIV: "Anbil-Avan\n<synopsis>\nhttps://…").
+  if (!title && link) {
+    const first = s.split(/\r?\n/).map((l) => l.trim()).find(Boolean) || '';
+    if (first && !URL_RE.test(first) && first.length <= 60 && first.split(/\s+/).length <= 8 && !/[.!?]$/.test(first) && s.trim() !== first) title = first;
   }
   if (!title && metaTitle) title = cleanPageTitle(metaTitle);
   if (!title && link) title = fromSlug(link);
