@@ -5,12 +5,13 @@
 
 import { completedCandles, checkFreshness, normalizeCandles } from './candles.js';
 import { atr, ema, macd, priorRange, rsi, sessionVwap, volumeStats } from './indicators.js';
+import { intradayLevels, levelsAround } from './levels.js';
 import { DEFAULT_CONFIG, planTrade } from './risk.js';
 import { learnedBump } from './learn.js';
 import { hhmm, marketOf, marketParts, sessionTimes } from './time.js';
 
 // Bump when checks, weights or gates change, so past results stay traceable.
-export const RULE_VERSION = 'intraday-v6';
+export const RULE_VERSION = 'intraday-v7';
 
 export const STATES = {
   BUY: 'BUY CANDIDATE',
@@ -58,6 +59,10 @@ const GATE_INFO = {
   duplicate: { label: 'Already signalled', action: () => 'Already signalled on this candle; wait for the next one' },
   shortAllowed: { label: 'Shorts allowed', action: () => 'Shorts are turned off in settings' },
   entryTime: { label: 'Entry time', action: () => 'No new trades now: square off open positions by 15:20' },
+  room: {
+    label: 'Room to move',
+    action: (long) => (long ? 'Wait for a 5-minute close above the resistance (a breakout), or a pullback' : 'Wait for a 5-minute close below the support (a breakdown), or a bounce'),
+  },
 };
 const withInfo = (gate, long = true) => ({
   ...gate,
@@ -81,11 +86,13 @@ function trend15(candles15) {
 /**
  * Evaluate a symbol at `now` from raw 5- and 15-minute candles.
  * `context`: { cash, openPositions, dayPnl, lastSignalKey } from the ledger.
+ * `dailyLevels`: the stock's daily support/resistance (engine/levels.js);
+ * 5-minute levels are worked out here from `candles5`.
  * Returns { ruleVersion, symbol, state, side, score: { long, short } (after
  *   penalties), rawScore, penalties, threshold, checks, gates, reasons,
  *   failedConditions, nextAction, indicators, candle, data, plan, key }.
  */
-export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), config, context = {} }) {
+export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), config, context = {}, dailyLevels = [] }) {
   const cfg = { ...DEFAULT_CONFIG, ...config };
   const market = cfg.market || 'NSE';
   const mkt = marketOf(market);
@@ -112,6 +119,10 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
     range: priorRange(c5, cfg.breakoutLookback),
     trend15: trend15(c15),
   };
+  // Support / resistance: the day's levels plus 5-minute ones (US sessions sit
+  // inside one UTC day; NSE days are IST).
+  const allLevels = [...(dailyLevels || []), ...intradayLevels(c5, { offsetMin: market === 'US' ? 0 : 330, atr: ind.atr })];
+  const around = levelsAround(allLevels, price);
 
   // ------- data gates (both sides) -------
   const criticalFinite = [ind.ema9, ind.ema21, ind.ema20, ind.ema50, ind.rsi, ind.atr, ind.macd?.macd, ind.macd?.signal]
@@ -252,6 +263,24 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
           : `Entries allowed until ${mkt.lastEntry} ${mkt.zone}`,
         action: `No new trades now: square off open positions by ${hhmm(times.squareOff)} ${mkt.zone}`,
       },
+      (() => {
+        // The nearest level against the trade must be at least one stop
+        // distance (1R) away, or the move has no room before it stalls.
+        // A level right at the price (within ¼ ATR) is being tested or broken
+        // now (the breakout check covers that); the next one is the wall.
+        const near = (ind.atr || 0) * 0.25;
+        const wall = (isLong ? around.above : around.below).find((l) => Math.abs(l.price - price) > near);
+        const room = wall ? Math.abs(wall.price - price) : null;
+        const need = plan.ok ? plan.riskPerShare : null;
+        const pass = !wall || need == null || room >= need;
+        return {
+          id: 'room',
+          pass,
+          note: !wall
+            ? `No ${isLong ? 'resistance above' : 'support below'} nearby`
+            : `${isLong ? 'Resistance' : 'Support'} ${wall.label} ${cur}${wall.price} is ${Math.abs(wall.pct)}% away${need != null ? (pass ? ` (more than the ${cur}${round(need)} stop distance)` : `, closer than the ${cur}${round(need)} stop distance`) : ''}`,
+        };
+      })(),
       { id: 'duplicate', pass: !key || key !== context.lastSignalKey, note: 'Not already signalled on this candle' },
       ...(isLong ? [] : [{ id: 'shortAllowed', pass: !!cfg.allowShort, note: cfg.allowShort ? 'Intraday shorts allowed in settings' : 'Shorts are turned off in settings' }]),
     ].map((g) => withInfo(g, isLong));
@@ -328,6 +357,11 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
   // Warnings never change the state: they are for you to weigh.
   const warnings = [];
   const plan = plans[side];
+  if (plan?.ok && plan.target > 0) {
+    const longSide = side === 'long';
+    const wall = (longSide ? around.above : around.below).find((l) => (longSide ? l.price < plan.target : l.price > plan.target));
+    if (wall) warnings.push(`${longSide ? 'Resistance' : 'Support'} ${wall.label} ${cur}${wall.price} comes before the target ${cur}${plan.target}: price may stall there`);
+  }
   if (plan?.ok && (plan.netReward <= 0 || (plan.netRR ?? 0) < cfg.minNetRR)) {
     warnings.push(
       plan.netReward <= 0
@@ -373,10 +407,13 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
       volumeCandles: ind.vol.count,
       volumeBasis: ind.vol.basis,
       stretchAtr: round(stretchAtr),
+      resistance: around.above[0]?.price ?? null,
+      support: around.below[0]?.price ?? null,
       rangeHigh: round(ind.range?.high),
       rangeLow: round(ind.range?.low),
       trend15: ind.trend15 ? (ind.trend15.up ? 'up' : ind.trend15.down ? 'down' : 'mixed') : null,
     },
+    levels: { above: around.above, below: around.below, daily: (dailyLevels || []).length > 0 },
     candle: candle ? { t: candle.t, close: candle.close } : null,
     data: { status: data.status, ageMin: data.ageMin, marketOpen: data.marketOpen, gaps: data.gaps, issues: data.issues },
     plan: plans[side],

@@ -374,6 +374,12 @@ const COLLECTIONS = {
   backtests: {
     fields: ['id', 'data', 'ranAt'],
   },
+  // Daily support / resistance per stock and day (id SYMBOL:DATE), worked out
+  // once a day by the engine; kept a few weeks.
+  stocklevels: {
+    expireDays: 21,
+    fields: ['id', 'symbol', 'market', 'date', 'levels', 'computedAt'],
+  },
   // IPO Watch: every IPO ever found (id = name slug), kept and updated by
   // each search so nothing disappears between searches.
   iporecords: {

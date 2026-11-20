@@ -15,7 +15,7 @@
 
 const { getModel } = require('../models');
 const { activeProvider, kiteStatus } = require('./providers');
-const { getQuotes } = require('../quotes');
+const { getQuotes, getCandles: getDailyCandles } = require('../quotes');
 const { sendAlert, candidateAlert, closedAlert, summaryAlert, isTopic } = require('./alerts');
 
 let engineModule = null;
@@ -170,18 +170,57 @@ async function providerFor(market) {
 // ------- evaluate -------
 
 /** Evaluate one symbol now in `market`. Adds the provider used to the result. */
+// ------- daily support / resistance per stock -------
+
+// Worked out once a day per stock from ~6 months of daily candles (free, no
+// AI) and saved in "stocklevels" ({ id: SYMBOL:DATE, levels }), so a restart
+// or the other market's scan doesn't fetch them again.
+const levelCache = new Map();
+const marketDate = (mkt, now = Date.now()) => new Date(now + (mkt === 'US' ? -300 : 330) * 60000).toISOString().slice(0, 10);
+
+async function dailyLevelsFor(symbol, mkt) {
+  const E = await engine();
+  const date = marketDate(mkt);
+  const id = `${String(symbol).toUpperCase()}:${date}`;
+  if (levelCache.has(id)) return levelCache.get(id);
+  const Levels = getModel('stocklevels');
+  const saved = await Levels.findOne({ id }).lean().catch(() => null);
+  if (saved?.levels) {
+    levelCache.set(id, saved.levels);
+    return saved.levels;
+  }
+  const { candles } = await getDailyCandles(symbol);
+  const levels = E.dailyLevels(candles, { today: date, offsetMin: mkt === 'US' ? -300 : 330 });
+  levelCache.set(id, levels);
+  if (levelCache.size > 400) levelCache.delete(levelCache.keys().next().value);
+  await Levels.updateOne(
+    { id },
+    { $set: { id, symbol: String(symbol).toUpperCase(), market: mkt, date, levels, computedAt: new Date().toISOString(), loggedAt: new Date() } },
+    { upsert: true }
+  ).catch(() => {});
+  return levels;
+}
+
 async function evaluate(symbol, { config, context, market } = {}) {
   const E = await engine();
   const mkt = marketId(market || config?.market);
   const cfg = config || (await getConfig(mkt));
   const ctx = context || (await ledgerContext(mkt));
   const { provider, note } = await providerFor(mkt);
-  const [candles5, candles15] = await Promise.all([provider.getCandles(symbol, 5), provider.getCandles(symbol, 15)]);
+  const [candles5, candles15, dailyLevels] = await Promise.all([
+    provider.getCandles(symbol, 5),
+    provider.getCandles(symbol, 15),
+    dailyLevelsFor(symbol, mkt).catch((e) => {
+      console.warn(`[engine] daily levels for ${symbol}: ${e.message}`);
+      return [];
+    }),
+  ]);
   const lessons = await learned(cfg).catch(() => null);
   const result = E.evaluateSignal({
     symbol,
     candles5,
     candles15,
+    dailyLevels,
     now: Date.now(),
     config: cfg,
     context: {
@@ -520,6 +559,7 @@ async function testAlert(topic) {
 
 module.exports = {
   evaluate,
+  dailyLevelsFor,
   scan,
   startScanner,
   status,

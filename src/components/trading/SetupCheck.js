@@ -485,6 +485,14 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
                     {priceText(combined.plan.target, evMkt)} · max loss {priceText(combined.plan.maxLoss, evMkt)}
                   </Text>
                 ) : null}
+                {ev?.levels && (ev.levels.above?.length || ev.levels.below?.length) ? (
+                  <Text style={[styles.explainLine, { color: theme.text }]}>
+                    <Text style={styles.bold}>Levels: </Text>
+                    {ev.levels.above?.[0] ? `resistance ${ev.levels.above[0].label} ${priceText(ev.levels.above[0].price, evMkt)} (+${ev.levels.above[0].pct}%)` : 'no resistance nearby'}
+                    {' · '}
+                    {ev.levels.below?.[0] ? `support ${ev.levels.below[0].label} ${priceText(ev.levels.below[0].price, evMkt)} (${ev.levels.below[0].pct}%)` : 'no support nearby'}
+                  </Text>
+                ) : null}
               </View>
             ) : null}
 
