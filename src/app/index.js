@@ -99,6 +99,14 @@ const TABS = [
     gradient: ['#4FD8C8', '#00A99D'],
   },
   {
+    key: 'fno',
+    label: 'F&O Paper Trading',
+    description: 'Learn futures & options with play money',
+    icon: 'stats-chart-outline',
+    route: '/fno',
+    gradient: ['#7F7FD5', '#5B3FBF'],
+  },
+  {
     key: 'trading',
     label: 'My Trading',
     description: 'Setup checks and paper trades',
