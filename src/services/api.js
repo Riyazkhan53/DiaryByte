@@ -15,6 +15,8 @@ const COLLECTIONS = [
   'authenticator',
   'ipoapps',
   'wishlist',
+  'fnotrades',
+  'fnosettings',
   'vaultlock',
   'todo',
   'expenditure',

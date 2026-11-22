@@ -94,6 +94,17 @@ const COLLECTIONS = {
   authenticator: {
     fields: ['id', 'enc', 'createdAt'],
   },
+  // F&O paper trades (index futures & options, for learning) and their settings.
+  fnotrades: {
+    fields: [
+      'id', 'underlying', 'kind', 'side', 'strike', 'expiry', 'lots', 'lotSize', 'entryPrice', 'entrySpot', 'iv', 'stop', 'target',
+      'autoClose', 'priceSource', 'note', 'status', 'exitPrice', 'exitReason', 'exitAt', 'closedBy', 'lastPrice', 'lastPriceAt',
+      'createdAt', 'updatedAt',
+    ],
+  },
+  fnosettings: {
+    fields: ['id', 'capital', 'riskPct', 'marginPct', 'riskFreePct', 'autoClose', 'lots', 'updatedAt'],
+  },
   // My Wishlist: dream buys, wealth goals (levels) and life experiences.
   wishlist: {
     fields: ['id', 'section', 'title', 'category', 'price', 'saved', 'targetDate', 'status', 'doneAt', 'note', 'levels', 'current', 'source', 'createdAt', 'updatedAt'],
@@ -359,7 +370,7 @@ const COLLECTIONS = {
     fields: [
       'id', 'market', 'symbol', 'timeframe', 'candleTime', 'key', 'state', 'side', 'score', 'rawScore', 'threshold',
       'failedConditions', 'nextAction', 'ruleVersion', 'provider', 'dataStatus', 'indicators', 'plan', 'tradeId',
-      'createdAt',
+      'patterns', 'createdAt',
     ],
   },
   // Engine backtests: the latest run's simulated trades per market (they

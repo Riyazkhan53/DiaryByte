@@ -32,6 +32,8 @@ export const SYNCED_COLLECTIONS = [
   { collection: 'authenticator', storageKey: '@diarybyte_authenticator' },
   { collection: 'ipoapps', storageKey: '@diarybyte_ipoapps' },
   { collection: 'wishlist', storageKey: '@diarybyte_wishlist' },
+  { collection: 'fnotrades', storageKey: '@diarybyte_fnotrades' },
+  { collection: 'fnosettings', storageKey: '@diarybyte_fnosettings' },
 ];
 
 // Section names for "Items waiting for sync".
@@ -61,6 +63,8 @@ export const COLLECTION_LABELS = {
   authenticator: 'Authenticator',
   ipoapps: 'IPO applications',
   wishlist: 'My Wishlist',
+  fnotrades: 'F&O paper trades',
+  fnosettings: 'F&O settings',
 };
 
 // ------- sync status events -------

@@ -485,6 +485,12 @@ export default function SetupCheck({ header, onPaperTrade, trades = [] }) {
                     {priceText(combined.plan.target, evMkt)} · max loss {priceText(combined.plan.maxLoss, evMkt)}
                   </Text>
                 ) : null}
+                {ev?.patterns?.length ? (
+                  <Text style={[styles.explainLine, { color: theme.text }]}>
+                    <Text style={styles.bold}>Patterns: </Text>
+                    {ev.patterns.map((p) => `${p.bias === 'bull' ? '▲' : p.bias === 'bear' ? '▼' : '◆'} ${p.name}`).join(' · ')}
+                  </Text>
+                ) : null}
                 {ev?.levels && (ev.levels.above?.length || ev.levels.below?.length) ? (
                   <Text style={[styles.explainLine, { color: theme.text }]}>
                     <Text style={styles.bold}>Levels: </Text>
