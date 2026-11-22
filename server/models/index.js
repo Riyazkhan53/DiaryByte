@@ -359,7 +359,7 @@ const COLLECTIONS = {
     fields: [
       'id', 'market', 'symbol', 'timeframe', 'candleTime', 'key', 'state', 'side', 'score', 'rawScore', 'threshold',
       'failedConditions', 'nextAction', 'ruleVersion', 'provider', 'dataStatus', 'indicators', 'plan', 'tradeId',
-      'createdAt',
+      'patterns', 'createdAt',
     ],
   },
   // Engine backtests: the latest run's simulated trades per market (they

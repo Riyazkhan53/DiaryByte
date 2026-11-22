@@ -6,12 +6,13 @@
 import { completedCandles, checkFreshness, normalizeCandles } from './candles.js';
 import { atr, ema, macd, priorRange, rsi, sessionVwap, volumeStats } from './indicators.js';
 import { intradayLevels, levelsAround } from './levels.js';
+import { candlePatterns, chartPatterns, patternAdjust } from './patterns.js';
 import { DEFAULT_CONFIG, planTrade } from './risk.js';
 import { learnedBump } from './learn.js';
 import { hhmm, marketOf, marketParts, sessionTimes } from './time.js';
 
 // Bump when checks, weights or gates change, so past results stay traceable.
-export const RULE_VERSION = 'intraday-v7';
+export const RULE_VERSION = 'intraday-v8';
 
 export const STATES = {
   BUY: 'BUY CANDIDATE',
@@ -210,7 +211,14 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
     long: penalties.reduce((s, p) => s + p.long, 0),
     short: penalties.reduce((s, p) => s + p.short, 0),
   };
-  const score = { long: Math.max(0, raw.long - penalty.long), short: Math.max(0, raw.short - penalty.short) };
+  // ------- candlestick & chart patterns (points on / off, ±10 per side) -------
+  const patterns = [...candlePatterns(c5.slice(-12), ind.atr), ...chartPatterns(c5, { atr: ind.atr, offsetMin: market === 'US' ? 0 : 330 })];
+  const pat = { long: patternAdjust(patterns, 'long'), short: patternAdjust(patterns, 'short') };
+  const clamp = (x) => Math.max(0, Math.min(100, x));
+  const score = {
+    long: clamp(raw.long - penalty.long + pat.long.plus - pat.long.minus),
+    short: clamp(raw.short - penalty.short + pat.short.plus - pat.short.minus),
+  };
 
   // ------- side gates -------
   const plans = {
@@ -380,6 +388,9 @@ export function evaluateSignal({ symbol, candles5, candles15, now = Date.now(), 
     score,
     rawScore: raw,
     penalties,
+    // Patterns on the latest candles and what they did to each side's score.
+    patterns,
+    patternPoints: { long: pat.long.plus - pat.long.minus, short: pat.short.plus - pat.short.minus },
     // Score needed now (the base threshold plus anything learned).
     threshold: need,
     baseThreshold: cfg.threshold,

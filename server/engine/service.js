@@ -310,6 +310,7 @@ async function logSignal(r, tradeId) {
     state: r.state,
     side: r.side,
     score: r.score,
+    patterns: (r.patterns || []).map((p) => ({ id: p.id, name: p.name, bias: p.bias, strength: p.strength })),
     rawScore: r.rawScore,
     threshold: r.threshold,
     failedConditions: r.failedConditions,

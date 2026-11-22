@@ -24,6 +24,7 @@ import { marketConfig, moneyMarket, shortSymbol, withMarketChanges } from '../..
 import { activePackageOf } from '../../utils/watchlistPackages';
 import PackageManager from './PackageManager';
 import LevelsCard from './LevelsCard';
+import PatternsCard from './PatternsCard';
 import {
   evaluateSymbol,
   fetchCollection,
@@ -543,6 +544,7 @@ export default function Signals({ header, onPaperTrade, market = 'NSE', onMarket
           <Text style={[styles.empty, { color: theme.textMuted }]}>Add a stock to the watchlist to see its signal.</Text>
         )}
 
+        {ev ? <PatternsCard patterns={ev.patterns} points={ev.patternPoints} theme={theme} cardStyle={cardStyle} /> : null}
         {ev ? <LevelsCard levels={ev.levels} price={ev.indicators.price} market={mm} theme={theme} cardStyle={cardStyle} /> : null}
 
         {/* Indicators */}
